@@ -1,0 +1,508 @@
+import { useState, useEffect, useRef } from 'react';
+import {
+  Target,
+  Loader2,
+  AlertCircle,
+  Clock,
+  TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
+import {
+  fetchPracticeTopics,
+  fetchPracticeProgress,
+  startPractice,
+  submitPractice,
+} from '../../services/practice.service';
+
+const QUESTION_COUNTS = [5, 10, 20, 30];
+const TIME_LIMITS = [0, 5, 10, 15, 30];
+const DIFFICULTIES = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'easy', label: 'Dễ' },
+  { value: 'medium', label: 'Trung bình' },
+  { value: 'hard', label: 'Khó' },
+];
+
+const formatTime = (sec) => {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
+const resultMessage = (percent) => {
+  if (percent >= 80) return 'Rất tốt, bạn nắm chắc nội dung này.';
+  if (percent >= 50) return 'Khá tốt, nên ôn thêm phần còn sai.';
+  return 'Bạn cần ôn lại kỹ nội dung chủ đề này.';
+};
+
+/**
+ * Luyện tập theo chủ đề: cấu hình -> làm bài (có đếm giờ nếu có giới hạn) -> kết quả.
+ * initialTopicIds: chủ đề được chọn sẵn (ví dụ từ nút "Luyện ngay" trên dashboard).
+ */
+export const PracticeSection = ({ initialTopicIds = [] }) => {
+  const [phase, setPhase] = useState('config'); // config | quiz | result
+  const [topics, setTopics] = useState([]);
+  const [loadingTopics, setLoadingTopics] = useState(true);
+  const [selectedTopicIds, setSelectedTopicIds] = useState(initialTopicIds);
+  const [questionCount, setQuestionCount] = useState(10);
+  const [timeLimitMin, setTimeLimitMin] = useState(15);
+  const [difficulty, setDifficulty] = useState('all');
+  const [error, setError] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [session, setSession] = useState(null);
+  const [index, setIndex] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [remaining, setRemaining] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  // Ref để tránh nộp bài 2 lần khi hết giờ và người dùng bấm nộp cùng lúc
+  const submittedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPracticeTopics()
+      .then((data) => {
+        if (!cancelled) setTopics(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message || 'Không thể tải danh sách chủ đề.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTopics(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSubmit = async () => {
+    if (submittedRef.current || !session) return;
+    submittedRef.current = true;
+    setSubmitting(true);
+    setError(null);
+
+    const payload = session.questions.map((q) => ({
+      questionId: q.id,
+      selectedAnswerIds: answers[q.id] || [],
+    }));
+
+    try {
+      const data = await submitPractice(session.sessionId, payload);
+      setResult(data);
+      setPhase('result');
+    } catch (err) {
+      submittedRef.current = false;
+      setError(err?.message || 'Không thể nộp bài.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Đếm ngược thời gian làm bài (bỏ qua nếu không giới hạn)
+  useEffect(() => {
+    if (phase !== 'quiz' || !session?.timeLimitSec) return undefined;
+    const id = setInterval(() => setRemaining((r) => r - 1), 1000);
+    return () => clearInterval(id);
+  }, [phase, session]);
+
+  // Hết giờ thì tự nộp bài
+  useEffect(() => {
+    if (phase === 'quiz' && session?.timeLimitSec && remaining <= 0) {
+      handleSubmit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, phase, session]);
+
+  const toggleTopic = (id) =>
+    setSelectedTopicIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+
+  const handleStart = async () => {
+    if (selectedTopicIds.length === 0) {
+      setError('Vui lòng chọn ít nhất một chủ đề.');
+      return;
+    }
+    setError(null);
+    setStarting(true);
+    try {
+      const data = await startPractice({
+        topicIds: selectedTopicIds,
+        questionCount,
+        timeLimitMin,
+        difficulty,
+      });
+      submittedRef.current = false;
+      setSession(data);
+      setAnswers({});
+      setIndex(0);
+      setRemaining(data.timeLimitSec || 0);
+      setResult(null);
+      setPhase('quiz');
+    } catch (err) {
+      setError(err?.message || 'Không thể bắt đầu bài luyện.');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const toggleAnswer = (question, optionId) => {
+    setAnswers((prev) => {
+      const current = prev[question.id] || [];
+      if (question.answerType === 'single') {
+        return { ...prev, [question.id]: [optionId] };
+      }
+      return {
+        ...prev,
+        [question.id]: current.includes(optionId)
+          ? current.filter((x) => x !== optionId)
+          : [...current, optionId],
+      };
+    });
+  };
+
+  // ── Cấu hình ──
+  if (phase === 'config') {
+    return (
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+          <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
+            <Target className="w-5 h-5 text-[#008BC5]" />
+            Luyện tập theo chủ đề
+          </h2>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {error && (
+            <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg flex items-center gap-2 text-[#0F172A]">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div>
+            <div className="font-semibold text-[#0F172A] mb-2">1. Chọn chủ đề</div>
+            {loadingTopics ? (
+              <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+            ) : topics.length === 0 ? (
+              <p className="text-slate-500 text-sm">
+                Chưa có câu hỏi nào phù hợp với phòng ban của bạn.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {topics.map((t) => {
+                  const selected = selectedTopicIds.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => toggleTopic(t.id)}
+                      className={`text-left p-3 rounded-lg border transition-colors min-touch-target ${
+                        selected
+                          ? 'border-[#008BC5] bg-[#EAF6FF] text-[#0F172A]'
+                          : 'border-slate-200 hover:bg-slate-50 text-[#0F172A]'
+                      }`}
+                    >
+                      <div className="font-semibold">{t.name}</div>
+                      <div className="text-sm text-slate-500">{t.availableCount} câu có sẵn</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="font-semibold text-[#0F172A] mb-2">2. Số câu</div>
+            <div className="flex flex-wrap gap-2">
+              {QUESTION_COUNTS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setQuestionCount(n)}
+                  className={`px-4 py-2 rounded-lg border font-semibold min-touch-target ${
+                    questionCount === n
+                      ? 'border-[#008BC5] bg-[#008BC5] text-white'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {n} câu
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="font-semibold text-[#0F172A] mb-2">3. Thời gian</div>
+            <div className="flex flex-wrap gap-2">
+              {TIME_LIMITS.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setTimeLimitMin(m)}
+                  className={`px-4 py-2 rounded-lg border font-semibold min-touch-target ${
+                    timeLimitMin === m
+                      ? 'border-[#008BC5] bg-[#008BC5] text-white'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {m === 0 ? 'Không giới hạn' : `${m} phút`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="font-semibold text-[#0F172A] mb-2">4. Độ khó</div>
+            <div className="flex flex-wrap gap-2">
+              {DIFFICULTIES.map((d) => (
+                <button
+                  key={d.value}
+                  onClick={() => setDifficulty(d.value)}
+                  className={`px-4 py-2 rounded-lg border font-semibold min-touch-target ${
+                    difficulty === d.value
+                      ? 'border-[#008BC5] bg-[#008BC5] text-white'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={handleStart}
+            disabled={starting || loadingTopics || topics.length === 0}
+            className="w-full min-h-[52px] bg-[#008BC5] disabled:bg-slate-300 text-white font-bold text-lg rounded-full flex items-center justify-center gap-2 min-touch-target"
+          >
+            {starting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Target className="w-5 h-5" />}
+            <span>Bắt đầu luyện</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Kết quả ──
+  if (phase === 'result' && result) {
+    return (
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-8 text-center space-y-4">
+        <div className="text-slate-500">Kết quả luyện tập</div>
+        <div className="text-5xl font-bold text-[#0F172A]">{result.percent}%</div>
+        <div className="text-lg text-[#334155]">
+          Đúng {result.correctCount}/{result.totalQuestions} câu
+        </div>
+        <p className="text-slate-500">{resultMessage(result.percent)}</p>
+        <button
+          onClick={() => setPhase('config')}
+          className="px-6 py-3 bg-[#008BC5] text-white font-bold rounded-lg min-touch-target"
+        >
+          Luyện lại
+        </button>
+      </div>
+    );
+  }
+
+  // ── Làm bài ──
+  const questions = session?.questions || [];
+  const current = questions[index];
+  const unansweredCount = questions.filter((q) => (answers[q.id] || []).length === 0).length;
+
+  return (
+    <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-semibold text-[#0F172A]">
+          Câu {index + 1}/{questions.length}
+        </div>
+        {session?.timeLimitSec > 0 && (
+          <div
+            className={`flex items-center gap-1.5 font-mono font-bold ${
+              remaining <= 60 ? 'text-[#E53E3E]' : 'text-[#0F172A]'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            {formatTime(Math.max(0, remaining))}
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg text-[#0F172A]">
+          {error}
+        </div>
+      )}
+
+      {current && (
+        <>
+          <div>
+            <p className="text-lg text-[#0F172A] font-medium mb-2">{current.content}</p>
+            <p className="text-sm text-slate-500 mb-3">
+              {current.answerType === 'multiple' ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'}
+            </p>
+            {current.imageUrl && (
+              <img src={current.imageUrl} alt="" className="max-w-full rounded-lg mb-3" />
+            )}
+            <div className="space-y-2">
+              {current.answers.map((opt) => {
+                const checked = (answers[current.id] || []).includes(opt.id);
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => toggleAnswer(current, opt.id)}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target ${
+                      checked ? 'border-[#008BC5] bg-[#EAF6FF]' : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.content}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={() => setIndex((i) => Math.max(0, i - 1))}
+              disabled={index === 0}
+              className="px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target"
+            >
+              <ChevronLeft className="w-4 h-4" /> Trước
+            </button>
+            <button
+              onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
+              disabled={index === questions.length - 1}
+              className="px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target"
+            >
+              Sau <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {questions.map((q, i) => {
+              const answered = (answers[q.id] || []).length > 0;
+              let cls = 'border-slate-300 text-slate-500';
+              if (i === index) cls = 'border-[#008BC5] text-[#008BC5]';
+              else if (answered) cls = 'bg-[#008BC5] text-white border-[#008BC5]';
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => setIndex(i)}
+                  className={`w-9 h-9 rounded-lg text-sm font-semibold border ${cls}`}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <span className="text-sm text-slate-500">
+              {unansweredCount > 0
+                ? `Còn ${unansweredCount} câu chưa trả lời`
+                : 'Đã trả lời tất cả câu hỏi'}
+            </span>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target"
+            >
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              Nộp bài
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+/** Khối tiến độ luyện tập, hiển thị trên Dashboard thí sinh */
+export const PracticeProgressCard = ({ onPracticeTopic }) => {
+  const [progress, setProgress] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPracticeProgress()
+      .then((data) => {
+        if (!cancelled) setProgress(data);
+      })
+      .catch(() => {
+        if (!cancelled) setProgress(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) return null;
+
+  if (!progress || progress.totalSessions === 0) {
+    return (
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 text-slate-500 text-sm">
+        Bạn chưa có bài luyện tập nào. Vào mục "Luyện tập" để bắt đầu ôn theo chủ đề.
+      </div>
+    );
+  }
+
+  const weakest = progress.topics[0];
+
+  return (
+    <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 space-y-5">
+      <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
+        <TrendingUp className="w-5 h-5 text-[#008BC5]" />
+        Tiến độ luyện tập
+      </h2>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="p-3 bg-slate-50 rounded-lg">
+          <div className="text-sm text-slate-500">Bài đã làm</div>
+          <div className="text-xl font-bold text-[#0F172A]">{progress.totalSessions}</div>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-lg">
+          <div className="text-sm text-slate-500">Câu đã làm</div>
+          <div className="text-xl font-bold text-[#0F172A]">{progress.totalQuestions}</div>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-lg">
+          <div className="text-sm text-slate-500">Tỉ lệ đúng TB</div>
+          <div className="text-xl font-bold text-[#0F172A]">{progress.averagePercent}%</div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="text-sm font-semibold text-[#0F172A]">Theo chủ đề</div>
+        {progress.topics.map((t) => (
+          <div key={t.topicId}>
+            <div className="flex justify-between text-sm mb-1">
+              <span className="text-[#0F172A]">{t.name}</span>
+              <span className="text-slate-500">{t.percent}% đúng</span>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${t.percent >= 70 ? 'bg-[#22C55E]' : 'bg-[#F6AD37]'}`}
+                style={{ width: `${t.percent}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {weakest && weakest.percent < 70 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg">
+          <span className="text-sm text-[#0F172A]">
+            Chủ đề cần ôn thêm: <strong>{weakest.name}</strong> ({weakest.percent}% đúng)
+          </span>
+          <button
+            onClick={() => onPracticeTopic?.(weakest.topicId)}
+            className="px-4 py-2 bg-[#008BC5] text-white font-semibold rounded-lg text-sm min-touch-target"
+          >
+            Luyện ngay
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};

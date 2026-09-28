@@ -1,0 +1,58 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f601",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f501",
+    "content": "Sử dụng nguồn lửa, nguồn nhiệt, hút thuốc lá trong khu vực cấm",
+    "isCorrect": true,
+    "sortOrder": 1
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f602",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f501",
+    "content": "Mang đồ bảo hộ lao động đầy đủ khi làm việc",
+    "isCorrect": false,
+    "sortOrder": 2
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f603",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f501",
+    "content": "Đóng gói sản phẩm đúng quy cách kỹ thuật",
+    "isCorrect": false,
+    "sortOrder": 3
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f604",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f502",
+    "content": "Lập tức ngắt cầu dao tổng cấp điện cho xưởng",
+    "isCorrect": true,
+    "sortOrder": 1
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f605",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f502",
+    "content": "Sử dụng nước đổ trực tiếp vào đám cháy thiết bị điện đang cắm nguồn",
+    "isCorrect": false,
+    "sortOrder": 2
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f606",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f502",
+    "content": "Hô hoán và thông báo ngay cho đội phòng cháy chữa cháy cơ sở",
+    "isCorrect": true,
+    "sortOrder": 3
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f607",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f503",
+    "content": "Đường vắt sổ 3 chỉ khóa đầu",
+    "isCorrect": false,
+    "sortOrder": 1
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f608",
+    "questionId": "65b9a8f1e4b0a1c2d3e4f503",
+    "content": "Đường vắt sổ 5 chỉ siêu bền",
+    "isCorrect": true,
+    "sortOrder": 2
+  }
+]

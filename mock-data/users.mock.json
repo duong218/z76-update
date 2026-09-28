@@ -1,0 +1,64 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f001",
+    "username": "admin.demo",
+    "passwordHash": "$2a$10$abcdefghijklmnopqrstuvwxyz12345678901234567890123",
+    "roleId": "65b9a8f1e4b0a1c2d3e4f101",
+    "mustChangePassword": false,
+    "isActive": true,
+    "tokenVersion": 0,
+    "createdAt": "2026-06-01T08:00:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f002",
+    "username": "examiner.demo1",
+    "passwordHash": "$2a$10$abcdefghijklmnopqrstuvwxyz12345678901234567890123",
+    "roleId": "65b9a8f1e4b0a1c2d3e4f102",
+    "mustChangePassword": false,
+    "isActive": true,
+    "tokenVersion": 0,
+    "createdAt": "2026-06-01T08:05:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f003",
+    "username": "leader.demo1",
+    "passwordHash": "$2a$10$abcdefghijklmnopqrstuvwxyz12345678901234567890123",
+    "roleId": "65b9a8f1e4b0a1c2d3e4f103",
+    "mustChangePassword": false,
+    "isActive": true,
+    "tokenVersion": 0,
+    "createdAt": "2026-06-01T08:10:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f004",
+    "username": "candidate.demo1",
+    "passwordHash": "$2a$10$abcdefghijklmnopqrstuvwxyz12345678901234567890123",
+    "roleId": "65b9a8f1e4b0a1c2d3e4f104",
+    "mustChangePassword": true,
+    "isActive": true,
+    "tokenVersion": 0,
+    "createdAt": "2026-06-02T09:00:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f005",
+    "username": "candidate.demo2",
+    "passwordHash": "$2a$10$abcdefghijklmnopqrstuvwxyz12345678901234567890123",
+    "roleId": "65b9a8f1e4b0a1c2d3e4f104",
+    "mustChangePassword": true,
+    "isActive": true,
+    "tokenVersion": 0,
+    "createdAt": "2026-06-02T09:05:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f006",
+    "username": "candidate.locked_demo",
+    "passwordHash": "$2a$10$abcdefghijklmnopqrstuvwxyz12345678901234567890123",
+    "roleId": "65b9a8f1e4b0a1c2d3e4f104",
+    "mustChangePassword": false,
+    "isActive": false,
+    "lockedAt": "2026-01-15T10:00:00.000Z",
+    "tokenVersion": 1,
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  }
+]
+

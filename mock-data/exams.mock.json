@@ -1,0 +1,35 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f701",
+    "title": "Kỳ thi chuyên môn định kỳ Q3 - Z176 (Demo)",
+    "topicId": "65b9a8f1e4b0a1c2d3e4f401",
+    "startDate": "2026-09-01T01:00:00.000Z",
+    "endDate": "2026-09-15T09:00:00.000Z",
+    "durationMinutes": 45,
+    "totalQuestions": 30,
+    "commonQuestionCount": 20,
+    "departmentQuestionCount": 10,
+    "status": "published",
+    "passThresholdPercent": 70,
+    "createdBy": "65b9a8f1e4b0a1c2d3e4f002",
+    "approvedBy": "65b9a8f1e4b0a1c2d3e4f003",
+    "approvedAt": "2026-08-20T08:00:00.000Z",
+    "publishedAt": "2026-08-20T08:05:00.000Z",
+    "createdAt": "2026-08-15T08:00:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f702",
+    "title": "Đề xuất kỳ thi thử an toàn lao động (Demo)",
+    "topicId": "65b9a8f1e4b0a1c2d3e4f402",
+    "startDate": null,
+    "endDate": null,
+    "durationMinutes": 15,
+    "totalQuestions": 10,
+    "commonQuestionCount": 10,
+    "departmentQuestionCount": 0,
+    "status": "draft",
+    "passThresholdPercent": 80,
+    "createdBy": "65b9a8f1e4b0a1c2d3e4f002",
+    "createdAt": "2026-08-16T08:00:00.000Z"
+  }
+]

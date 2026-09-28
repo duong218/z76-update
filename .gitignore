@@ -1,0 +1,64 @@
+# ==========================================
+# Z176 - Git Ignore
+# ==========================================
+
+# ---------- Environment / Secrets ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Node.js ----------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- Build / Output ----------
+dist/
+build/
+out/
+coverage/
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- IDE ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Temporary files ----------
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*
+
+# ---------- Test / Runtime ----------
+.nyc_output/
+.cache/
+.tmp/
+
+# ---------- Local database / runtime data ----------
+*.sqlite
+*.sqlite3
+*.db
+
+# ---------- Generated files ----------
+*.generated.*
+
+# ---------- App runtime (server) ----------
+uploads/
+tmp/
+server/uploads/
+server/tmp/
+server/backups/
+backups/

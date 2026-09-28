@@ -1,0 +1,6 @@
+{
+  "name": "Hệ thống thi trực tuyến nội bộ Z176",
+  "description": "Trang chủ thi trực tuyến nội bộ dành cho cán bộ, công nhân viên Công ty Z176 - Bộ Quốc phòng",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f801",
+    "examAttemptId": "65b9a8f1e4b0a1c2d3e4f901",
+    "score": 85,
+    "correctCount": 26,
+    "totalQuestions": 30,
+    "passed": true,
+    "createdAt": "2026-09-02T09:45:00.000Z",
+    "updatedAt": "2026-09-02T09:45:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f802",
+    "examAttemptId": "65b9a8f1e4b0a1c2d3e4f902",
+    "score": 50,
+    "correctCount": 15,
+    "totalQuestions": 30,
+    "passed": false,
+    "createdAt": "2026-09-02T10:15:00.000Z",
+    "updatedAt": "2026-09-02T10:15:00.000Z"
+  }
+]

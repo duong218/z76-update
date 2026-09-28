@@ -1,0 +1,23 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f301",
+    "name": "Phòng Tổ chức - Lao động",
+    "code": "TCLD",
+    "description": "Quản lý nhân sự và điều phối lao động chuyên môn",
+    "isActive": true
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f302",
+    "name": "Phòng Kỹ thuật - KTS",
+    "code": "KTS",
+    "description": "Quản lý quy trình kỹ thuật và tiêu chuẩn sản phẩm",
+    "isActive": true
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f303",
+    "name": "Xưởng Dệt may 1",
+    "code": "XDM1",
+    "description": "Sản xuất hàng dệt may xuất khẩu và quân trang",
+    "isActive": true
+  }
+]

@@ -1,0 +1,87 @@
+import { useState, useEffect, useMemo } from 'react';
+import { PlayCircle, ArrowRight, Info } from 'lucide-react';
+
+// Kiểm tra kỳ thi có đang trong thời gian hiệu lực để cho phép bấm "Vào thi" hay không.
+// - Chưa có activeExam (chưa publish kỳ thi nào) -> không cho vào thi.
+// - Đã có nhưng chưa tới startDate -> chưa bắt đầu, chưa cho vào thi.
+// - Đã quá endDate -> hết thời gian, không cho vào thi nữa.
+function isExamOpenForEntry(activeExam) {
+  if (!activeExam?.startDate || !activeExam?.endDate) return false;
+  const now = Date.now();
+  const start = new Date(activeExam.startDate).getTime();
+  const end = new Date(activeExam.endDate).getTime();
+  return now >= start && now <= end;
+}
+
+export const CTAButton = ({ onClick, activeExam }) => {
+  const [showDisabledNotice, setShowDisabledNotice] = useState(false);
+
+  // Re-render định kỳ để nút tự chuyển trạng thái mờ ngay khi hết giờ,
+  // không cần người dùng phải F5 lại trang.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => forceTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isOpen = useMemo(() => isExamOpenForEntry(activeExam), [activeExam]);
+
+  useEffect(() => {
+    if (!showDisabledNotice) return;
+    const timeout = setTimeout(() => setShowDisabledNotice(false), 3500);
+    return () => clearTimeout(timeout);
+  }, [showDisabledNotice]);
+
+  const handleClick = () => {
+    if (!isOpen) {
+      setShowDisabledNotice(true);
+      return;
+    }
+    onClick?.();
+  };
+
+  return (
+    <div className="py-2.5 sm:py-4 px-4">
+      <div className="max-w-md mx-auto">
+        {/*
+          CTA Button "VÀO THI":
+          - EXCEPTION ONLY: Pill border radius (rounded-full / 999px)
+          - Flat blue #008BC5 (NO RED)
+          - White text, 18px, weight 700
+          - Full-width on mobile, minimum height 52px
+          - Khi không trong thời gian thi hợp lệ: mờ đi (disabled trực quan) nhưng vẫn nhận click
+            để có thể báo cho người dùng biết lý do, thay vì im lặng không phản hồi gì.
+        */}
+        <button
+          type="button"
+          onClick={handleClick}
+          aria-disabled={!isOpen}
+          aria-label={
+            isOpen
+              ? 'Nhấn để bắt đầu vào thi trực tuyến'
+              : 'Hiện chưa có kỳ thi nào đang diễn ra'
+          }
+          className={`w-full min-h-[52px] font-bold text-[18px] sm:text-[20px] rounded-[999px] shadow-lg flex items-center justify-center gap-3 px-8 transition-all duration-200 focus:outline-none focus:ring-4 min-touch-target ${isOpen
+              ? 'bg-[#008BC5] hover:bg-[#0077A8] active:scale-95 text-white shadow-[#008BC5]/20 cursor-pointer focus:ring-[#008BC5]/30'
+              : 'bg-slate-400/70 text-white/90 shadow-slate-900/10 cursor-not-allowed opacity-60 focus:ring-slate-300/30'
+            }`}
+        >
+          <PlayCircle className="w-6 h-6 shrink-0" />
+          <span>VÀO THI NGAY</span>
+          <ArrowRight className="w-5 h-5 shrink-0" />
+        </button>
+
+        <p className="text-center text-xs text-slate-100 mt-1.5 font-medium drop-shadow-[0_2px_5px_rgba(0,0,0,0.9)]">
+          Dành cho cán bộ, công nhân viên Công ty Z176
+        </p>
+
+        {showDisabledNotice && (
+          <div className="mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-slate-800/90 backdrop-blur border border-slate-700 rounded-xl text-slate-100 text-sm font-medium animate-in fade-in">
+            <Info className="w-4 h-4 text-[#008BC5] shrink-0" />
+            <span>Hiện tại chưa có kỳ thi nào đang diễn ra.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

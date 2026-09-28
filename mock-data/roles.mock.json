@@ -1,0 +1,30 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f101",
+    "name": "Quản trị viên",
+    "code": "admin",
+    "description": "Quản lý hệ thống, cấu hình và người dùng",
+    "isActive": true
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f102",
+    "name": "Người ra đề",
+    "code": "examiner",
+    "description": "Biên soạn câu hỏi và đề xuất kỳ thi",
+    "isActive": true
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f103",
+    "name": "Người duyệt đề",
+    "code": "leader",
+    "description": "Phê duyệt và phát hành các kỳ thi chuyên môn",
+    "isActive": true
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f104",
+    "name": "Thí sinh",
+    "code": "candidate",
+    "description": "Tham gia thi chuyên môn và ôn tập tài liệu",
+    "isActive": true
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4fa01",
+    "actorId": "65b9a8f1e4b0a1c2d3e4f002",
+    "action": "question.create",
+    "targetId": "65b9a8f1e4b0a1c2d3e4f501",
+    "meta": { "topicId": "65b9a8f1e4b0a1c2d3e4f401" },
+    "createdAt": "2026-06-06T08:00:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4fa02",
+    "actorId": "65b9a8f1e4b0a1c2d3e4f003",
+    "action": "exam.publish",
+    "targetId": "65b9a8f1e4b0a1c2d3e4f701",
+    "meta": { "codeCount": 5 },
+    "createdAt": "2026-08-20T08:05:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4fa03",
+    "actorId": "65b9a8f1e4b0a1c2d3e4f001",
+    "action": "user.lock",
+    "targetId": "65b9a8f1e4b0a1c2d3e4f005",
+    "meta": { "username": "candidate.demo2" },
+    "createdAt": "2026-08-21T09:00:00.000Z"
+  }
+]

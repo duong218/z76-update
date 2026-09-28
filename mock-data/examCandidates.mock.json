@@ -1,0 +1,18 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4fb01",
+    "examId": "65b9a8f1e4b0a1c2d3e4f701",
+    "userId": "65b9a8f1e4b0a1c2d3e4f004",
+    "examCodeId": "65b9a8f1e4b0a1c2d3e4fc01",
+    "maxAttempts": 1,
+    "attemptsUsed": 1
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4fb02",
+    "examId": "65b9a8f1e4b0a1c2d3e4f701",
+    "userId": "65b9a8f1e4b0a1c2d3e4f005",
+    "examCodeId": "65b9a8f1e4b0a1c2d3e4fc02",
+    "maxAttempts": 1,
+    "attemptsUsed": 1
+  }
+]

@@ -1,0 +1,45 @@
+[
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f501",
+    "content": "Theo nội quy Nhà máy Z176, hành vi nào dưới đây bị nghiêm cấm tuyệt đối trong khu vực sản xuất?",
+    "questionKind": "theory",
+    "answerType": "single",
+    "difficulty": "easy",
+    "scope": "Common",
+    "topicId": "65b9a8f1e4b0a1c2d3e4f401",
+    "imageUrl": "",
+    "imageCloudinaryId": "",
+    "isActive": true,
+    "createdBy": "65b9a8f1e4b0a1c2d3e4f002",
+    "createdAt": "2026-06-06T08:00:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f502",
+    "content": "Khi phát hiện sự cố chập điện tại xưởng may, những bước xử lý nào sau đây là đúng quy định an toàn? (Chọn nhiều đáp án)",
+    "questionKind": "practice",
+    "answerType": "multiple",
+    "difficulty": "medium",
+    "scope": "Common",
+    "topicId": "65b9a8f1e4b0a1c2d3e4f402",
+    "imageUrl": "https://res.cloudinary.com/demo/image/upload/v1234567/z176_electrical_safety.jpg",
+    "imageCloudinaryId": "z176_electrical_safety",
+    "isActive": true,
+    "createdBy": "65b9a8f1e4b0a1c2d3e4f002",
+    "createdAt": "2026-06-06T08:05:00.000Z"
+  },
+  {
+    "_id": "65b9a8f1e4b0a1c2d3e4f503",
+    "content": "Phương pháp vắt sổ nào thường được áp dụng đối với mép vải của các sản phẩm may mặc quân trang?",
+    "questionKind": "theory",
+    "answerType": "single",
+    "difficulty": "hard",
+    "scope": "DepartmentSpecific",
+    "topicId": "65b9a8f1e4b0a1c2d3e4f403",
+    "departmentId": "65b9a8f1e4b0a1c2d3e4f303",
+    "imageUrl": "",
+    "imageCloudinaryId": "",
+    "isActive": true,
+    "createdBy": "65b9a8f1e4b0a1c2d3e4f002",
+    "createdAt": "2026-06-06T08:10:00.000Z"
+  }
+]

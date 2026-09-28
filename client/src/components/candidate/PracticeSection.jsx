@@ -116,6 +116,8 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [remaining, setRemaining] = useState(0);
+  // Mốc hết hạn (ms). Thời gian còn lại luôn tính từ mốc này để không bị lệch khi điện thoại làm setInterval chậm/dừng
+  const deadlineRef = useRef(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   // Chế độ instant: { [questionId]: { isCorrect, correctAnswerIds } } sau khi server chấm
@@ -218,11 +220,26 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     }
   };
 
-  // Đếm ngược thời gian làm bài (bỏ qua nếu không giới hạn)
+  // Đếm ngược thời gian làm bài (bỏ qua nếu không giới hạn).
+  // Tính từ mốc hết hạn, tính lại ngay khi tab/app hiện lại (điện thoại có thể làm timer dừng khi chuyển app)
   useEffect(() => {
     if (phase !== 'quiz' || !session?.timeLimitSec) return undefined;
-    const id = setInterval(() => setRemaining((r) => r - 1), 1000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (deadlineRef.current == null) return;
+      setRemaining(Math.max(0, Math.ceil((deadlineRef.current - Date.now()) / 1000)));
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', tick);
+    };
   }, [phase, session]);
 
   // Hết giờ thì tự nộp bài
@@ -262,6 +279,8 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     setAnswers({ ...(draft.answers || {}), ...(activeSession.answers || {}) });
     setChecked(activeSession.checked || {});
     setIndex(Math.min(Math.max(Number(draft.index) || 0, 0), lastIndex));
+    // Server trả remainingSec đã trừ thời gian đã trôi qua: lấy làm mốc mới
+    deadlineRef.current = Date.now() + Math.max(0, Number(activeSession.remainingSec) || 0) * 1000;
     setRemaining(activeSession.remainingSec ?? 0);
     setResult(null);
     setError(null);
@@ -336,6 +355,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
       setAnswers({});
       setChecked({});
       setIndex(0);
+      deadlineRef.current = Date.now() + (data.timeLimitSec || 0) * 1000;
       setRemaining(data.timeLimitSec || 0);
       setResult(null);
       setPhase('quiz');
@@ -518,6 +538,15 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
                 </button>
               ))}
             </div>
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#EAF6FF] border border-[#008BC5]/30 text-[#0F172A] font-semibold">
+              <Clock className="w-5 h-5 text-[#008BC5] shrink-0" />
+              <span>
+                Đã chọn:{' '}
+                {timeLimitMin === 0
+                  ? 'Không giới hạn thời gian'
+                  : `${timeLimitMin} phút (có đồng hồ đếm ngược khi làm bài)`}
+              </span>
+            </div>
           </div>
 
           <div>
@@ -623,187 +652,202 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const currentCheck = current ? checked[current.id] : null;
   const currentSelected = current ? answers[current.id] || [] : [];
 
-  return (
-    <div
-      ref={quizTopRef}
-      className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5 scroll-mt-20"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="font-semibold text-[#0F172A]">
-          Câu {index + 1}/{questions.length}
-        </div>
-        {session?.timeLimitSec > 0 && (
-          <div
-            className={`flex items-center gap-1.5 font-mono font-bold ${
-              remaining <= 60 ? 'text-[#E53E3E]' : 'text-[#0F172A]'
-            }`}
-          >
-            <Clock className="w-4 h-4" />
-            {formatTime(Math.max(0, remaining))}
-          </div>
-        )}
-      </div>
+  const hasTimer = session?.timeLimitSec > 0;
+  const timeLow = hasTimer && remaining <= 60;
 
-      {error && (
-        <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg text-[#0F172A]">
-          {error}
+  return (
+    <div ref={quizTopRef} className="space-y-3 scroll-mt-20">
+      {/* Đồng hồ dính ngay dưới Header cố định (cao 64px = top-16, Header z-50 nên đồng hồ z-40) */}
+      {hasTimer && (
+        <div
+          role="timer"
+          aria-label={`Thời gian còn lại ${formatTime(Math.max(0, remaining))}`}
+          className={`sticky top-16 z-40 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border-2 shadow-z176 ${
+            timeLow
+              ? 'bg-[#FEECEC] border-[#E53E3E] text-[#C53030] animate-pulse'
+              : 'bg-[#EAF6FF] border-[#008BC5] text-[#008BC5]'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Clock className="w-6 h-6 shrink-0" />
+            <span className="font-semibold text-sm sm:text-base leading-tight">
+              {timeLow ? 'Sắp hết giờ!' : 'Thời gian còn lại'}
+            </span>
+          </div>
+          <span className="font-mono font-bold text-3xl leading-none tabular-nums">
+            {formatTime(Math.max(0, remaining))}
+          </span>
         </div>
       )}
 
-      {current && (
-        <>
-          <div>
-            <p className="text-lg text-[#0F172A] font-medium mb-2">{current.content}</p>
-            <p className="text-sm text-slate-500 mb-3">
-              {current.answerType === 'multiple' ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'}
-            </p>
-            {current.imageUrl && (
-              <img
-                src={current.imageUrl}
-                alt={`Hình minh hoạ câu ${index + 1}`}
-                loading="lazy"
-                className="max-h-64 max-w-full w-auto mx-auto object-contain rounded-lg mb-3"
-              />
-            )}
-            <div className="space-y-2">
-              {current.answers.map((opt) => {
-                const checkedOpt = currentSelected.includes(opt.id);
-                let cls = checkedOpt
-                  ? 'border-[#008BC5] bg-[#EAF6FF]'
-                  : 'border-slate-200 hover:bg-slate-50';
-                let mark = null;
-                if (currentCheck) {
-                  const isRightOpt = currentCheck.correctAnswerIds.map(String).includes(String(opt.id));
-                  if (isRightOpt) {
-                    cls = 'border-[#22C55E] bg-[#F0FDF4]';
-                    mark = <CheckCircle2 className="w-5 h-5 text-[#22C55E] shrink-0" role="img" aria-label="Đáp án đúng" />;
-                  } else if (checkedOpt) {
-                    cls = 'border-[#E53E3E] bg-[#FEECEC]';
-                    mark = <XCircle className="w-5 h-5 text-[#E53E3E] shrink-0" role="img" aria-label="Chọn sai" />;
-                  } else {
-                    cls = 'border-slate-200 opacity-70';
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-[#0F172A]">
+            Câu {index + 1}/{questions.length}
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg text-[#0F172A]">
+            {error}
+          </div>
+        )}
+
+        {current && (
+          <>
+            <div>
+              <p className="text-lg text-[#0F172A] font-medium mb-2">{current.content}</p>
+              <p className="text-sm text-slate-500 mb-3">
+                {current.answerType === 'multiple' ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'}
+              </p>
+              {current.imageUrl && (
+                <img
+                  src={current.imageUrl}
+                  alt={`Hình minh hoạ câu ${index + 1}`}
+                  loading="lazy"
+                  className="max-h-64 max-w-full w-auto mx-auto object-contain rounded-lg mb-3"
+                />
+              )}
+              <div className="space-y-2">
+                {current.answers.map((opt) => {
+                  const checkedOpt = currentSelected.includes(opt.id);
+                  let cls = checkedOpt
+                    ? 'border-[#008BC5] bg-[#EAF6FF]'
+                    : 'border-slate-200 hover:bg-slate-50';
+                  let mark = null;
+                  if (currentCheck) {
+                    const isRightOpt = currentCheck.correctAnswerIds.map(String).includes(String(opt.id));
+                    if (isRightOpt) {
+                      cls = 'border-[#22C55E] bg-[#F0FDF4]';
+                      mark = <CheckCircle2 className="w-5 h-5 text-[#22C55E] shrink-0" role="img" aria-label="Đáp án đúng" />;
+                    } else if (checkedOpt) {
+                      cls = 'border-[#E53E3E] bg-[#FEECEC]';
+                      mark = <XCircle className="w-5 h-5 text-[#E53E3E] shrink-0" role="img" aria-label="Chọn sai" />;
+                    } else {
+                      cls = 'border-slate-200 opacity-70';
+                    }
                   }
-                }
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => toggleAnswer(current, opt.id)}
+                      disabled={Boolean(currentCheck) || checkingId === current.id}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target touch-manipulation flex items-start justify-between gap-2 ${cls}`}
+                    >
+                      <span className="break-words min-w-0">{opt.content}</span>
+                      {mark}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {isInstant && currentCheck && (
+                <div
+                  ref={feedbackRef}
+                  className={`mt-3 p-3 rounded-lg border space-y-3 scroll-mb-4 ${
+                    currentCheck.isCorrect
+                      ? 'bg-[#F0FDF4] border-[#22C55E]/40'
+                      : 'bg-[#FEECEC] border-[#E53E3E]/30'
+                  }`}
+                  role="status"
+                >
+                  <div className="flex items-start gap-2 text-sm font-semibold text-[#0F172A]">
+                    {currentCheck.isCorrect ? (
+                      <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-[#E53E3E] shrink-0 mt-0.5" />
+                    )}
+                    <span>
+                      {currentCheck.isCorrect
+                        ? 'Chính xác!'
+                        : 'Chưa đúng — đáp án đúng được đánh dấu màu xanh.'}
+                    </span>
+                  </div>
+                  {index < questions.length - 1 && (
+                    <button
+                      onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
+                      className="w-full px-4 py-3 bg-[#008BC5] text-white font-bold rounded-lg flex items-center justify-center gap-1 min-touch-target touch-manipulation"
+                    >
+                      Câu tiếp theo <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {isInstant && !currentCheck && current.answerType === 'multiple' && (
+                <button
+                  onClick={() => checkQuestion(current, currentSelected)}
+                  disabled={currentSelected.length === 0 || checkingId === current.id}
+                  className="mt-3 w-full px-4 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target"
+                >
+                  {checkingId === current.id && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Kiểm tra đáp án
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <button
+                onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                disabled={index === 0}
+                className="flex-1 sm:flex-none justify-center px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target touch-manipulation"
+              >
+                <ChevronLeft className="w-4 h-4" /> Trước
+              </button>
+              <button
+                onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
+                disabled={index === questions.length - 1}
+                className="flex-1 sm:flex-none justify-center px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target touch-manipulation"
+              >
+                Sau <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-6 min-[420px]:grid-cols-8 sm:grid-cols-10 gap-2">
+              {questions.map((q, i) => {
+                const answered = (answers[q.id] || []).length > 0;
+                const qCheck = checked[q.id];
+                let cls = 'border-slate-300 text-slate-500';
+                if (i === index) cls = 'border-[#008BC5] text-[#008BC5] ring-2 ring-[#008BC5]/30';
+                else if (qCheck) {
+                  cls = qCheck.isCorrect
+                    ? 'bg-[#22C55E] text-white border-[#22C55E]'
+                    : 'bg-[#E53E3E] text-white border-[#E53E3E]';
+                } else if (answered) cls = 'bg-[#008BC5] text-white border-[#008BC5]';
                 return (
                   <button
-                    key={opt.id}
-                    onClick={() => toggleAnswer(current, opt.id)}
-                    disabled={Boolean(currentCheck) || checkingId === current.id}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target touch-manipulation flex items-start justify-between gap-2 ${cls}`}
+                    key={q.id}
+                    onClick={() => setIndex(i)}
+                    aria-label={`Đi tới câu ${i + 1}`}
+                    aria-current={i === index}
+                    className={`aspect-square min-h-[44px] rounded-lg text-sm font-semibold border touch-manipulation ${cls}`}
                   >
-                    <span className="break-words min-w-0">{opt.content}</span>
-                    {mark}
+                    {i + 1}
                   </button>
                 );
               })}
             </div>
 
-            {isInstant && currentCheck && (
-              <div
-                ref={feedbackRef}
-                className={`mt-3 p-3 rounded-lg border space-y-3 scroll-mb-4 ${
-                  currentCheck.isCorrect
-                    ? 'bg-[#F0FDF4] border-[#22C55E]/40'
-                    : 'bg-[#FEECEC] border-[#E53E3E]/30'
-                }`}
-                role="status"
-              >
-                <div className="flex items-start gap-2 text-sm font-semibold text-[#0F172A]">
-                  {currentCheck.isCorrect ? (
-                    <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0 mt-0.5" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-[#E53E3E] shrink-0 mt-0.5" />
-                  )}
-                  <span>
-                    {currentCheck.isCorrect
-                      ? 'Chính xác!'
-                      : 'Chưa đúng — đáp án đúng được đánh dấu màu xanh.'}
-                  </span>
-                </div>
-                {index < questions.length - 1 && (
-                  <button
-                    onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
-                    className="w-full px-4 py-3 bg-[#008BC5] text-white font-bold rounded-lg flex items-center justify-center gap-1 min-touch-target touch-manipulation"
-                  >
-                    Câu tiếp theo <ChevronRight className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            )}
-
-            {isInstant && !currentCheck && current.answerType === 'multiple' && (
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <span className="text-sm text-slate-500">
+                {isInstant
+                  ? `Đã kiểm tra ${checkedCount}/${questions.length} câu`
+                  : unansweredCount > 0
+                    ? `Còn ${unansweredCount} câu chưa trả lời`
+                    : 'Đã trả lời tất cả câu hỏi'}
+              </span>
               <button
-                onClick={() => checkQuestion(current, currentSelected)}
-                disabled={currentSelected.length === 0 || checkingId === current.id}
-                className="mt-3 w-full px-4 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target"
+                onClick={requestSubmit}
+                disabled={submitting}
+                className="w-full sm:w-auto px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target touch-manipulation"
               >
-                {checkingId === current.id && <Loader2 className="w-4 h-4 animate-spin" />}
-                Kiểm tra đáp án
+                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isInstant ? 'Kết thúc & xem kết quả' : 'Nộp bài'}
               </button>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-2">
-            <button
-              onClick={() => setIndex((i) => Math.max(0, i - 1))}
-              disabled={index === 0}
-              className="flex-1 sm:flex-none justify-center px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target touch-manipulation"
-            >
-              <ChevronLeft className="w-4 h-4" /> Trước
-            </button>
-            <button
-              onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
-              disabled={index === questions.length - 1}
-              className="flex-1 sm:flex-none justify-center px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target touch-manipulation"
-            >
-              Sau <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-6 min-[420px]:grid-cols-8 sm:grid-cols-10 gap-2">
-            {questions.map((q, i) => {
-              const answered = (answers[q.id] || []).length > 0;
-              const qCheck = checked[q.id];
-              let cls = 'border-slate-300 text-slate-500';
-              if (i === index) cls = 'border-[#008BC5] text-[#008BC5] ring-2 ring-[#008BC5]/30';
-              else if (qCheck) {
-                cls = qCheck.isCorrect
-                  ? 'bg-[#22C55E] text-white border-[#22C55E]'
-                  : 'bg-[#E53E3E] text-white border-[#E53E3E]';
-              } else if (answered) cls = 'bg-[#008BC5] text-white border-[#008BC5]';
-              return (
-                <button
-                  key={q.id}
-                  onClick={() => setIndex(i)}
-                  aria-label={`Đi tới câu ${i + 1}`}
-                  aria-current={i === index}
-                  className={`aspect-square min-h-[44px] rounded-lg text-sm font-semibold border touch-manipulation ${cls}`}
-                >
-                  {i + 1}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <span className="text-sm text-slate-500">
-              {isInstant
-                ? `Đã kiểm tra ${checkedCount}/${questions.length} câu`
-                : unansweredCount > 0
-                  ? `Còn ${unansweredCount} câu chưa trả lời`
-                  : 'Đã trả lời tất cả câu hỏi'}
-            </span>
-            <button
-              onClick={requestSubmit}
-              disabled={submitting}
-              className="w-full sm:w-auto px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target touch-manipulation"
-            >
-              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isInstant ? 'Kết thúc & xem kết quả' : 'Nộp bài'}
-            </button>
-          </div>
-        </>
-      )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };

@@ -7,12 +7,17 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
+  CheckCircle2,
+  XCircle,
+  Zap,
+  ClipboardCheck,
 } from 'lucide-react';
 import {
   fetchPracticeTopics,
   fetchPracticeProgress,
   startPractice,
   submitPractice,
+  checkPracticeAnswer,
 } from '../../services/practice.service';
 
 const QUESTION_COUNTS = [5, 10, 20, 30];
@@ -22,6 +27,21 @@ const DIFFICULTIES = [
   { value: 'easy', label: 'Dễ' },
   { value: 'medium', label: 'Trung bình' },
   { value: 'hard', label: 'Khó' },
+];
+
+const MODES = [
+  {
+    value: 'instant',
+    label: 'Kiểm tra ngay',
+    desc: 'Chọn xong biết đúng/sai và xem đáp án đúng ngay từng câu.',
+    Icon: Zap,
+  },
+  {
+    value: 'exam',
+    label: 'Làm hết rồi chấm',
+    desc: 'Làm toàn bộ bài, nộp bài rồi mới xem điểm (như thi thật).',
+    Icon: ClipboardCheck,
+  },
 ];
 
 const formatTime = (sec) => {
@@ -48,6 +68,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const [questionCount, setQuestionCount] = useState(10);
   const [timeLimitMin, setTimeLimitMin] = useState(15);
   const [difficulty, setDifficulty] = useState('all');
+  const [mode, setMode] = useState('instant');
   const [error, setError] = useState(null);
   const [starting, setStarting] = useState(false);
   const [session, setSession] = useState(null);
@@ -56,6 +77,9 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const [remaining, setRemaining] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  // Chế độ instant: { [questionId]: { isCorrect, correctAnswerIds } } sau khi server chấm
+  const [checked, setChecked] = useState({});
+  const [checkingId, setCheckingId] = useState(null);
 
   // Ref để tránh nộp bài 2 lần khi hết giờ và người dùng bấm nộp cùng lúc
   const submittedRef = useRef(false);
@@ -133,10 +157,12 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
         questionCount,
         timeLimitMin,
         difficulty,
+        mode,
       });
       submittedRef.current = false;
       setSession(data);
       setAnswers({});
+      setChecked({});
       setIndex(0);
       setRemaining(data.timeLimitSec || 0);
       setResult(null);
@@ -148,7 +174,36 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     }
   };
 
+  // Gọi server chấm 1 câu (chế độ instant). Chỉ khóa câu khi server trả kết quả thành công.
+  const checkQuestion = async (question, selectedIds) => {
+    if (!session || checked[question.id] || checkingId) return;
+    if (selectedIds.length === 0) return;
+    setCheckingId(question.id);
+    setError(null);
+    try {
+      const data = await checkPracticeAnswer(session.sessionId, question.id, selectedIds);
+      setChecked((prev) => ({
+        ...prev,
+        [question.id]: { isCorrect: data.isCorrect, correctAnswerIds: data.correctAnswerIds },
+      }));
+      setAnswers((prev) => ({ ...prev, [question.id]: data.selectedAnswerIds.map(String) }));
+    } catch (err) {
+      setError(err?.message || 'Không thể kiểm tra đáp án.');
+    } finally {
+      setCheckingId(null);
+    }
+  };
+
   const toggleAnswer = (question, optionId) => {
+    if (session?.mode === 'instant') {
+      if (checked[question.id] || checkingId) return; // đã khóa hoặc đang chấm
+      if (question.answerType === 'single') {
+        // Chọn 1 đáp án: chọn là chấm luôn
+        setAnswers((prev) => ({ ...prev, [question.id]: [optionId] }));
+        checkQuestion(question, [optionId]);
+        return;
+      }
+    }
     setAnswers((prev) => {
       const current = prev[question.id] || [];
       if (question.answerType === 'single') {
@@ -270,6 +325,30 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
             </div>
           </div>
 
+          <div>
+            <div className="font-semibold text-[#0F172A] mb-2">5. Chế độ ôn tập</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {MODES.map(({ value, label, desc, Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => setMode(value)}
+                  aria-pressed={mode === value}
+                  className={`text-left p-3 rounded-lg border transition-colors min-touch-target ${
+                    mode === value
+                      ? 'border-[#008BC5] bg-[#EAF6FF] text-[#0F172A]'
+                      : 'border-slate-200 hover:bg-slate-50 text-[#0F172A]'
+                  }`}
+                >
+                  <div className="font-semibold flex items-center gap-2">
+                    <Icon className="w-4 h-4 text-[#008BC5] shrink-0" />
+                    {label}
+                  </div>
+                  <div className="text-sm text-slate-500 mt-0.5">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
             onClick={handleStart}
             disabled={starting || loadingTopics || topics.length === 0}
@@ -307,6 +386,10 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const questions = session?.questions || [];
   const current = questions[index];
   const unansweredCount = questions.filter((q) => (answers[q.id] || []).length === 0).length;
+  const isInstant = session?.mode === 'instant';
+  const checkedCount = Object.keys(checked).length;
+  const currentCheck = current ? checked[current.id] : null;
+  const currentSelected = current ? answers[current.id] || [] : [];
 
   return (
     <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 space-y-5">
@@ -344,20 +427,64 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
             )}
             <div className="space-y-2">
               {current.answers.map((opt) => {
-                const checked = (answers[current.id] || []).includes(opt.id);
+                const checkedOpt = currentSelected.includes(opt.id);
+                let cls = checkedOpt
+                  ? 'border-[#008BC5] bg-[#EAF6FF]'
+                  : 'border-slate-200 hover:bg-slate-50';
+                let mark = null;
+                if (currentCheck) {
+                  const isRightOpt = currentCheck.correctAnswerIds.map(String).includes(String(opt.id));
+                  if (isRightOpt) {
+                    cls = 'border-[#22C55E] bg-[#F0FDF4]';
+                    mark = <CheckCircle2 className="w-5 h-5 text-[#22C55E] shrink-0" aria-label="Đáp án đúng" />;
+                  } else if (checkedOpt) {
+                    cls = 'border-[#E53E3E] bg-[#FEECEC]';
+                    mark = <XCircle className="w-5 h-5 text-[#E53E3E] shrink-0" aria-label="Chọn sai" />;
+                  } else {
+                    cls = 'border-slate-200 opacity-70';
+                  }
+                }
                 return (
                   <button
                     key={opt.id}
                     onClick={() => toggleAnswer(current, opt.id)}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target ${
-                      checked ? 'border-[#008BC5] bg-[#EAF6FF]' : 'border-slate-200 hover:bg-slate-50'
-                    }`}
+                    disabled={Boolean(currentCheck) || checkingId === current.id}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target flex items-start justify-between gap-2 ${cls}`}
                   >
-                    {opt.content}
+                    <span>{opt.content}</span>
+                    {mark}
                   </button>
                 );
               })}
             </div>
+
+            {isInstant && currentCheck && (
+              <div
+                className={`mt-3 p-3 rounded-lg border text-sm font-semibold flex items-center gap-2 ${
+                  currentCheck.isCorrect
+                    ? 'bg-[#F0FDF4] border-[#22C55E]/40 text-[#0F172A]'
+                    : 'bg-[#FEECEC] border-[#E53E3E]/30 text-[#0F172A]'
+                }`}
+              >
+                {currentCheck.isCorrect ? (
+                  <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" />
+                ) : (
+                  <XCircle className="w-4 h-4 text-[#E53E3E] shrink-0" />
+                )}
+                {currentCheck.isCorrect ? 'Chính xác!' : 'Chưa đúng — đáp án đúng được đánh dấu màu xanh.'}
+              </div>
+            )}
+
+            {isInstant && !currentCheck && current.answerType === 'multiple' && (
+              <button
+                onClick={() => checkQuestion(current, currentSelected)}
+                disabled={currentSelected.length === 0 || checkingId === current.id}
+                className="mt-3 w-full px-4 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target"
+              >
+                {checkingId === current.id && <Loader2 className="w-4 h-4 animate-spin" />}
+                Kiểm tra đáp án
+              </button>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-2">
@@ -380,9 +507,14 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
           <div className="flex flex-wrap gap-1.5">
             {questions.map((q, i) => {
               const answered = (answers[q.id] || []).length > 0;
+              const qCheck = checked[q.id];
               let cls = 'border-slate-300 text-slate-500';
-              if (i === index) cls = 'border-[#008BC5] text-[#008BC5]';
-              else if (answered) cls = 'bg-[#008BC5] text-white border-[#008BC5]';
+              if (i === index) cls = 'border-[#008BC5] text-[#008BC5] ring-2 ring-[#008BC5]/30';
+              else if (qCheck) {
+                cls = qCheck.isCorrect
+                  ? 'bg-[#22C55E] text-white border-[#22C55E]'
+                  : 'bg-[#E53E3E] text-white border-[#E53E3E]';
+              } else if (answered) cls = 'bg-[#008BC5] text-white border-[#008BC5]';
               return (
                 <button
                   key={q.id}
@@ -397,9 +529,11 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
 
           <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <span className="text-sm text-slate-500">
-              {unansweredCount > 0
-                ? `Còn ${unansweredCount} câu chưa trả lời`
-                : 'Đã trả lời tất cả câu hỏi'}
+              {isInstant
+                ? `Đã kiểm tra ${checkedCount}/${questions.length} câu`
+                : unansweredCount > 0
+                  ? `Còn ${unansweredCount} câu chưa trả lời`
+                  : 'Đã trả lời tất cả câu hỏi'}
             </span>
             <button
               onClick={handleSubmit}
@@ -407,7 +541,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
               className="px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target"
             >
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              Nộp bài
+              {isInstant ? 'Kết thúc & xem kết quả' : 'Nộp bài'}
             </button>
           </div>
         </>

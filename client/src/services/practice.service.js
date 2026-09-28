@@ -21,13 +21,26 @@ export async function fetchPracticeProgress() {
 
 /**
  * Bắt đầu bài luyện.
- * options: { topicIds: string[], questionCount: number, timeLimitMin: number, difficulty: 'all'|'easy'|'medium'|'hard' }
+ * options: { topicIds: string[], questionCount: number, timeLimitMin: number,
+ *            difficulty: 'all'|'easy'|'medium'|'hard', mode: 'instant'|'exam' }
  */
 export async function startPractice(options) {
   const result = await apiRequest('/practice/start', {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(options),
+  });
+  return result.data;
+}
+
+/**
+ * Chế độ 'instant': chấm 1 câu ngay, trả về { isCorrect, correctAnswerIds, selectedAnswerIds }.
+ */
+export async function checkPracticeAnswer(sessionId, questionId, selectedAnswerIds) {
+  const result = await apiRequest(`/practice/${sessionId}/check`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ questionId, selectedAnswerIds }),
   });
   return result.data;
 }

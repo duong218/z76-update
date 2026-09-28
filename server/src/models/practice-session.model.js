@@ -9,6 +9,8 @@ const practiceQuestionSchema = new mongoose.Schema(
     },
     selectedAnswerIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Answer' }],
     isCorrect: { type: Boolean, default: false },
+    /** Chế độ 'instant': đã kiểm tra đúng/sai câu này -> khóa đáp án, không cho đổi */
+    checked: { type: Boolean, default: false },
   },
   { _id: false },
 );
@@ -23,6 +25,8 @@ const practiceSessionSchema = new mongoose.Schema(
     },
     topicIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Topic' }],
     difficulty: { type: String, default: 'all' },
+    /** instant = biết đúng/sai ngay từng câu; exam = làm hết rồi mới chấm */
+    mode: { type: String, enum: ['instant', 'exam'], default: 'exam' },
     questions: { type: [practiceQuestionSchema], default: [] },
     totalQuestions: { type: Number, required: true },
     correctCount: { type: Number, default: 0 },

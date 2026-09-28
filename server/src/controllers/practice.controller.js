@@ -5,6 +5,7 @@
 
 import { asyncHandler } from '../utils/async-handler.js';
 import {
+  checkPracticeAnswer,
   getAvailableTopics,
   getPracticeProgress,
   startPractice,
@@ -25,6 +26,17 @@ export const practiceController = {
   start: asyncHandler(async (req, res) => {
     const data = await startPractice(req.auth.userId, req.body);
     res.json({ success: true, message: 'Bắt đầu luyện tập', code: 'PRACTICE_STARTED', data });
+  }),
+
+  check: asyncHandler(async (req, res) => {
+    const { questionId, selectedAnswerIds } = req.body ?? {};
+    const data = await checkPracticeAnswer(
+      req.auth.userId,
+      req.params.id,
+      questionId,
+      selectedAnswerIds,
+    );
+    res.json({ success: true, message: 'OK', code: 'PRACTICE_CHECKED', data });
   }),
 
   submit: asyncHandler(async (req, res) => {

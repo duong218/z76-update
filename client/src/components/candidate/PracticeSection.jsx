@@ -44,6 +44,12 @@ const MODES = [
   },
 ];
 
+const getScrollBehavior = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ? 'auto'
+    : 'smooth';
+
 const formatTime = (sec) => {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -83,6 +89,11 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
 
   // Ref để tránh nộp bài 2 lần khi hết giờ và người dùng bấm nộp cùng lúc
   const submittedRef = useRef(false);
+  // Mobile: cuộn tới phản hồi sau khi chấm, và cuộn lên đầu khi đổi câu
+  const quizTopRef = useRef(null);
+  const feedbackRef = useRef(null);
+  const justCheckedRef = useRef(null);
+  const prevIndexRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,6 +150,25 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remaining, phase, session]);
 
+  // Vừa được server chấm -> cuộn tới khung phản hồi (câu dài trên điện thoại sẽ nằm ngoài màn hình)
+  useEffect(() => {
+    if (!justCheckedRef.current) return undefined;
+    justCheckedRef.current = null;
+    const t = setTimeout(() => {
+      feedbackRef.current?.scrollIntoView({ behavior: getScrollBehavior(), block: 'nearest' });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [checked]);
+
+  // Đổi câu -> đưa đầu khối làm bài về màn hình (nút Sau nằm cuối trang nên trang đang cuộn xuống)
+  useEffect(() => {
+    if (phase !== 'quiz') return;
+    if (prevIndexRef.current !== index) {
+      quizTopRef.current?.scrollIntoView({ behavior: getScrollBehavior(), block: 'start' });
+    }
+    prevIndexRef.current = index;
+  }, [index, phase]);
+
   const toggleTopic = (id) =>
     setSelectedTopicIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -182,6 +212,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     setError(null);
     try {
       const data = await checkPracticeAnswer(session.sessionId, question.id, selectedIds);
+      justCheckedRef.current = question.id;
       setChecked((prev) => ({
         ...prev,
         [question.id]: { isCorrect: data.isCorrect, correctAnswerIds: data.correctAnswerIds },
@@ -222,14 +253,14 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   if (phase === 'config') {
     return (
       <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-200 bg-slate-50">
           <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
             <Target className="w-5 h-5 text-[#008BC5]" />
             Luyện tập theo chủ đề
           </h2>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-6">
           {error && (
             <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg flex items-center gap-2 text-[#0F172A]">
               <AlertCircle className="w-5 h-5 shrink-0" />
@@ -365,7 +396,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   // ── Kết quả ──
   if (phase === 'result' && result) {
     return (
-      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-8 text-center space-y-4">
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-5 sm:p-8 text-center space-y-4">
         <div className="text-slate-500">Kết quả luyện tập</div>
         <div className="text-5xl font-bold text-[#0F172A]">{result.percent}%</div>
         <div className="text-lg text-[#334155]">
@@ -392,7 +423,10 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const currentSelected = current ? answers[current.id] || [] : [];
 
   return (
-    <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 space-y-5">
+    <div
+      ref={quizTopRef}
+      className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5 scroll-mt-4"
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="font-semibold text-[#0F172A]">
           Câu {index + 1}/{questions.length}
@@ -423,7 +457,12 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
               {current.answerType === 'multiple' ? 'Chọn tất cả đáp án đúng' : 'Chọn một đáp án'}
             </p>
             {current.imageUrl && (
-              <img src={current.imageUrl} alt="" className="max-w-full rounded-lg mb-3" />
+              <img
+                src={current.imageUrl}
+                alt={`Hình minh hoạ câu ${index + 1}`}
+                loading="lazy"
+                className="max-h-64 max-w-full w-auto mx-auto object-contain rounded-lg mb-3"
+              />
             )}
             <div className="space-y-2">
               {current.answers.map((opt) => {
@@ -449,9 +488,9 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
                     key={opt.id}
                     onClick={() => toggleAnswer(current, opt.id)}
                     disabled={Boolean(currentCheck) || checkingId === current.id}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target flex items-start justify-between gap-2 ${cls}`}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors min-touch-target touch-manipulation flex items-start justify-between gap-2 ${cls}`}
                   >
-                    <span>{opt.content}</span>
+                    <span className="break-words min-w-0">{opt.content}</span>
                     {mark}
                   </button>
                 );
@@ -460,18 +499,34 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
 
             {isInstant && currentCheck && (
               <div
-                className={`mt-3 p-3 rounded-lg border text-sm font-semibold flex items-center gap-2 ${
+                ref={feedbackRef}
+                className={`mt-3 p-3 rounded-lg border space-y-3 scroll-mb-4 ${
                   currentCheck.isCorrect
-                    ? 'bg-[#F0FDF4] border-[#22C55E]/40 text-[#0F172A]'
-                    : 'bg-[#FEECEC] border-[#E53E3E]/30 text-[#0F172A]'
+                    ? 'bg-[#F0FDF4] border-[#22C55E]/40'
+                    : 'bg-[#FEECEC] border-[#E53E3E]/30'
                 }`}
+                role="status"
               >
-                {currentCheck.isCorrect ? (
-                  <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" />
-                ) : (
-                  <XCircle className="w-4 h-4 text-[#E53E3E] shrink-0" />
+                <div className="flex items-start gap-2 text-sm font-semibold text-[#0F172A]">
+                  {currentCheck.isCorrect ? (
+                    <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0 mt-0.5" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-[#E53E3E] shrink-0 mt-0.5" />
+                  )}
+                  <span>
+                    {currentCheck.isCorrect
+                      ? 'Chính xác!'
+                      : 'Chưa đúng — đáp án đúng được đánh dấu màu xanh.'}
+                  </span>
+                </div>
+                {index < questions.length - 1 && (
+                  <button
+                    onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
+                    className="w-full px-4 py-3 bg-[#008BC5] text-white font-bold rounded-lg flex items-center justify-center gap-1 min-touch-target touch-manipulation"
+                  >
+                    Câu tiếp theo <ChevronRight className="w-4 h-4" />
+                  </button>
                 )}
-                {currentCheck.isCorrect ? 'Chính xác!' : 'Chưa đúng — đáp án đúng được đánh dấu màu xanh.'}
               </div>
             )}
 
@@ -491,20 +546,20 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
             <button
               onClick={() => setIndex((i) => Math.max(0, i - 1))}
               disabled={index === 0}
-              className="px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target"
+              className="flex-1 sm:flex-none justify-center px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target touch-manipulation"
             >
               <ChevronLeft className="w-4 h-4" /> Trước
             </button>
             <button
               onClick={() => setIndex((i) => Math.min(questions.length - 1, i + 1))}
               disabled={index === questions.length - 1}
-              className="px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target"
+              className="flex-1 sm:flex-none justify-center px-4 py-2 border border-slate-300 rounded-lg flex items-center gap-1 disabled:opacity-40 min-touch-target touch-manipulation"
             >
               Sau <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid grid-cols-6 min-[420px]:grid-cols-8 sm:grid-cols-10 gap-2">
             {questions.map((q, i) => {
               const answered = (answers[q.id] || []).length > 0;
               const qCheck = checked[q.id];
@@ -519,7 +574,9 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
                 <button
                   key={q.id}
                   onClick={() => setIndex(i)}
-                  className={`w-9 h-9 rounded-lg text-sm font-semibold border ${cls}`}
+                  aria-label={`Đi tới câu ${i + 1}`}
+                  aria-current={i === index}
+                  className={`aspect-square min-h-[44px] rounded-lg text-sm font-semibold border touch-manipulation ${cls}`}
                 >
                   {i + 1}
                 </button>
@@ -538,7 +595,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              className="px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target"
+              className="w-full sm:w-auto px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target touch-manipulation"
             >
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
               {isInstant ? 'Kết thúc & xem kết quả' : 'Nộp bài'}
@@ -576,7 +633,7 @@ export const PracticeProgressCard = ({ onPracticeTopic }) => {
 
   if (!progress || progress.totalSessions === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 text-slate-500 text-sm">
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 text-slate-500 text-sm">
         Bạn chưa có bài luyện tập nào. Vào mục "Luyện tập" để bắt đầu ôn theo chủ đề.
       </div>
     );
@@ -585,13 +642,13 @@ export const PracticeProgressCard = ({ onPracticeTopic }) => {
   const weakest = progress.topics[0];
 
   return (
-    <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-6 space-y-5">
+    <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-5">
       <h2 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
         <TrendingUp className="w-5 h-5 text-[#008BC5]" />
         Tiến độ luyện tập
       </h2>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="p-3 bg-slate-50 rounded-lg">
           <div className="text-sm text-slate-500">Bài đã làm</div>
           <div className="text-xl font-bold text-[#0F172A]">{progress.totalSessions}</div>

@@ -9,6 +9,16 @@ export const QUESTION_KIND = {
   PRACTICE: 'practice',
 };
 
+/**
+ * Mục đích sử dụng của câu hỏi (tách ngân hàng THI CHÍNH THỨC khỏi ngân hàng ÔN TẬP):
+ * - exam: bí mật, chỉ dùng để tạo mã đề thi. Dữ liệu cũ chưa có trường này được coi là 'exam'.
+ * - practice: thí sinh thấy đáp án đúng khi luyện tập, KHÔNG được dùng để tạo mã đề thi.
+ */
+export const QUESTION_USAGE = {
+  EXAM: 'exam',
+  PRACTICE: 'practice',
+};
+
 export const ANSWER_TYPE = {
   SINGLE: 'single',
   MULTIPLE: 'multiple',

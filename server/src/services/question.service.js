@@ -20,6 +20,8 @@ import {
   Department,
   Exam,
 } from '../models/index.js';
+import { QUESTION_USAGE } from '../models/constants.js';
+import { questionUsageFilter } from '../models/question.model.js';
 import { ApiError, assertFound } from '../utils/api-error.js';
 import { findDepartmentByName, findOrCreateDepartmentByName, upsertDepartmentForImport } from './department.service.js';
 import { normalizeDeptName } from '../models/department.model.js';
@@ -152,6 +154,25 @@ export function validateAnswerSet(answerType, answers) {
   }
 }
 
+// Kiểm tra giá trị usage (thi chính thức / ôn tập).
+// required = true: thiếu là lỗi (dùng cho import để không bao giờ tự đoán ngân hàng đích).
+export function parseUsage(raw, { required = false } = {}) {
+  if (raw === undefined || raw === null || raw === '') {
+    if (required) {
+      throw new ApiError(
+        400,
+        'Vui lòng chọn nhập vào ngân hàng thi chính thức hay ngân hàng ôn tập',
+        'QUESTION_USAGE_REQUIRED',
+      );
+    }
+    return undefined;
+  }
+  if (!Object.values(QUESTION_USAGE).includes(raw)) {
+    throw new ApiError(400, 'usage không hợp lệ', 'QUESTION_VALIDATION');
+  }
+  return raw;
+}
+
 // Serialize câu hỏi và danh sách đáp án sang định dạng JSON hoàn chỉnh
 function serializeQuestion(doc, answers) {
   return {
@@ -161,6 +182,8 @@ function serializeQuestion(doc, answers) {
     answerType: doc.answerType,
     difficulty: doc.difficulty,
     scope: doc.scope,
+    // Dữ liệu cũ chưa có trường usage được coi là câu thi chính thức
+    usage: doc.usage ?? QUESTION_USAGE.EXAM,
     topicId: doc.topicId?.toString(),
     departmentId: doc.departmentId?.toString(),
     imageUrl: doc.imageUrl,
@@ -179,7 +202,7 @@ function serializeQuestion(doc, answers) {
 
 // Dựng truy vấn lọc câu hỏi theo nhiều tiêu chí
 function buildQuestionQuery(filters = {}) {
-  const { topicId, scope, departmentId, questionKind, difficulty, answerType, isActive = true, search } = filters;
+  const { topicId, scope, departmentId, questionKind, difficulty, answerType, usage, isActive = true, search } = filters;
   const query = {};
   if (isActive !== undefined && isActive !== 'all') {
     query.isActive = isActive === true || isActive === 'true';
@@ -190,6 +213,8 @@ function buildQuestionQuery(filters = {}) {
   if (questionKind) query.questionKind = questionKind;
   if (difficulty) query.difficulty = difficulty;
   if (answerType) query.answerType = answerType;
+  const usageValue = parseUsage(usage);
+  if (usageValue) Object.assign(query, questionUsageFilter(usageValue));
   if (search?.trim()) {
     query.content = { $regex: search.trim(), $options: 'i' };
   }
@@ -205,9 +230,14 @@ export async function listQuestions(filters = {}) {
   const safePage = Math.max(Number(page) || 1, 1);
   const skip = (safePage - 1) * safeLimit;
 
-  const [items, total] = await Promise.all([
+  // Số câu theo từng ngân hàng (áp các bộ lọc khác, bỏ lọc usage) để hiện trên các nút lọc
+  const countBase = buildQuestionQuery({ ...filters, usage: undefined });
+
+  const [items, total, examCount, practiceCount] = await Promise.all([
     Question.find(query).sort({ updatedAt: -1 }).skip(skip).limit(safeLimit).lean(),
     Question.countDocuments(query),
+    Question.countDocuments({ ...countBase, ...questionUsageFilter(QUESTION_USAGE.EXAM) }),
+    Question.countDocuments({ ...countBase, ...questionUsageFilter(QUESTION_USAGE.PRACTICE) }),
   ]);
 
   const ids = items.map((q) => q._id);
@@ -222,6 +252,7 @@ export async function listQuestions(filters = {}) {
   return {
     items: items.map((q) => serializeQuestion(q, byQuestion.get(q._id.toString()) ?? [])),
     pagination: { page: safePage, limit: safeLimit, total },
+    usageCounts: { exam: examCount, practice: practiceCount },
   };
 }
 
@@ -262,6 +293,7 @@ export async function createQuestion(payload, createdBy) {
     imageUrl,
     imageCloudinaryId,
     answers,
+    usage,
   } = payload;
 
   if (!content?.trim()) {
@@ -272,6 +304,8 @@ export async function createQuestion(payload, createdBy) {
   }
 
   validateAnswerSet(answerType, answers);
+  // Không gửi usage thì mặc định là câu thi chính thức (giữ đúng hành vi cũ)
+  const usageValue = parseUsage(usage) ?? QUESTION_USAGE.EXAM;
 
   const question = await Question.create({
     content: content.trim(),
@@ -279,6 +313,7 @@ export async function createQuestion(payload, createdBy) {
     answerType,
     difficulty,
     scope,
+    usage: usageValue,
     topicId,
     departmentId: scope === QUESTION_SCOPE.DEPARTMENT_SPECIFIC ? departmentId : undefined,
     imageUrl,
@@ -296,6 +331,8 @@ export async function updateQuestion(id, payload, actorUserId, ipAddress) {
   assertFound(question, 'Không tìm thấy câu hỏi', 'QUESTION_NOT_FOUND');
 
   const previousCloudinaryId = question.imageCloudinaryId;
+  const previousUsage = question.usage ?? QUESTION_USAGE.EXAM;
+  if (payload.usage !== undefined) parseUsage(payload.usage);
 
   const fields = [
     'content',
@@ -307,6 +344,7 @@ export async function updateQuestion(id, payload, actorUserId, ipAddress) {
     'departmentId',
     'imageUrl',
     'imageCloudinaryId',
+    'usage',
     'isActive',
   ];
   for (const f of fields) {
@@ -318,6 +356,20 @@ export async function updateQuestion(id, payload, actorUserId, ipAddress) {
 
   if (payload.answers) {
     validateAnswerSet(question.answerType, payload.answers);
+  }
+
+  // Chuyển câu từ THI sang ÔN TẬP sẽ lộ đáp án cho thí sinh: chặn nếu chủ đề đang có kỳ thi phát hành
+  // (cùng quy tắc với việc ngừng sử dụng câu hỏi)
+  const nextUsage = question.usage ?? QUESTION_USAGE.EXAM;
+  if (nextUsage === QUESTION_USAGE.PRACTICE && previousUsage !== QUESTION_USAGE.PRACTICE) {
+    const activeExam = await findActiveExamUsingTopics([question.topicId]);
+    if (activeExam) {
+      throw new ApiError(
+        409,
+        `Không thể chuyển câu hỏi này sang Ôn tập vì chủ đề của câu hỏi đang được dùng cho kỳ thi "${activeExam.title}" đang diễn ra (câu có thể đã nằm trong mã đề). Vui lòng đợi kỳ thi kết thúc rồi thử lại.`,
+        'QUESTION_USAGE_ACTIVE_EXAM',
+      );
+    }
   }
 
   await question.save();
@@ -553,8 +605,12 @@ function readImportRows(filePath) {
 }
 
 // Nạp tập hợp các khóa định danh câu hỏi đã tồn tại trong DB để check trùng lặp
-async function loadSeenKeys() {
-  const existingQuestions = await Question.find({ isActive: true }, 'content topicId scope departmentId').lean();
+// Chỉ so trùng trong CÙNG ngân hàng (thi chính thức / ôn tập)
+async function loadSeenKeys(usage) {
+  const existingQuestions = await Question.find(
+    { isActive: true, ...questionUsageFilter(usage) },
+    'content topicId scope departmentId',
+  ).lean();
   return new Set(
     existingQuestions.map((q) =>
       [
@@ -587,9 +643,22 @@ function resolveImportTokenPath(token) {
 }
 
 // Bước 1: Xem trước (Preview) Import Excel: Phân tích các dòng hợp lệ, dòng trùng lặp, thiếu phòng ban và dòng lỗi
-export async function previewImportQuestionsFromExcelFile(filePath) {
+export async function previewImportQuestionsFromExcelFile(filePath, usage) {
+  // Bắt buộc chọn ngân hàng đích trước khi import. Thiếu/sai thì xóa file tạm rồi báo lỗi
+  let usageValue;
+  try {
+    usageValue = parseUsage(usage, { required: true });
+  } catch (err) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch {
+      /* ignore cleanup */
+    }
+    throw err;
+  }
+
   const rows = readImportRows(filePath);
-  const seenKeys = await loadSeenKeys();
+  const seenKeys = await loadSeenKeys(usageValue);
 
   const ready = [];
   const duplicates = [];
@@ -631,6 +700,7 @@ export async function previewImportQuestionsFromExcelFile(filePath) {
 
   return {
     token: path.basename(filePath),
+    usage: usageValue,
     totalRows: rows.length,
     readyCount: ready.length,
     duplicateCount: duplicates.length,
@@ -644,7 +714,8 @@ export async function previewImportQuestionsFromExcelFile(filePath) {
 
 // Bước 2: Xác nhận (Confirm) Import Excel vào CSDL và tự động tạo phòng ban mới nếu được chọn
 export async function confirmImportQuestions(token, options, createdBy, actorUserId, ipAddress) {
-  const { createDepartments = [], keepDuplicateRows = [] } = options ?? {};
+  const { createDepartments = [], keepDuplicateRows = [], usage } = options ?? {};
+  const usageValue = parseUsage(usage, { required: true });
   const filePath = resolveImportTokenPath(token);
   if (!fs.existsSync(filePath)) {
     throw new ApiError(
@@ -675,7 +746,7 @@ export async function confirmImportQuestions(token, options, createdBy, actorUse
   }
 
   const rows = readImportRows(filePath);
-  const seenKeys = await loadSeenKeys();
+  const seenKeys = await loadSeenKeys(usageValue);
   const keepSet = new Set(keepDuplicateRows);
 
   const created = [];
@@ -699,6 +770,7 @@ export async function confirmImportQuestions(token, options, createdBy, actorUse
         answerType: payload.answerType,
         difficulty: payload.difficulty,
         scope: payload.scope,
+        usage: usageValue,
         topicId: payload.topicId,
         departmentId: payload.departmentId,
         createdBy,
@@ -722,6 +794,7 @@ export async function confirmImportQuestions(token, options, createdBy, actorUse
   }
 
   return {
+    usage: usageValue,
     imported: created.length,
     failed: errors.length,
     skipped: skippedDuplicates.length,
@@ -742,6 +815,7 @@ export async function getQuestionStatsByTopic(topicId) {
       topicId,
       scope: QUESTION_SCOPE.COMMON,
       isActive: true,
+      ...questionUsageFilter(QUESTION_USAGE.EXAM),
     }),
     Question.aggregate([
       {
@@ -749,6 +823,7 @@ export async function getQuestionStatsByTopic(topicId) {
           topicId: new mongoose.Types.ObjectId(topicId),
           scope: QUESTION_SCOPE.DEPARTMENT_SPECIFIC,
           isActive: true,
+          ...questionUsageFilter(QUESTION_USAGE.EXAM),
         },
       },
       { $group: { _id: '$departmentId', count: { $sum: 1 } } },
@@ -768,4 +843,4 @@ export async function getQuestionStatsByTopic(topicId) {
       count: countByDeptId.get(dept._id.toString()) ?? 0,
     })),
   };
-}
+}

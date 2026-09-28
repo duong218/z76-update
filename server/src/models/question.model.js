@@ -4,7 +4,19 @@ import {
   DIFFICULTY,
   QUESTION_KIND,
   QUESTION_SCOPE,
+  QUESTION_USAGE,
 } from './constants.js';
+
+/**
+ * Bộ lọc theo mục đích sử dụng, dùng chung cho mọi truy vấn rút câu hỏi.
+ * - PRACTICE: chỉ lấy đúng câu có usage = 'practice'.
+ * - Mọi giá trị khác (kể cả thiếu tham số): lấy các câu KHÔNG phải 'practice',
+ *   nên câu cũ chưa có trường usage vẫn thuộc ngân hàng thi và không bao giờ lọt sang ôn tập.
+ */
+export function questionUsageFilter(usage) {
+  if (usage === QUESTION_USAGE.PRACTICE) return { usage: QUESTION_USAGE.PRACTICE };
+  return { usage: { $ne: QUESTION_USAGE.PRACTICE } };
+}
 
 const questionSchema = new mongoose.Schema(
   {
@@ -50,6 +62,12 @@ const questionSchema = new mongoose.Schema(
      * khác hoặc xoá asset không còn dùng nữa. Không tự sinh ngẫu nhiên.
      */
     imageCloudinaryId: { type: String, trim: true },
+    /** Mục đích sử dụng: thi chính thức (mặc định) hoặc ôn tập — xem QUESTION_USAGE trong constants.js */
+    usage: {
+      type: String,
+      enum: Object.values(QUESTION_USAGE),
+      default: QUESTION_USAGE.EXAM,
+    },
     isActive: { type: Boolean, default: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
@@ -68,5 +86,6 @@ questionSchema.pre('validate', function validateDepartmentScope(next) {
 });
 
 questionSchema.index({ topicId: 1, scope: 1, departmentId: 1, isActive: 1 });
+questionSchema.index({ usage: 1, topicId: 1, isActive: 1 });
 
 export const Question = mongoose.model('Question', questionSchema);

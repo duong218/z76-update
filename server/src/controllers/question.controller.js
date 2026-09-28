@@ -12,7 +12,14 @@ import {
   DIFFICULTY,
   QUESTION_KIND,
   QUESTION_SCOPE,
+  QUESTION_USAGE,
 } from '../models/constants.js';
+
+// Nhãn tiếng Việt của ngân hàng câu hỏi, dùng cho nhật ký (audit)
+const USAGE_LABEL = {
+  [QUESTION_USAGE.EXAM]: 'thi chính thức',
+  [QUESTION_USAGE.PRACTICE]: 'ôn tập',
+};
 
 // Hàm phụ trợ lấy địa chỉ IP của client
 function clientIp(req) {
@@ -34,6 +41,9 @@ function parseCreateBody(body) {
     answers,
   } = body ?? {};
 
+  // Không gửi usage thì mặc định là thi chính thức; gửi giá trị lạ thì báo lỗi 400
+  const usage = questionService.parseUsage(body?.usage) ?? QUESTION_USAGE.EXAM;
+
   const enums = [
     [questionKind, Object.values(QUESTION_KIND), 'questionKind'],
     [answerType, Object.values(ANSWER_TYPE), 'answerType'],
@@ -52,6 +62,7 @@ function parseCreateBody(body) {
     answerType,
     difficulty,
     scope,
+    usage,
     topicId,
     departmentId,
     imageUrl,
@@ -69,6 +80,7 @@ export const list = asyncHandler(async (req, res) => {
     questionKind: req.query.questionKind,
     difficulty: req.query.difficulty,
     answerType: req.query.answerType,
+    usage: req.query.usage,
     isActive: req.query.isActive ?? true,
     search: req.query.search,
     page: req.query.page,
@@ -134,6 +146,7 @@ export const update = asyncHandler(async (req, res) => {
   if (payload.scope && !Object.values(QUESTION_SCOPE).includes(payload.scope)) {
     throw new ApiError(400, 'scope không hợp lệ', 'QUESTION_VALIDATION');
   }
+  if (payload.usage !== undefined) questionService.parseUsage(payload.usage);
 
   const data = await questionService.updateQuestion(
     req.params.id,
@@ -147,7 +160,11 @@ export const update = asyncHandler(async (req, res) => {
     action: 'UPDATE_QUESTION',
     resourceType: 'Question',
     resourceId: req.params.id,
-    metadata: { detail: `Cập nhật câu hỏi (ID: ${req.params.id})` },
+    metadata: {
+      detail: payload.usage
+        ? `Cập nhật câu hỏi (ID: ${req.params.id}), ngân hàng: ${USAGE_LABEL[payload.usage]}`
+        : `Cập nhật câu hỏi (ID: ${req.params.id})`,
+    },
     ipAddress: clientIp(req),
   });
   res.json({
@@ -222,7 +239,7 @@ export const previewImport = asyncHandler(async (req, res) => {
   if (!req.file?.path) {
     throw new ApiError(400, 'Thiếu file Excel (field: file)', 'IMPORT_FILE_MISSING');
   }
-  const data = await questionService.previewImportQuestionsFromExcelFile(req.file.path);
+  const data = await questionService.previewImportQuestionsFromExcelFile(req.file.path, req.body?.usage);
   res.json({
     success: true,
     message: 'Đã phân tích file, vui lòng xem lại trước khi xác nhận',
@@ -233,13 +250,13 @@ export const previewImport = asyncHandler(async (req, res) => {
 
 // Bước 2 Import câu hỏi từ file Excel: Lưu danh sách câu hỏi hợp lệ vào CSDL
 export const confirmImport = asyncHandler(async (req, res) => {
-  const { token, createDepartments, keepDuplicateRows } = req.body ?? {};
+  const { token, createDepartments, keepDuplicateRows, usage } = req.body ?? {};
   if (!token) {
     throw new ApiError(400, 'Thiếu token phiên import (hãy preview lại)', 'IMPORT_TOKEN_MISSING');
   }
   const data = await questionService.confirmImportQuestions(
     token,
-    { createDepartments, keepDuplicateRows },
+    { createDepartments, keepDuplicateRows, usage },
     req.auth.userId,
     req.auth.userId,
     clientIp(req),
@@ -249,12 +266,12 @@ export const confirmImport = asyncHandler(async (req, res) => {
     actorUserId: req.auth.userId,
     action: 'IMPORT_QUESTIONS',
     resourceType: 'Question',
-    metadata: { detail: `Import câu hỏi từ Excel (Thành công: ${data.imported}, Lỗi: ${data.failed}, Bỏ qua trùng: ${data.skipped})` },
+    metadata: { detail: `Import câu hỏi từ Excel vào ngân hàng ${USAGE_LABEL[data.usage]} (Thành công: ${data.imported}, Lỗi: ${data.failed}, Bỏ qua trùng: ${data.skipped})` },
     ipAddress: clientIp(req),
   });
   res.json({
     success: true,
-    message: `Import xong: ${data.imported} thành công, ${data.skipped} bỏ qua (trùng), ${data.failed} lỗi`,
+    message: `Import vào ngân hàng ${USAGE_LABEL[data.usage]} xong: ${data.imported} thành công, ${data.skipped} bỏ qua (trùng), ${data.failed} lỗi`,
     code: 'QUESTION_IMPORT_DONE',
     data,
   });

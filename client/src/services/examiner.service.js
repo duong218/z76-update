@@ -13,7 +13,7 @@ export async function fetchQuestions(params = {}) {
   const res = await apiRequest(path, {
     headers: getAuthHeaders(),
   });
-  return res.data; // { items, pagination }
+  return res.data; // { items, pagination, usageCounts: { exam, practice } }
 }
 
 export async function fetchQuestionById(id) {
@@ -49,8 +49,10 @@ export async function deleteQuestion(id) {
   return res.data;
 }
 
-export async function previewImportQuestions(file) {
+// usage: 'exam' (thi chính thức) hoặc 'practice' (ôn tập) — bắt buộc, server từ chối nếu thiếu
+export async function previewImportQuestions(file, usage) {
   const formData = new FormData();
+  formData.append('usage', usage);
   formData.append('file', file);
 
   const res = await apiRequest('/questions/import/preview', {
@@ -58,16 +60,16 @@ export async function previewImportQuestions(file) {
     headers: getAuthHeaders(),
     body: formData,
   });
-  return res.data; // { token, totalRows, readyCount, duplicateCount, errorCount, missingDepartments, duplicates, ready, errors }
+  return res.data; // { token, usage, totalRows, readyCount, duplicateCount, errorCount, missingDepartments, duplicates, ready, errors }
 }
 
-export async function confirmImportQuestionsExcel({ token, createDepartments, keepDuplicateRows }) {
+export async function confirmImportQuestionsExcel({ token, createDepartments, keepDuplicateRows, usage }) {
   const res = await apiRequest('/questions/import/confirm', {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ token, createDepartments, keepDuplicateRows }),
+    body: JSON.stringify({ token, createDepartments, keepDuplicateRows, usage }),
   });
-  return res.data; // { imported, skipped, failed, errors, skippedDuplicates, questionIds }
+  return res.data; // { usage, imported, skipped, failed, errors, skippedDuplicates, questionIds }
 }
 
 export async function uploadQuestionImage(file) {

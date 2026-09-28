@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Plus, Edit2, Trash2, Loader2, X, Upload, Download, ChevronLeft, ChevronRight, ChevronDown, AlertCircle, AlertTriangle, CheckSquare, Square, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
+import { BookOpen, ClipboardCheck, Search, Plus, Edit2, Trash2, Loader2, X, Upload, Download, ChevronLeft, ChevronRight, ChevronDown, AlertCircle, AlertTriangle, CheckSquare, Square, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
 import { fetchQuestions, fetchTopics, fetchDepartments, createQuestion, updateQuestion, deleteQuestion, previewImportQuestions, confirmImportQuestionsExcel, bulkDeleteQuestions, uploadQuestionImage } from '../../services/examiner.service';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
+
+// Mục đích sử dụng câu hỏi: ngân hàng THI CHÍNH THỨC (bí mật) hoặc ôn tập (thí sinh thấy đáp án khi luyện)
+const USAGE_LABEL = { exam: 'Thi chính thức', practice: 'Ôn tập' };
 
 // MỚI — Dropdown tự dựng dùng chung, thay cho toàn bộ thẻ <select> native
 // trong file này. Danh sách xổ xuống của <select> do OS/trình duyệt tự vẽ,
@@ -117,6 +120,9 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedDifficulty, setSelectedDifficulty] = useState('');
   const [selectedAnswerType, setSelectedAnswerType] = useState('');
+  // Lọc theo ngân hàng: '' = tất cả, 'exam' = thi chính thức, 'practice' = ôn tập
+  const [selectedUsage, setSelectedUsage] = useState('');
+  const [usageCounts, setUsageCounts] = useState(null); // { exam, practice } do server trả kèm danh sách
 
   // Chọn nhiều câu hỏi (checkbox) để xóa hàng loạt. Reset mỗi khi đổi trang/
   // bộ lọc để tránh giữ id của câu hỏi không còn hiển thị trên màn hình.
@@ -130,6 +136,8 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   // Import Excel (bulk) state — 2 bước: preview (xem trước, chưa ghi DB) rồi
   // confirm (ghi thật) — xem handleImportFile / handleConfirmImport bên dưới.
   const [showImportGuide, setShowImportGuide] = useState(false);
+  // Ngân hàng đích của lần import này ('exam' | 'practice'). null = chưa chọn -> chưa cho tải file
+  const [importUsage, setImportUsage] = useState(null);
 
   useScrollLock(isFormOpen || isImportOpen || showImportGuide);
   const [importLoading, setImportLoading] = useState(false); // đang upload + phân tích file (bước preview)
@@ -147,6 +155,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   const [answerType, setAnswerType] = useState('single');
   const [difficulty, setDifficulty] = useState('easy');
   const [scope, setScope] = useState('Common');
+  const [usage, setUsage] = useState('exam'); // ngân hàng của câu hỏi trong form
   const [topicId, setTopicId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [imageUrl, setImageUrl] = useState('');
@@ -187,13 +196,15 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
           scope: selectedScope,
           departmentId: selectedDept,
           difficulty: selectedDifficulty,
-          answerType: selectedAnswerType
+          answerType: selectedAnswerType,
+          usage: selectedUsage
         }),
         fetchTopics(),
         fetchDepartments()
       ]);
       setQuestions(questionsRes.items);
       setPagination(questionsRes.pagination);
+      setUsageCounts(questionsRes.usageCounts || null);
       setTopics(topicsData);
       setDepartments(deptsData);
     } catch (err) {
@@ -201,12 +212,12 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedTopic, selectedScope, selectedDept, selectedDifficulty, selectedAnswerType]);
+  }, [selectedTopic, selectedScope, selectedDept, selectedDifficulty, selectedAnswerType, selectedUsage]);
 
   useEffect(() => {
     setSelectedIds([]);
     loadData(1);
-  }, [selectedTopic, selectedScope, selectedDept, selectedDifficulty, selectedAnswerType, loadData]);
+  }, [selectedTopic, selectedScope, selectedDept, selectedDifficulty, selectedAnswerType, selectedUsage, loadData]);
 
   // Khi nhận filter từ bên ngoài (vd bấm "Xem câu hỏi" trên 1 thẻ chủ đề ở
   // tab Chủ đề, hoặc trên 1 thẻ bộ phận ở tab Bộ phận/Phòng ban), áp filter
@@ -240,6 +251,8 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     setAnswerType('single');
     setDifficulty('easy');
     setScope('Common');
+    // Đang xem tab Ôn tập thì câu mới mặc định thuộc Ôn tập, ngược lại là Thi chính thức
+    setUsage(selectedUsage === 'practice' ? 'practice' : 'exam');
     setTopicId('');
     setDepartmentId('');
     setImageUrl('');
@@ -261,6 +274,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     setAnswerType(q.answerType || 'single');
     setDifficulty(q.difficulty || 'easy');
     setScope(q.scope || 'Common');
+    setUsage(q.usage || 'exam');
     setTopicId(q.topicId || '');
     setDepartmentId(q.departmentId || '');
     setImageUrl(q.imageUrl || '');
@@ -367,6 +381,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
       answerType,
       difficulty,
       scope,
+      usage,
       topicId,
       departmentId: scope === 'DepartmentSpecific' ? departmentId : undefined,
       answers: filteredAnswers
@@ -471,6 +486,51 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     }
   };
 
+  // Chuyển các câu đã chọn (trong trang hiện tại) sang ngân hàng khác.
+  // - Sang ÔN TẬP: thí sinh sẽ thấy đáp án, câu không còn dùng cho thi chính thức.
+  // - Sang THI: câu có thể đã hiện đáp án cho thí sinh khi ôn tập -> cảnh báo về tính công bằng.
+  // Gọi lần lượt updateQuestion cho từng câu; server chặn nếu chuyển sang Ôn tập mà chủ đề đang có kỳ thi phát hành.
+  const handleMoveUsage = async (target) => {
+    const toMove = questions.filter((q) => selectedIds.includes(q.id) && (q.usage || 'exam') !== target);
+    if (toMove.length === 0) {
+      showToast(`Các câu đã chọn đều đang thuộc ngân hàng ${USAGE_LABEL[target]}.`, 'warning');
+      return;
+    }
+    const message =
+      target === 'practice'
+        ? `Chuyển ${toMove.length} câu sang ngân hàng ÔN TẬP? Thí sinh sẽ thấy đáp án đúng khi luyện tập, và các câu này sẽ KHÔNG còn được dùng để tạo mã đề thi chính thức.`
+        : `Chuyển ${toMove.length} câu sang ngân hàng THI CHÍNH THỨC? Nếu thí sinh đã từng ôn tập các câu này thì họ có thể đã biết đáp án, ảnh hưởng đến tính công bằng của kỳ thi.`;
+    const ok = await confirmAction(message, {
+      title: `Chuyển sang ${USAGE_LABEL[target]}`,
+      confirmLabel: `Chuyển sang ${USAGE_LABEL[target]}`,
+      cancelLabel: 'Không chuyển',
+    });
+    if (!ok) return;
+    setActionLoading(true);
+    setError('');
+    let moved = 0;
+    const failedMessages = [];
+    for (const q of toMove) {
+      try {
+        await updateQuestion(q.id, { usage: target });
+        moved += 1;
+      } catch (err) {
+        failedMessages.push(err.message || 'Lỗi không xác định');
+      }
+    }
+    setSelectedIds([]);
+    await loadData(1);
+    if (failedMessages.length === 0) {
+      showToast(`Đã chuyển ${moved} câu sang ngân hàng ${USAGE_LABEL[target]}.`, 'success');
+    } else {
+      showToast(
+        `Đã chuyển ${moved} câu, ${failedMessages.length} câu không chuyển được: ${failedMessages[0]}`,
+        'warning',
+      );
+    }
+    setActionLoading(false);
+  };
+
   // Xóa TOÀN BỘ câu hỏi khớp đúng bộ lọc đang áp dụng trên UI (không giới
   // hạn theo trang hiện tại) — tiện cho việc dọn dữ liệu test/trùng lặp.
   // Backend sẽ tự chặn nếu chưa chọn bộ lọc cụ thể nào (tránh xóa nhầm toàn
@@ -496,6 +556,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
           departmentId: selectedDept,
           difficulty: selectedDifficulty,
           answerType: selectedAnswerType,
+          usage: selectedUsage,
           search,
         },
       });
@@ -524,10 +585,15 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   const handleImportFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!importUsage) {
+      setError('Vui lòng chọn nhập vào ngân hàng thi chính thức hay ngân hàng ôn tập trước khi tải file.');
+      e.target.value = '';
+      return;
+    }
     setImportLoading(true);
     setError('');
     try {
-      const data = await previewImportQuestions(file);
+      const data = await previewImportQuestions(file, importUsage);
       setImportPreview(data);
       setDeptDrafts(
         (data.missingDepartments || []).map((d) => ({
@@ -551,7 +617,14 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     }
   };
 
+  // Đóng cửa sổ chọn file (chưa có bản xem trước): bỏ luôn lựa chọn ngân hàng để lần sau phải chọn lại
+  const closeImportModal = () => {
+    setIsImportOpen(false);
+    setImportUsage(null);
+  };
+
   const closeImportPreview = () => {
+    setImportUsage(null);
     setImportPreview(null);
     setDeptDrafts([]);
     setKeepDupRows([]);
@@ -591,10 +664,27 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
       setError('Vui lòng nhập đủ mã và mô tả cho các bộ phận đang tạo, hoặc bỏ tick "Tạo bộ phận này" để bỏ qua.');
       return;
     }
+    // Bước xác nhận cuối: nói rõ số câu và ngân hàng đích, vì nhầm ngân hàng có thể làm lộ đề
+    const targetUsage = importPreview.usage || importUsage;
+    const totalToImport = importPreview.readyCount + keepDupRows.length + includedDeptRowCount;
+    const confirmed = await confirmAction(
+      targetUsage === 'practice'
+        ? `Bạn sắp thêm ${totalToImport} câu vào ngân hàng ÔN TẬP. Thí sinh sẽ thấy đáp án đúng khi luyện tập. Tiếp tục?`
+        : `Bạn sắp thêm ${totalToImport} câu vào ngân hàng THI CHÍNH THỨC (bí mật, dùng để tạo mã đề thi). Tiếp tục?`,
+      {
+        title: `Nhập vào ngân hàng ${USAGE_LABEL[targetUsage]}`,
+        confirmLabel: `Nhập vào ${USAGE_LABEL[targetUsage]}`,
+        cancelLabel: 'Kiểm tra lại',
+        danger: targetUsage === 'practice',
+      },
+    );
+    if (!confirmed) return;
+
     setImportConfirming(true);
     setError('');
     try {
       const res = await confirmImportQuestionsExcel({
+        usage: targetUsage,
         token: importPreview.token,
         createDepartments: deptDrafts
           .filter((d) => d.include)
@@ -602,9 +692,10 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
         keepDuplicateRows: keepDupRows,
       });
       showToast(
-        `Import xong: ${res.imported} thành công, ${res.skipped} bỏ qua (trùng), ${res.failed} lỗi.`,
+        `Đã thêm vào ngân hàng ${USAGE_LABEL[targetUsage]}: ${res.imported} thành công, ${res.skipped} bỏ qua (trùng), ${res.failed} lỗi.`,
         res.failed > 0 ? 'warning' : 'success',
       );
+      setImportUsage(null);
       setImportPreview(null);
       setDeptDrafts([]);
       setKeepDupRows([]);
@@ -644,6 +735,31 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
             Tìm kiếm
           </button>
         </form>
+
+        {/* Lọc theo ngân hàng: Tất cả / Thi chính thức / Ôn tập (kèm số câu) */}
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc theo ngân hàng câu hỏi">
+          {[
+            { value: '', label: 'Tất cả', count: usageCounts ? usageCounts.exam + usageCounts.practice : undefined, Icon: null },
+            { value: 'exam', label: 'Thi chính thức', count: usageCounts?.exam, Icon: ClipboardCheck },
+            { value: 'practice', label: 'Ôn tập', count: usageCounts?.practice, Icon: BookOpen },
+          ].map(({ value, label, count, Icon }) => (
+            <button
+              key={value || 'all'}
+              type="button"
+              onClick={() => setSelectedUsage(value)}
+              aria-pressed={selectedUsage === value}
+              className={`flex items-center gap-1.5 px-4 py-2 min-h-[44px] rounded-lg border font-semibold text-sm touch-manipulation transition-colors ${
+                selectedUsage === value
+                  ? 'border-[#008BC5] bg-[#008BC5] text-white'
+                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {Icon && <Icon className="w-4 h-4 shrink-0" />}
+              {label}
+              {count !== undefined && <span className="font-normal opacity-90">({count})</span>}
+            </button>
+          ))}
+        </div>
 
         {/* Bộ lọc — 2 cột trên mobile để mỗi ô chọn còn đủ rộng, có thể cuộn
             ngang danh sách khi mở dropdown; enlarge padding cho dễ chạm. */}
@@ -706,7 +822,10 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
           <div className="text-sm text-slate-500 font-medium">Tổng cộng: {pagination.total} câu hỏi</div>
           <div className="flex gap-2 w-full sm:w-auto">
             <button
-              onClick={() => setIsImportOpen(true)}
+              onClick={() => {
+                setImportUsage(null);
+                setIsImportOpen(true);
+              }}
               className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 active:bg-slate-100 transition-colors"
             >
               <Upload className="w-4 h-4" />
@@ -735,7 +854,25 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
             {allOnPageSelected ? 'Bỏ chọn tất cả trang này' : 'Chọn tất cả trang này'}
             {selectedIds.length > 0 && <span className="text-slate-400 font-normal">({selectedIds.length} đã chọn)</span>}
           </button>
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => handleMoveUsage('exam')}
+              disabled={selectedIds.length === 0 || actionLoading}
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] border border-[#008BC5]/40 text-[#008BC5] rounded-lg font-medium hover:bg-[#EAF6FF] active:bg-[#EAF6FF] transition-colors disabled:opacity-40 disabled:cursor-not-allowed touch-manipulation"
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              Chuyển sang Thi
+            </button>
+            <button
+              type="button"
+              onClick={() => handleMoveUsage('practice')}
+              disabled={selectedIds.length === 0 || actionLoading}
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] border border-[#F6AD37]/60 text-[#B45309] rounded-lg font-medium hover:bg-[#FFFBEB] active:bg-[#FFFBEB] transition-colors disabled:opacity-40 disabled:cursor-not-allowed touch-manipulation"
+            >
+              <BookOpen className="w-4 h-4" />
+              Chuyển sang Ôn tập
+            </button>
             <button
               type="button"
               onClick={handleBulkDeleteSelected}
@@ -785,6 +922,14 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                   </button>
                   <div className="space-y-2 min-w-0">
                   <div className="flex flex-wrap gap-1.5 sm:gap-2 items-center">
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold flex items-center gap-1 ${
+                        q.usage === 'practice' ? 'bg-[#FFFBEB] text-[#B45309]' : 'bg-[#EAF6FF] text-[#008BC5]'
+                      }`}
+                    >
+                      {q.usage === 'practice' ? <BookOpen className="w-3 h-3" /> : <ClipboardCheck className="w-3 h-3" />}
+                      {q.usage === 'practice' ? 'Ôn tập' : 'Thi chính thức'}
+                    </span>
                     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${q.difficulty === 'easy' ? 'bg-[#F0FDF4] text-[#16A34A]' :
                         q.difficulty === 'medium' ? 'bg-[#FFFBEB] text-[#B45309]' :
                           'bg-[#FEECEC] text-[#C53030]'
@@ -893,6 +1038,38 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                   onChange={(e) => setContent(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Câu hỏi này dùng cho</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'exam', label: 'Thi chính thức', Icon: ClipboardCheck },
+                    { value: 'practice', label: 'Ôn tập', Icon: BookOpen },
+                  ].map(({ value, label, Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setUsage(value)}
+                      aria-pressed={usage === value}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 min-h-[46px] rounded-lg border font-semibold touch-manipulation transition-colors ${
+                        usage === value
+                          ? value === 'practice'
+                            ? 'border-[#F6AD37] bg-[#FFFBEB] text-[#B45309]'
+                            : 'border-[#008BC5] bg-[#EAF6FF] text-[#008BC5]'
+                          : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5">
+                  {usage === 'practice'
+                    ? 'Thí sinh sẽ thấy đáp án đúng khi ôn tập. Câu này không được dùng cho thi chính thức.'
+                    : 'Bí mật: chỉ dùng để tạo mã đề thi, thí sinh không xem được.'}
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1089,13 +1266,73 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
             <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0">
               <h3 className="font-bold text-lg text-[#0F172A]">Nhập câu hỏi từ file Excel</h3>
               <button
-                onClick={() => setIsImportOpen(false)}
+                onClick={closeImportModal}
                 className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 sm:p-5 space-y-4">
+              {!importUsage ? (
+                <div className="space-y-3">
+                  <p className="font-semibold text-[#0F172A]">Import vào đâu?</p>
+                  <button
+                    type="button"
+                    onClick={() => setImportUsage('exam')}
+                    className="w-full text-left p-4 rounded-xl border-2 border-[#008BC5] bg-[#EAF6FF] hover:bg-[#dff0fb] active:bg-[#dff0fb] transition-colors touch-manipulation min-h-[72px]"
+                  >
+                    <div className="flex items-center gap-2 font-bold text-[#008BC5] text-base">
+                      <ClipboardCheck className="w-5 h-5 shrink-0" />
+                      Câu hỏi thi chính thức
+                    </div>
+                    <div className="text-sm text-[#334155] mt-1">
+                      Ngân hàng bí mật, chỉ dùng để tạo mã đề thi. Thí sinh không xem được.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportUsage('practice')}
+                    className="w-full text-left p-4 rounded-xl border-2 border-[#F6AD37] bg-[#FFFBEB] hover:bg-[#fff5d6] active:bg-[#fff5d6] transition-colors touch-manipulation min-h-[72px]"
+                  >
+                    <div className="flex items-center gap-2 font-bold text-[#B45309] text-base">
+                      <BookOpen className="w-5 h-5 shrink-0" />
+                      Câu hỏi ôn tập
+                    </div>
+                    <div className="text-sm text-[#334155] mt-1">
+                      Thí sinh luyện tập và thấy đáp án đúng ngay. Không dùng cho thi chính thức.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeImportModal}
+                    className="w-full py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              ) : (
+              <>
+              <div
+                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-sm font-semibold ${
+                  importUsage === 'practice'
+                    ? 'bg-[#FFFBEB] border-[#F6AD37]/50 text-[#B45309]'
+                    : 'bg-[#EAF6FF] border-[#008BC5]/30 text-[#008BC5]'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  {importUsage === 'practice' ? <BookOpen className="w-4 h-4 shrink-0" /> : <ClipboardCheck className="w-4 h-4 shrink-0" />}
+                  <span>Đang nhập vào: {importUsage === 'practice' ? 'Câu hỏi ôn tập' : 'Câu hỏi thi chính thức'}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setImportUsage(null)}
+                  disabled={importLoading}
+                  className="shrink-0 underline font-semibold min-h-[32px] px-1 disabled:opacity-50"
+                >
+                  Đổi
+                </button>
+              </div>
+
               <a
                 href="/templates/Mau_Import_Cau_Hoi_Z176.xlsx"
                 download
@@ -1208,13 +1445,15 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
               <div className="pt-2 flex gap-3 pb-1">
                 <button
                   type="button"
-                  onClick={() => setIsImportOpen(false)}
+                  onClick={closeImportModal}
                   disabled={importLoading}
                   className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors disabled:opacity-50"
                 >
                   Đóng
                 </button>
               </div>
+              </>
+              )}
             </div>
           </div>
         </div>
@@ -1238,6 +1477,19 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
             </div>
 
             <div className="p-5 space-y-4 overflow-y-auto" data-lenis-prevent>
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border font-semibold ${
+                  (importPreview.usage || importUsage) === 'practice'
+                    ? 'bg-[#FFFBEB] border-[#F6AD37]/50 text-[#B45309]'
+                    : 'bg-[#EAF6FF] border-[#008BC5]/30 text-[#008BC5]'
+                }`}
+              >
+                {(importPreview.usage || importUsage) === 'practice' ? <BookOpen className="w-4 h-4 shrink-0" /> : <ClipboardCheck className="w-4 h-4 shrink-0" />}
+                <span>
+                  Sẽ nhập vào ngân hàng: {(importPreview.usage || importUsage) === 'practice' ? 'ÔN TẬP' : 'THI CHÍNH THỨC'}
+                </span>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 <div className="bg-slate-50 rounded-lg p-3">
                   <div className="text-xl font-bold text-[#0F172A]">{importPreview.totalRows}</div>

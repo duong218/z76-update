@@ -1,13 +1,15 @@
 /**
  * Service Luyện tập theo chủ đề (Practice).
- * Câu hỏi lấy từ ngân hàng chung (Common) và câu riêng của đúng phòng ban thí sinh.
+ * Câu hỏi CHỈ lấy từ ngân hàng ÔN TẬP (usage = 'practice', tách riêng khỏi ngân hàng thi chính thức),
+ * gồm câu chung (Common) và câu riêng của đúng phòng ban thí sinh.
  * Kết quả luyện tập lưu riêng ở PracticeSession, không ảnh hưởng thống kê thi chính thức.
  */
 
 import mongoose from 'mongoose';
 import { Answer, Employee, Question, Topic } from '../models/index.js';
 import { PracticeSession } from '../models/practice-session.model.js';
-import { QUESTION_SCOPE } from '../models/constants.js';
+import { QUESTION_SCOPE, QUESTION_USAGE } from '../models/constants.js';
+import { questionUsageFilter } from '../models/question.model.js';
 import { ApiError } from '../utils/api-error.js';
 
 const MAX_QUESTIONS = 30;
@@ -26,6 +28,8 @@ async function buildEligibleFilter(userId, topicIds, difficulty = 'all') {
 
   const filter = {
     isActive: true,
+    // Tuyệt đối không rút câu của ngân hàng thi chính thức: ôn tập trả đáp án đúng cho thí sinh
+    ...questionUsageFilter(QUESTION_USAGE.PRACTICE),
     topicId: { $in: topicIds.map((id) => new mongoose.Types.ObjectId(id)) },
     $or: [
       { scope: QUESTION_SCOPE.COMMON },
@@ -268,6 +272,17 @@ export async function checkPracticeAnswer(userId, sessionId, questionId, selecte
   return toResult(fresh);
 }
 
+function buildSubmitResult(session) {
+  return {
+    sessionId: session._id,
+    totalQuestions: session.totalQuestions,
+    correctCount: session.correctCount,
+    percent: session.totalQuestions > 0
+      ? Math.round((session.correctCount / session.totalQuestions) * 100)
+      : 0,
+  };
+}
+
 // Nộp bài: gán đáp án client gửi lên, so khớp đúng và đủ tập đáp án đúng, tính điểm
 export async function submitPractice(userId, sessionId, answers = []) {
   if (!mongoose.isValidObjectId(sessionId)) {
@@ -277,8 +292,16 @@ export async function submitPractice(userId, sessionId, answers = []) {
   if (!session) {
     throw new ApiError(404, 'Không tìm thấy lượt luyện', 'PRACTICE_NOT_FOUND');
   }
+  // Đã nộp rồi (vd: tự nộp khi hết giờ rồi người dùng bấm nộp thêm, hoặc client gửi lại do rớt mạng):
+  // trả lại kết quả cũ thay vì báo lỗi, để nộp bài luôn an toàn khi gọi lặp (idempotent).
+  if (session.status === 'submitted') return buildSubmitResult(session);
   if (session.status !== 'in_progress') {
-    throw new ApiError(400, 'Lượt luyện đã kết thúc', 'PRACTICE_ALREADY_SUBMITTED');
+    // Lượt đã bị bỏ, hoặc bị thay bằng lượt luyện mới: không có kết quả để trả
+    throw new ApiError(
+      400,
+      'Lượt luyện này đã bị hủy hoặc đã được thay bằng lượt mới',
+      'PRACTICE_SESSION_EXPIRED',
+    );
   }
 
   const answerByQuestion = new Map(
@@ -329,14 +352,7 @@ export async function submitPractice(userId, sessionId, answers = []) {
   session.submittedAt = new Date();
   await session.save();
 
-  return {
-    sessionId: session._id,
-    totalQuestions: session.totalQuestions,
-    correctCount,
-    percent: session.totalQuestions > 0
-      ? Math.round((correctCount / session.totalQuestions) * 100)
-      : 0,
-  };
+  return buildSubmitResult(session);
 }
 
 // Bài đang làm dở của thí sinh (để tiếp tục sau khi tải lại trang / đổi tab / thoát app).

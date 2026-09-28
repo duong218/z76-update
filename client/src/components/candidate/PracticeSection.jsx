@@ -98,6 +98,10 @@ const resultMessage = (percent) => {
  * Luyện tập theo chủ đề: cấu hình -> làm bài (có đếm giờ nếu có giới hạn) -> kết quả.
  * initialTopicIds: chủ đề được chọn sẵn (ví dụ từ nút "Luyện ngay" trên dashboard).
  */
+// Hết giờ tự nộp: số lần thử tối đa khi gặp lỗi tạm thời (rớt mạng...) và khoảng chờ giữa các lần
+const AUTO_SUBMIT_MAX_TRIES = 4;
+const AUTO_SUBMIT_RETRY_MS = 1500;
+
 export const PracticeSection = ({ initialTopicIds = [] }) => {
   const [phase, setPhase] = useState('config'); // config | quiz | result
   const [topics, setTopics] = useState([]);
@@ -195,7 +199,9 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     saveDraft(session.sessionId, { answers, index });
   }, [phase, session, answers, index]);
 
-  const handleSubmit = async () => {
+  // Nộp bài. auto = true khi hết giờ: gặp lỗi tạm thời (rớt mạng...) thì tự thử lại vài lần,
+  // không để bài kẹt ở màn làm bài với đồng hồ 00:00.
+  const handleSubmit = async (auto = false) => {
     if (submittedRef.current || !session) return;
     submittedRef.current = true;
     setSubmitting(true);
@@ -205,14 +211,33 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
       questionId: q.id,
       selectedAnswerIds: answers[q.id] || [],
     }));
+    const maxTries = auto ? AUTO_SUBMIT_MAX_TRIES : 1;
 
     try {
-      const data = await submitPractice(session.sessionId, payload);
-      clearDraft(session.sessionId);
-      setActiveSession(null);
-      setResult(data);
-      setPhase('result');
+      for (let attempt = 1; attempt <= maxTries; attempt += 1) {
+        try {
+          const data = await submitPractice(session.sessionId, payload);
+          clearDraft(session.sessionId);
+          setActiveSession(null);
+          setResult(data);
+          setPhase('result');
+          return;
+        } catch (err) {
+          // Lượt đã bị hủy / bị thay bằng lượt mới: nộp lại cũng vô ích -> đưa về màn cấu hình
+          if (err?.code === 'PRACTICE_SESSION_EXPIRED' || err?.code === 'PRACTICE_NOT_FOUND') {
+            clearDraft(session.sessionId);
+            setActiveSession(null);
+            setSession(null);
+            setPhase('config');
+            setError('Lượt luyện này không còn hiệu lực (đã bị hủy hoặc bạn đã bắt đầu lượt mới). Hãy bắt đầu lại.');
+            return;
+          }
+          if (attempt >= maxTries) throw err;
+          await new Promise((resolve) => setTimeout(resolve, AUTO_SUBMIT_RETRY_MS * attempt));
+        }
+      }
     } catch (err) {
+      // Hết lần thử: mở khóa để thí sinh còn bấm "Kết thúc & xem kết quả" nộp tay được
       submittedRef.current = false;
       setError(err?.message || 'Không thể nộp bài.');
     } finally {
@@ -245,7 +270,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   // Hết giờ thì tự nộp bài
   useEffect(() => {
     if (phase === 'quiz' && session?.timeLimitSec && remaining <= 0) {
-      handleSubmit();
+      handleSubmit(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remaining, phase, session]);
@@ -382,7 +407,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
       setAnswers((prev) => ({ ...prev, [question.id]: data.selectedAnswerIds.map(String) }));
     } catch (err) {
       if (err?.code === 'PRACTICE_TIME_UP') {
-        handleSubmit();
+        handleSubmit(true);
         return;
       }
       setError(err?.message || 'Không thể kiểm tra đáp án.');
@@ -477,7 +502,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
               <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
             ) : topics.length === 0 ? (
               <p className="text-slate-500 text-sm">
-                Chưa có câu hỏi nào phù hợp với phòng ban của bạn.
+                Hiện chưa có câu hỏi ôn tập nào cho phòng ban của bạn. Người ra đề đang chuẩn bị, bạn vui lòng quay lại sau.
               </p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

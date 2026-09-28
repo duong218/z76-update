@@ -15,6 +15,8 @@ import {
   EXAM_STATUS,
   QUESTION_SCOPE,
 } from '../models/index.js';
+import { QUESTION_USAGE } from '../models/constants.js';
+import { questionUsageFilter } from '../models/question.model.js';
 import { ApiError } from '../utils/api-error.js';
 import { notificationService } from './notification.service.js';
 
@@ -53,6 +55,8 @@ async function validateQuestionAvailability(exam, department) {
     topicId: exam.topicId,
     scope: QUESTION_SCOPE.COMMON,
     isActive: true,
+    // Chỉ rút từ ngân hàng THI CHÍNH THỨC, không bao giờ rút câu ôn tập (thí sinh đã thấy đáp án)
+    ...questionUsageFilter(QUESTION_USAGE.EXAM),
   });
 
   const deptQuestions = await Question.find({
@@ -60,6 +64,7 @@ async function validateQuestionAvailability(exam, department) {
     scope: QUESTION_SCOPE.DEPARTMENT_SPECIFIC,
     departmentId: department._id,
     isActive: true,
+    ...questionUsageFilter(QUESTION_USAGE.EXAM),
   });
 
   const totalNeeded = exam.commonQuestionCount + exam.departmentQuestionCount;
@@ -73,7 +78,8 @@ async function validateQuestionAvailability(exam, department) {
       400,
       `Phòng ban "${department.name}" không đủ câu hỏi để tạo đề (cần tổng ${totalNeeded} câu, ` +
         `hiện có ${commonQuestions.length} câu chung + ${deptQuestions.length} câu riêng = ${totalAvailable} câu). ` +
-        `Vui lòng bổ sung thêm câu hỏi (chung hoặc riêng cho phòng ban này) thuộc chủ đề đã chọn.`,
+        `Vui lòng bổ sung thêm câu hỏi thi chính thức (chung hoặc riêng cho phòng ban này) thuộc chủ đề đã chọn. ` +
+        `Lưu ý: câu hỏi thuộc ngân hàng Ôn tập không được tính vào đề thi.`,
       'INSUFFICIENT_QUESTIONS',
     );
   }
@@ -218,4 +224,4 @@ export async function assignEmployeeToActiveExamIfAny(employee) {
 
     return null;
   }
-}
+}

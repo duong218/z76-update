@@ -33,6 +33,24 @@ export async function startPractice(options) {
   return result.data;
 }
 
+/** Bài luyện đang làm dở (null nếu không có) — để tiếp tục sau khi tải lại trang / đổi tab */
+export async function fetchActivePractice() {
+  const result = await apiRequest('/practice/active', {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  return result.data;
+}
+
+/** Bỏ bài đang làm dở */
+export async function abandonPractice(sessionId) {
+  const result = await apiRequest(`/practice/${sessionId}/abandon`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  return result.data;
+}
+
 /**
  * Chế độ 'instant': chấm 1 câu ngay, trả về { isCorrect, correctAnswerIds, selectedAnswerIds }.
  */

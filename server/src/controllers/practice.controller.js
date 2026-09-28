@@ -5,7 +5,9 @@
 
 import { asyncHandler } from '../utils/async-handler.js';
 import {
+  abandonPractice,
   checkPracticeAnswer,
+  getActivePractice,
   getAvailableTopics,
   getPracticeProgress,
   startPractice,
@@ -26,6 +28,16 @@ export const practiceController = {
   start: asyncHandler(async (req, res) => {
     const data = await startPractice(req.auth.userId, req.body);
     res.json({ success: true, message: 'Bắt đầu luyện tập', code: 'PRACTICE_STARTED', data });
+  }),
+
+  active: asyncHandler(async (req, res) => {
+    const data = await getActivePractice(req.auth.userId);
+    res.json({ success: true, message: 'OK', code: 'PRACTICE_ACTIVE', data });
+  }),
+
+  abandon: asyncHandler(async (req, res) => {
+    const data = await abandonPractice(req.auth.userId, req.params.id);
+    res.json({ success: true, message: 'Đã bỏ bài luyện', code: 'PRACTICE_ABANDONED', data });
   }),
 
   check: asyncHandler(async (req, res) => {

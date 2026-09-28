@@ -11,6 +11,13 @@ const practiceQuestionSchema = new mongoose.Schema(
     isCorrect: { type: Boolean, default: false },
     /** Chế độ 'instant': đã kiểm tra đúng/sai câu này -> khóa đáp án, không cho đổi */
     checked: { type: Boolean, default: false },
+    /**
+     * Ảnh chụp đáp án đúng lúc bắt đầu bài luyện (chỉ dùng phía server, KHÔNG gửi xuống client).
+     * Chấm điểm theo bản này để không bị ảnh hưởng nếu người ra đề sửa/xóa câu hỏi giữa chừng.
+     */
+    correctAnswerIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Answer' }],
+    /** Thứ tự đáp án đã xáo, để tiếp tục bài dở vẫn hiện đúng thứ tự cũ */
+    optionIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Answer' }],
   },
   { _id: false },
 );

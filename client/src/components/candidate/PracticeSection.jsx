@@ -12,12 +12,15 @@ import {
   Zap,
   ClipboardCheck,
 } from 'lucide-react';
+import { useConfirm } from '../ConfirmDialog';
 import {
   fetchPracticeTopics,
   fetchPracticeProgress,
   startPractice,
   submitPractice,
   checkPracticeAnswer,
+  fetchActivePractice,
+  abandonPractice,
 } from '../../services/practice.service';
 
 const QUESTION_COUNTS = [5, 10, 20, 30];
@@ -43,6 +46,35 @@ const MODES = [
     Icon: ClipboardCheck,
   },
 ];
+
+// Lưu tạm lựa chọn + vị trí câu đang làm để tiếp tục khi tải lại trang.
+// Điểm số thật vẫn do server chấm; dữ liệu này chỉ để khôi phục giao diện.
+const draftKey = (sessionId) => `z176_practice_draft_${sessionId}`;
+
+const loadDraft = (sessionId) => {
+  try {
+    const raw = localStorage.getItem(draftKey(sessionId));
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveDraft = (sessionId, data) => {
+  try {
+    localStorage.setItem(draftKey(sessionId), JSON.stringify(data));
+  } catch {
+    /* localStorage đầy/bị chặn: bỏ qua, không chặn luồng làm bài */
+  }
+};
+
+const clearDraft = (sessionId) => {
+  try {
+    localStorage.removeItem(draftKey(sessionId));
+  } catch {
+    /* ignore */
+  }
+};
 
 const getScrollBehavior = () =>
   typeof window !== 'undefined' &&
@@ -76,6 +108,9 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const [difficulty, setDifficulty] = useState('all');
   const [mode, setMode] = useState('instant');
   const [error, setError] = useState(null);
+  // Chưa chọn chủ đề mà bấm Bắt đầu: đánh dấu đỏ ngay khu vực chọn chủ đề
+  const [topicError, setTopicError] = useState(false);
+  const topicSectionRef = useRef(null);
   const [starting, setStarting] = useState(false);
   const [session, setSession] = useState(null);
   const [index, setIndex] = useState(0);
@@ -86,6 +121,11 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   // Chế độ instant: { [questionId]: { isCorrect, correctAnswerIds } } sau khi server chấm
   const [checked, setChecked] = useState({});
   const [checkingId, setCheckingId] = useState(null);
+  // Bài đang làm dở lấy từ server (để hiện nút Tiếp tục)
+  const [activeSession, setActiveSession] = useState(null);
+  // Bài dở đã quá giờ khi thí sinh rời đi: tự nộp và báo cho thí sinh biết
+  const [autoSubmitNotice, setAutoSubmitNotice] = useState(false);
+  const confirmAction = useConfirm();
 
   // Ref để tránh nộp bài 2 lần khi hết giờ và người dùng bấm nộp cùng lúc
   const submittedRef = useRef(false);
@@ -112,6 +152,47 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchActivePractice()
+      .then(async (data) => {
+        if (cancelled) return;
+        if (!data?.timedOut) {
+          setActiveSession(data || null);
+          return;
+        }
+        // Bài dở đã hết giờ: nộp với các lựa chọn đã có (server + bản nháp trên máy này)
+        const draft = loadDraft(data.sessionId);
+        const merged = { ...(draft.answers || {}), ...(data.answers || {}) };
+        const payload = data.questionIds.map((id) => ({
+          questionId: id,
+          selectedAnswerIds: merged[id] || [],
+        }));
+        try {
+          const res = await submitPractice(data.sessionId, payload);
+          clearDraft(data.sessionId);
+          if (cancelled) return;
+          setResult(res);
+          setAutoSubmitNotice(true);
+          setPhase('result');
+        } catch (err) {
+          if (!cancelled) setError(err?.message || 'Không thể tự động nộp bài đã hết giờ.');
+        }
+      })
+      .catch(() => {
+        /* không lấy được bài dở: bỏ qua, vẫn cho làm bài mới */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Lưu tạm tiến trình đang làm (chỉ khi đang ở màn làm bài)
+  useEffect(() => {
+    if (phase !== 'quiz' || !session?.sessionId) return;
+    saveDraft(session.sessionId, { answers, index });
+  }, [phase, session, answers, index]);
+
   const handleSubmit = async () => {
     if (submittedRef.current || !session) return;
     submittedRef.current = true;
@@ -125,6 +206,8 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
 
     try {
       const data = await submitPractice(session.sessionId, payload);
+      clearDraft(session.sessionId);
+      setActiveSession(null);
       setResult(data);
       setPhase('result');
     } catch (err) {
@@ -169,16 +252,73 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     prevIndexRef.current = index;
   }, [index, phase]);
 
-  const toggleTopic = (id) =>
+  // Tiếp tục bài đang làm dở: server là nguồn chính cho câu đã kiểm tra, localStorage bổ sung phần còn lại
+  const handleResume = () => {
+    if (!activeSession) return;
+    const draft = loadDraft(activeSession.sessionId);
+    const lastIndex = activeSession.questions.length - 1;
+    submittedRef.current = false;
+    setSession(activeSession);
+    setAnswers({ ...(draft.answers || {}), ...(activeSession.answers || {}) });
+    setChecked(activeSession.checked || {});
+    setIndex(Math.min(Math.max(Number(draft.index) || 0, 0), lastIndex));
+    setRemaining(activeSession.remainingSec ?? 0);
+    setResult(null);
+    setError(null);
+    setPhase('quiz');
+  };
+
+  const handleAbandon = async () => {
+    if (!activeSession) return;
+    const ok = await confirmAction('Bỏ bài đang làm dở? Kết quả bài này sẽ không được tính.', {
+      title: 'Bỏ bài đang làm',
+      confirmLabel: 'Bỏ bài',
+      cancelLabel: 'Giữ lại',
+    });
+    if (!ok) return;
+    try {
+      await abandonPractice(activeSession.sessionId);
+      clearDraft(activeSession.sessionId);
+      setActiveSession(null);
+    } catch (err) {
+      setError(err?.message || 'Không thể bỏ bài này.');
+    }
+  };
+
+  // Bấm Nộp bài: luôn hỏi lại (hết giờ thì tự nộp, không hỏi)
+  const requestSubmit = async () => {
+    if (submittedRef.current || !session) return;
+    const left = session.questions.filter((q) => (answers[q.id] || []).length === 0).length;
+    const ok = await confirmAction(
+      left > 0
+        ? `Bạn còn ${left} câu chưa trả lời. Bạn vẫn muốn nộp bài?`
+        : 'Bạn đã trả lời tất cả các câu. Nộp bài và xem kết quả?',
+      {
+        title: 'Nộp bài luyện tập',
+        confirmLabel: 'Nộp bài',
+        cancelLabel: 'Làm tiếp',
+        danger: left > 0,
+      },
+    );
+    if (ok) handleSubmit();
+  };
+
+  const toggleTopic = (id) => {
+    setTopicError(false);
     setSelectedTopicIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
+  };
 
   const handleStart = async () => {
     if (selectedTopicIds.length === 0) {
-      setError('Vui lòng chọn ít nhất một chủ đề.');
+      // Trên điện thoại, khu vực chọn chủ đề nằm xa nút Bắt đầu: cuộn tới đó và báo lỗi ngay tại chỗ
+      setError(null);
+      setTopicError(true);
+      topicSectionRef.current?.scrollIntoView({ behavior: getScrollBehavior(), block: 'center' });
       return;
     }
+    setTopicError(false);
     setError(null);
     setStarting(true);
     try {
@@ -189,6 +329,8 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
         difficulty,
         mode,
       });
+      if (activeSession) clearDraft(activeSession.sessionId);
+      setActiveSession(null);
       submittedRef.current = false;
       setSession(data);
       setAnswers({});
@@ -219,6 +361,10 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
       }));
       setAnswers((prev) => ({ ...prev, [question.id]: data.selectedAnswerIds.map(String) }));
     } catch (err) {
+      if (err?.code === 'PRACTICE_TIME_UP') {
+        handleSubmit();
+        return;
+      }
       setError(err?.message || 'Không thể kiểm tra đáp án.');
     } finally {
       setCheckingId(null);
@@ -261,15 +407,52 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
         </div>
 
         <div className="p-4 sm:p-6 space-y-6">
-          {error && (
-            <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg flex items-center gap-2 text-[#0F172A]">
-              <AlertCircle className="w-5 h-5 shrink-0" />
-              <span>{error}</span>
+          {activeSession && (
+            <div className="p-4 bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg space-y-3">
+              <div className="flex items-start gap-2 text-[#0F172A] font-semibold">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-[#F6AD37]" />
+                <span>
+                  Bạn có một bài luyện tập đang làm dở ({activeSession.questions.length} câu
+                  {activeSession.remainingSec != null
+                    ? `, còn khoảng ${formatTime(activeSession.remainingSec)}`
+                    : ''}
+                  ).
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={handleResume}
+                  className="flex-1 min-h-[48px] bg-[#008BC5] text-white font-bold rounded-lg min-touch-target touch-manipulation"
+                >
+                  Tiếp tục bài này
+                </button>
+                <button
+                  onClick={handleAbandon}
+                  className="flex-1 sm:flex-none min-h-[48px] px-4 border border-slate-300 text-[#0F172A] font-semibold rounded-lg hover:bg-slate-50 min-touch-target touch-manipulation"
+                >
+                  Bỏ bài này
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">Bắt đầu bài mới sẽ thay thế bài đang làm dở.</p>
             </div>
           )}
 
-          <div>
+          <div
+            ref={topicSectionRef}
+            className={`scroll-mt-20 rounded-lg transition-colors ${
+              topicError ? 'ring-2 ring-[#E53E3E]/60 bg-[#FEECEC]/50 p-3 -m-3' : ''
+            }`}
+          >
             <div className="font-semibold text-[#0F172A] mb-2">1. Chọn chủ đề</div>
+            {topicError && (
+              <p
+                role="alert"
+                className="mb-2 text-sm font-semibold text-[#C53030] flex items-center gap-1.5"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                Vui lòng chọn ít nhất một chủ đề để bắt đầu.
+              </p>
+            )}
             {loadingTopics ? (
               <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
             ) : topics.length === 0 ? (
@@ -380,6 +563,16 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
             </div>
           </div>
 
+          {error && (
+            <div
+              role="alert"
+              className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg flex items-center gap-2 text-[#0F172A]"
+            >
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           <button
             onClick={handleStart}
             disabled={starting || loadingTopics || topics.length === 0}
@@ -403,8 +596,16 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
           Đúng {result.correctCount}/{result.totalQuestions} câu
         </div>
         <p className="text-slate-500">{resultMessage(result.percent)}</p>
+        {autoSubmitNotice && (
+          <p className="text-sm text-[#0F172A] bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg p-3">
+            Bài luyện tập của bạn đã hết giờ khi bạn rời đi nên được nộp tự động với các đáp án đã chọn.
+          </p>
+        )}
         <button
-          onClick={() => setPhase('config')}
+          onClick={() => {
+            setAutoSubmitNotice(false);
+            setPhase('config');
+          }}
           className="px-6 py-3 bg-[#008BC5] text-white font-bold rounded-lg min-touch-target"
         >
           Luyện lại
@@ -425,7 +626,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   return (
     <div
       ref={quizTopRef}
-      className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5 scroll-mt-4"
+      className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5 scroll-mt-20"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="font-semibold text-[#0F172A]">
@@ -475,10 +676,10 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
                   const isRightOpt = currentCheck.correctAnswerIds.map(String).includes(String(opt.id));
                   if (isRightOpt) {
                     cls = 'border-[#22C55E] bg-[#F0FDF4]';
-                    mark = <CheckCircle2 className="w-5 h-5 text-[#22C55E] shrink-0" aria-label="Đáp án đúng" />;
+                    mark = <CheckCircle2 className="w-5 h-5 text-[#22C55E] shrink-0" role="img" aria-label="Đáp án đúng" />;
                   } else if (checkedOpt) {
                     cls = 'border-[#E53E3E] bg-[#FEECEC]';
-                    mark = <XCircle className="w-5 h-5 text-[#E53E3E] shrink-0" aria-label="Chọn sai" />;
+                    mark = <XCircle className="w-5 h-5 text-[#E53E3E] shrink-0" role="img" aria-label="Chọn sai" />;
                   } else {
                     cls = 'border-slate-200 opacity-70';
                   }
@@ -593,7 +794,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
                   : 'Đã trả lời tất cả câu hỏi'}
             </span>
             <button
-              onClick={handleSubmit}
+              onClick={requestSubmit}
               disabled={submitting}
               className="w-full sm:w-auto px-6 py-3 bg-[#008BC5] disabled:bg-slate-300 text-white font-bold rounded-lg flex items-center justify-center gap-2 min-touch-target touch-manipulation"
             >

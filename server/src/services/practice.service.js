@@ -13,6 +13,8 @@ import { ApiError } from '../utils/api-error.js';
 const MAX_QUESTIONS = 30;
 const DIFFICULTY_VALUES = new Set(['all', 'easy', 'medium', 'hard']);
 const MODE_VALUES = new Set(['instant', 'exam']);
+// Thời gian chờ thêm (giây) cho độ trễ mạng khi tính hết giờ ở server
+const TIME_GRACE_SEC = 15;
 
 // Bộ lọc câu hỏi hợp lệ cho thí sinh: đúng chủ đề, đang hoạt động,
 // và (câu chung HOẶC câu riêng của đúng phòng ban thí sinh)
@@ -57,24 +59,73 @@ function normalizeStartOptions(options = {}) {
 }
 
 // So khớp đúng VÀ ĐỦ tập đáp án đúng (dùng chung cho check từng câu và nộp bài)
+// Bỏ trống hoặc câu không có đáp án đúng thì luôn tính là sai (không để 0 == 0 thành đúng)
 function isSameAnswerSet(correctSet, selectedIds) {
   const selected = new Set(selectedIds.map(String));
-  return selected.size === correctSet.size && [...selected].every((id) => correctSet.has(id));
+  return (
+    correctSet.size > 0 &&
+    selected.size > 0 &&
+    selected.size === correctSet.size &&
+    [...selected].every((id) => correctSet.has(id))
+  );
+}
+
+// Xáo trộn (Fisher-Yates) để thứ tự đáp án khác nhau giữa các lượt luyện
+function shuffle(list) {
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Lấy tập đáp án đúng của 1 câu trong lượt luyện: ưu tiên ảnh chụp lúc bắt đầu;
+// lượt luyện cũ (tạo trước khi có ảnh chụp) thì tra lại ngân hàng như trước.
+async function getCorrectIdsForItem(item) {
+  if (item.correctAnswerIds?.length > 0) return item.correctAnswerIds.map(String);
+  const rows = await Answer.find({ questionId: item.questionId, isCorrect: true })
+    .select('_id')
+    .lean();
+  return rows.map((a) => a._id.toString());
+}
+
+// Đã quá giờ (kể cả thời gian chờ) chưa? 0 = không giới hạn thời gian
+function isTimeUp(session) {
+  if (!session.timeLimitSec) return false;
+  return Date.now() > session.startedAt.getTime() + (session.timeLimitSec + TIME_GRACE_SEC) * 1000;
+}
+
+// Dạng câu hỏi gửi xuống client (KHÔNG kèm đáp án đúng)
+function toClientQuestion(q, orderedAnswers) {
+  return {
+    id: q._id,
+    content: q.content,
+    answerType: q.answerType,
+    imageUrl: q.imageUrl || null,
+    answers: orderedAnswers.map((a) => ({ id: a._id, content: a.content })),
+  };
 }
 
 // Danh sách chủ đề có ít nhất 1 câu phù hợp với thí sinh
 export async function getAvailableTopics(userId) {
   const topics = await Topic.find({ isActive: true }).select('name').lean();
+  if (topics.length === 0) return [];
 
-  const result = [];
-  for (const topic of topics) {
-    const filter = await buildEligibleFilter(userId, [topic._id.toString()]);
-    const availableCount = await Question.countDocuments(filter);
-    if (availableCount > 0) {
-      result.push({ id: topic._id, name: topic.name, availableCount });
-    }
-  }
-  return result;
+  // 1 truy vấn gộp theo chủ đề thay vì đếm lần lượt từng chủ đề
+  const filter = await buildEligibleFilter(
+    userId,
+    topics.map((t) => t._id.toString()),
+  );
+  const counts = await Question.aggregate([
+    { $match: filter },
+    { $group: { _id: '$topicId', count: { $sum: 1 } } },
+  ]);
+  const countByTopic = new Map(counts.map((c) => [String(c._id), c.count]));
+
+  return topics
+    .filter((t) => (countByTopic.get(t._id.toString()) ?? 0) > 0)
+    .map((t) => ({ id: t._id, name: t.name, availableCount: countByTopic.get(t._id.toString()) }));
 }
 
 // Bắt đầu bài luyện: rút ngẫu nhiên câu hỏi, trả về câu hỏi KHÔNG kèm isCorrect
@@ -88,20 +139,48 @@ export async function startPractice(userId, rawOptions) {
   }
 
   const size = Math.min(questionCount, availableCount);
-  const questions = await Question.aggregate([{ $match: filter }, { $sample: { size } }]);
-  const questionIds = questions.map((q) => q._id);
+  const sampled = await Question.aggregate([{ $match: filter }, { $sample: { size } }]);
 
-  const answers = await Answer.find({ questionId: { $in: questionIds } })
+  const answers = await Answer.find({ questionId: { $in: sampled.map((q) => q._id) } })
     .sort({ sortOrder: 1 })
     .lean();
+  const answersByQuestion = new Map();
+  for (const a of answers) {
+    const key = a.questionId.toString();
+    if (!answersByQuestion.has(key)) answersByQuestion.set(key, []);
+    answersByQuestion.get(key).push(a);
+  }
+
+  // Bỏ câu lỗi dữ liệu (không có đáp án đúng nào) vì thí sinh không thể trả lời đúng được
+  const questions = sampled.filter((q) =>
+    (answersByQuestion.get(q._id.toString()) ?? []).some((a) => a.isCorrect),
+  );
+  if (questions.length === 0) {
+    throw new ApiError(400, 'Chưa có câu hỏi phù hợp cho lựa chọn này', 'PRACTICE_NO_QUESTIONS');
+  }
+
+  // Thứ tự đáp án đã xáo, lưu lại để tiếp tục bài dở vẫn giữ nguyên thứ tự
+  const orderedByQuestion = new Map(
+    questions.map((q) => [q._id.toString(), shuffle(answersByQuestion.get(q._id.toString()))]),
+  );
+
+  // Mỗi thí sinh chỉ có 1 bài đang làm: bài dở cũ coi như bỏ
+  await PracticeSession.updateMany({ userId, status: 'in_progress' }, { $set: { status: 'expired' } });
 
   const session = await PracticeSession.create({
     userId,
     topicIds,
     difficulty,
     mode,
-    questions: questionIds.map((id) => ({ questionId: id })),
-    totalQuestions: questionIds.length,
+    questions: questions.map((q) => ({
+      questionId: q._id,
+      correctAnswerIds: answersByQuestion
+        .get(q._id.toString())
+        .filter((a) => a.isCorrect)
+        .map((a) => a._id),
+      optionIds: orderedByQuestion.get(q._id.toString()).map((a) => a._id),
+    })),
+    totalQuestions: questions.length,
     timeLimitSec: timeLimitMin * 60,
   });
 
@@ -110,15 +189,7 @@ export async function startPractice(userId, rawOptions) {
     mode: session.mode,
     availableCount,
     timeLimitSec: session.timeLimitSec,
-    questions: questions.map((q) => ({
-      id: q._id,
-      content: q.content,
-      answerType: q.answerType,
-      imageUrl: q.imageUrl || null,
-      answers: answers
-        .filter((a) => a.questionId.equals(q._id))
-        .map((a) => ({ id: a._id, content: a.content })),
-    })),
+    questions: questions.map((q) => toClientQuestion(q, orderedByQuestion.get(q._id.toString()))),
   };
 }
 
@@ -139,41 +210,69 @@ export async function checkPracticeAnswer(userId, sessionId, questionId, selecte
   if (session.mode !== 'instant') {
     throw new ApiError(400, 'Lượt luyện này không hỗ trợ kiểm tra từng câu', 'PRACTICE_MODE_NOT_INSTANT');
   }
+  if (isTimeUp(session)) {
+    throw new ApiError(400, 'Đã hết thời gian làm bài', 'PRACTICE_TIME_UP');
+  }
 
   const item = session.questions.find((q) => String(q.questionId) === String(questionId));
   if (!item) {
     throw new ApiError(404, 'Câu hỏi không thuộc lượt luyện này', 'PRACTICE_QUESTION_NOT_IN_SESSION');
   }
 
-  const correctAnswers = await Answer.find({ questionId: item.questionId, isCorrect: true })
-    .select('_id')
-    .lean();
-  const correctIds = correctAnswers.map((a) => a._id.toString());
-
-  // Đã kiểm tra rồi: trả lại kết quả cũ, không cho đổi đáp án (chống bấm lại/gửi lại)
-  if (!item.checked) {
-    const ids = (Array.isArray(selectedAnswerIds) ? selectedAnswerIds : [])
-      .map(String)
-      .filter((id) => mongoose.isValidObjectId(id));
-    if (ids.length === 0) {
-      throw new ApiError(400, 'Vui lòng chọn ít nhất một đáp án', 'PRACTICE_NO_SELECTION');
-    }
-    item.selectedAnswerIds = ids;
-    item.isCorrect = isSameAnswerSet(new Set(correctIds), ids);
-    item.checked = true;
-    await session.save();
-  }
-
-  return {
-    questionId: item.questionId,
-    isCorrect: item.isCorrect,
-    selectedAnswerIds: item.selectedAnswerIds,
-    correctAnswerIds: correctIds,
+  const correctIds = await getCorrectIdsForItem(item);
+  const toResult = (doc) => {
+    const saved = doc.questions.find((q) => String(q.questionId) === String(questionId));
+    return {
+      questionId: saved.questionId,
+      isCorrect: saved.isCorrect,
+      selectedAnswerIds: saved.selectedAnswerIds,
+      correctAnswerIds: correctIds,
+    };
   };
+
+  // Đã kiểm tra rồi: trả lại kết quả cũ, không cho đổi đáp án
+  if (item.checked) return toResult(session);
+
+  const ids = (Array.isArray(selectedAnswerIds) ? selectedAnswerIds : [])
+    .map(String)
+    .filter((id) => mongoose.isValidObjectId(id));
+  if (ids.length === 0) {
+    throw new ApiError(400, 'Vui lòng chọn ít nhất một đáp án', 'PRACTICE_NO_SELECTION');
+  }
+  const isCorrect = isSameAnswerSet(new Set(correctIds), ids);
+
+  // Khóa nguyên tử: chỉ ghi nếu câu này CHƯA được kiểm tra. Nếu 2 request đến cùng lúc,
+  // request đến sau không ghi đè mà nhận lại kết quả của request đến trước.
+  const qid = new mongoose.Types.ObjectId(questionId);
+  const updated = await PracticeSession.findOneAndUpdate(
+    {
+      _id: session._id,
+      userId,
+      status: 'in_progress',
+      questions: { $elemMatch: { questionId: qid, checked: { $ne: true } } },
+    },
+    {
+      $set: {
+        'questions.$[q].selectedAnswerIds': ids,
+        'questions.$[q].isCorrect': isCorrect,
+        'questions.$[q].checked': true,
+      },
+    },
+    { arrayFilters: [{ 'q.questionId': qid, 'q.checked': { $ne: true } }], new: true },
+  );
+
+  const fresh = updated ?? (await PracticeSession.findOne({ _id: session._id, userId }));
+  if (!fresh) {
+    throw new ApiError(404, 'Không tìm thấy lượt luyện', 'PRACTICE_NOT_FOUND');
+  }
+  return toResult(fresh);
 }
 
 // Nộp bài: gán đáp án client gửi lên, so khớp đúng và đủ tập đáp án đúng, tính điểm
 export async function submitPractice(userId, sessionId, answers = []) {
+  if (!mongoose.isValidObjectId(sessionId)) {
+    throw new ApiError(400, 'Dữ liệu không hợp lệ', 'PRACTICE_INVALID_INPUT');
+  }
   const session = await PracticeSession.findOne({ _id: sessionId, userId });
   if (!session) {
     throw new ApiError(404, 'Không tìm thấy lượt luyện', 'PRACTICE_NOT_FOUND');
@@ -196,17 +295,26 @@ export async function submitPractice(userId, sessionId, answers = []) {
     item.selectedAnswerIds = ids.filter((id) => mongoose.isValidObjectId(id));
   }
 
-  const questionIds = session.questions.map((q) => q.questionId);
-  const correctAnswers = await Answer.find({
-    questionId: { $in: questionIds },
-    isCorrect: true,
-  }).lean();
-
+  // Tập đáp án đúng: dùng ảnh chụp lúc bắt đầu; chỉ tra ngân hàng cho lượt luyện cũ chưa có ảnh chụp
   const correctSetByQuestion = new Map();
-  for (const a of correctAnswers) {
-    const key = a.questionId.toString();
-    if (!correctSetByQuestion.has(key)) correctSetByQuestion.set(key, new Set());
-    correctSetByQuestion.get(key).add(a._id.toString());
+  const legacyIds = [];
+  for (const item of session.questions) {
+    if (item.correctAnswerIds?.length > 0) {
+      correctSetByQuestion.set(
+        item.questionId.toString(),
+        new Set(item.correctAnswerIds.map(String)),
+      );
+    } else {
+      legacyIds.push(item.questionId);
+    }
+  }
+  if (legacyIds.length > 0) {
+    const rows = await Answer.find({ questionId: { $in: legacyIds }, isCorrect: true }).lean();
+    for (const a of rows) {
+      const key = a.questionId.toString();
+      if (!correctSetByQuestion.has(key)) correctSetByQuestion.set(key, new Set());
+      correctSetByQuestion.get(key).add(a._id.toString());
+    }
   }
 
   let correctCount = 0;
@@ -229,6 +337,106 @@ export async function submitPractice(userId, sessionId, answers = []) {
       ? Math.round((correctCount / session.totalQuestions) * 100)
       : 0,
   };
+}
+
+// Bài đang làm dở của thí sinh (để tiếp tục sau khi tải lại trang / đổi tab / thoát app).
+// Trả null nếu không có. Nếu bài đã quá giờ: trả { timedOut: true, questionIds, answers } và
+// KHÔNG kèm nội dung câu hỏi, để client tự nộp với các lựa chọn đã có (thí sinh không làm thêm được).
+export async function getActivePractice(userId) {
+  const session = await PracticeSession.findOne({ userId, status: 'in_progress' }).sort({
+    startedAt: -1,
+  });
+  if (!session) return null;
+
+  if (isTimeUp(session)) {
+    const lockedAnswers = {};
+    for (const item of session.questions) {
+      if (item.checked) lockedAnswers[item.questionId.toString()] = item.selectedAnswerIds.map(String);
+    }
+    return {
+      sessionId: session._id,
+      timedOut: true,
+      questionIds: session.questions.map((i) => i.questionId.toString()),
+      answers: lockedAnswers,
+    };
+  }
+
+  const questionIds = session.questions.map((i) => i.questionId);
+  const [questions, answers] = await Promise.all([
+    Question.find({ _id: { $in: questionIds } }).lean(),
+    Answer.find({ questionId: { $in: questionIds } }).sort({ sortOrder: 1 }).lean(),
+  ]);
+  const questionById = new Map(questions.map((q) => [q._id.toString(), q]));
+  const answersByQuestion = new Map();
+  for (const a of answers) {
+    const key = a.questionId.toString();
+    if (!answersByQuestion.has(key)) answersByQuestion.set(key, []);
+    answersByQuestion.get(key).push(a);
+  }
+
+  const clientQuestions = [];
+  const selected = {};
+  const checked = {};
+  for (const item of session.questions) {
+    const key = item.questionId.toString();
+    const q = questionById.get(key);
+    if (!q) continue; // câu đã bị xóa cứng: không hiển thị lại
+
+    const pool = answersByQuestion.get(key) ?? [];
+    let ordered = pool;
+    if (item.optionIds?.length > 0) {
+      const byId = new Map(pool.map((a) => [a._id.toString(), a]));
+      ordered = item.optionIds.map((id) => byId.get(id.toString())).filter(Boolean);
+    }
+    clientQuestions.push(toClientQuestion(q, ordered));
+
+    // Câu đã kiểm tra (chế độ instant): đáp án đúng đã được hiện cho thí sinh rồi nên trả lại được
+    if (item.checked) {
+      selected[key] = item.selectedAnswerIds.map(String);
+      checked[key] = {
+        isCorrect: item.isCorrect,
+        correctAnswerIds: await getCorrectIdsForItem(item),
+      };
+    }
+  }
+
+  if (clientQuestions.length === 0) {
+    session.status = 'expired';
+    await session.save();
+    return null;
+  }
+
+  const remainingSec = session.timeLimitSec
+    ? Math.max(
+        0,
+        Math.floor(session.timeLimitSec - (Date.now() - session.startedAt.getTime()) / 1000),
+      )
+    : null;
+
+  return {
+    sessionId: session._id,
+    mode: session.mode,
+    timeLimitSec: session.timeLimitSec,
+    remainingSec,
+    questions: clientQuestions,
+    answers: selected,
+    checked,
+  };
+}
+
+// Bỏ bài đang làm dở: đánh dấu hết hạn, không tính vào thống kê tiến độ
+export async function abandonPractice(userId, sessionId) {
+  if (!mongoose.isValidObjectId(sessionId)) {
+    throw new ApiError(400, 'Dữ liệu không hợp lệ', 'PRACTICE_INVALID_INPUT');
+  }
+  const result = await PracticeSession.updateOne(
+    { _id: sessionId, userId, status: 'in_progress' },
+    { $set: { status: 'expired' } },
+  );
+  if (result.matchedCount === 0) {
+    throw new ApiError(404, 'Không tìm thấy lượt luyện đang làm', 'PRACTICE_NOT_FOUND');
+  }
+  return { sessionId };
 }
 
 // Tổng hợp tiến độ: tổng quan, theo chủ đề (yếu nhất trước), lịch sử gần nhất

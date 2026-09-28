@@ -58,15 +58,18 @@ client/
 │   │
 │   ├── components/admin/
 │   │   ├── AccountTab.jsx                  # Tab quản lý tài khoản: CRUD user, tạo inline phòng ban, import Excel 2 bước, xuất Excel credentials, phân role, khóa/mở, reset password, useScrollLock
-│   │   ├── AuditLogTab.jsx                 # Tab nhật ký hệ thống: phân trang, lọc theo action/user/resource/thời gian, chi tiết metadata
+│   │   ├── AuditLogTab.jsx                 # Tab nhật ký hệ thống: phân trang, lọc theo action/user/resource/thời gian, tìm kiếm nhân viên, chi tiết metadata
 │   │   ├── BackupTab.jsx                   # Tab sao lưu & phục hồi: danh sách backup Drive, tạo backup, restore file .gz với progress % và phrase xác nhận
 │   │   └── OverviewTab.jsx                 # Tab tổng quan admin: thống kê tài khoản theo role, kỳ thi active, số lượng câu hỏi
+│   │
+│   ├── components/candidate/
+│   │   └── PracticeSection.jsx             # Phân hệ luyện tập cá nhân: cấu hình bộ đề ôn tập (theo chủ đề, độ khó, chế độ instant/exam), làm bài, kiểm tra từng câu, đếm giờ, chấm điểm và xem tiến độ
 │   │
 │   ├── components/examiner/
 │   │   ├── DepartmentTab.jsx               # Tab quản lý phòng ban: CRUD phòng ban, mã code, slug, tìm kiếm, ngừng sử dụng/khôi phục, useScrollLock
 │   │   ├── ExamProposalTab.jsx             # Tab đề xuất kỳ thi: tạo mới / chỉnh sửa dự thảo (draft/rejected), cấu hình câu hỏi theo độ khó/phạm vi, thời gian thi, nộp duyệt, useScrollLock
 │   │   ├── OverviewTab.jsx                 # Tab tổng quan examiner: thống kê ngân hàng câu hỏi, chủ đề, trạng thái đề xuất
-│   │   ├── QuestionBankTab.jsx             # Tab ngân hàng câu hỏi: CRUD câu hỏi trắc nghiệm đơn/nhiều đáp án, upload ảnh Cloudinary, import Excel 2 bước, xóa hàng loạt, useScrollLock
+│   │   ├── QuestionBankTab.jsx             # Tab ngân hàng câu hỏi: phân tách 2 ngân hàng (Thi chính thức vs Ôn tập), CRUD câu hỏi đơn/nhiều đáp án, upload ảnh Cloudinary, import Excel 2 bước, chuyển đổi ngân hàng hàng loạt, xóa hàng loạt, useScrollLock
 │   │   ├── StudyDocumentTab.jsx            # Tab tài liệu ôn tập: upload file PDF/Word/Excel lên server nội bộ, phân quyền phòng ban, xem/tải/xóa
 │   │   └── TopicTab.jsx                    # Tab chủ đề thi: CRUD chủ đề, tự động khôi phục nếu tạo trùng tên chủ đề đã xóa mềm
 │   │
@@ -79,7 +82,7 @@ client/
 │   │
 │   ├── pages/
 │   │   ├── admin/AdminDashboard.jsx        # Dashboard Quản trị viên: điều phối các tab Admin (Overview, Account, AuditLog, Backup)
-│   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: xem kỳ thi active, tài liệu ôn tập theo phòng ban, lịch sử làm bài, vào thi
+│   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: xem kỳ thi active, tài liệu ôn tập theo phòng ban, luyện tập tự do, lịch sử làm bài, vào thi
 │   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, Topic, Department, ExamProposal, StudyDocument)
 │   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, ExamReview, DepartmentReport, ExamReport, DetailedResults)
 │   │
@@ -87,11 +90,12 @@ client/
 │       ├── api.js                          # HTTP client trung tâm: apiRequest(), gắn Bearer token, silent refresh token với queueing, xử lý 401 & SESSION_EXPIRED_EVENT
 │       ├── token-store.js                  # Module lưu trữ accessToken trong localStorage (get, save, clear, getAuthHeaders)
 │       ├── auth.service.js                 # Service xác thực: loginUser, refreshAccessToken, logoutUser, fetchMe, changePassword
-│       ├── admin.service.js                # Service quản trị: fetchOverviewStats, CRUD user, import/export Excel nhân viên, backup/restore API
+│       ├── admin.service.js                # Service quản trị: fetchOverviewStats, CRUD user, import/export Excel nhân viên, backup/restore API, audit log
 │       ├── exam-attempt.service.js         # Service làm bài thi: fetchMyExam, startExamAttempt, submitExamAttempt, answerExamQuestion (autosave), sendExamHeartbeat
 │       ├── exam-review.service.js          # Service workflow kỳ thi: fetchPendingExams, fetchApprovedExams, fetchExamHistory, approveExam, rejectExam, publishExam, archiveExam, fetchActiveExam, grantExtraAttempt
-│       ├── examiner.service.js             # Service người ra đề: CRUD câu hỏi, upload ảnh câu hỏi, preview/confirm import câu hỏi, xóa hàng loạt, CRUD chủ đề, CRUD phòng ban, tạo/chỉnh sửa đề xuất kỳ thi
+│       ├── examiner.service.js             # Service người ra đề: CRUD câu hỏi, upload ảnh câu hỏi, preview/confirm import câu hỏi, chuyển ngân hàng hàng loạt, xóa hàng loạt, CRUD chủ đề, CRUD phòng ban, tạo/chỉnh sửa đề xuất kỳ thi
 │       ├── notification.service.js         # Service thông báo: fetchNotifications, fetchUnreadCount, markNotificationRead, markAllNotificationsRead
+│       ├── practice.service.js             # Service luyện tập thí sinh: fetchPracticeTopics, fetchPracticeProgress, fetchActivePractice, startPracticeSession, checkPracticeAnswer, abandonPracticeSession, submitPracticeSession
 │       ├── report.service.js               # Service báo cáo: fetchOverviewReport, fetchDepartmentReport, fetchExamReport, fetchDetailedResults, exportReport, lookupPublicResult, fetchMyResults
 │       └── study-document.service.js       # Service tài liệu: fetchStudyDocuments, fetchCandidateDocuments, createStudyDocument, deleteStudyDocument, getStudyDocumentFileBlob
 └── dist/                                   # Đầu ra build production (Vite build)

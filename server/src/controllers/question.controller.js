@@ -231,29 +231,36 @@ export const bulkRemove = asyncHandler(async (req, res) => {
 // Chuyển hàng loạt câu hỏi giữa ngân hàng thi chính thức và ôn tập (theo IDs hoặc theo bộ lọc)
 export const bulkMoveUsage = asyncHandler(async (req, res) => {
   const { ids, filters, targetUsage } = req.body ?? {};
-  const data = await questionService.moveQuestionsUsage({ ids, filters, targetUsage });
+  let data;
+  try {
+    data = await questionService.moveQuestionsUsage({ ids, filters, targetUsage });
+  } catch (err) {
+    // Ghi nhật ký lần thử BỊ CHẶN (chuyển sang Ôn tập khi chủ đề đang có kỳ thi phát hành), rồi ném lỗi tiếp cho client
+    if (err?.code === 'QUESTION_USAGE_ACTIVE_EXAM') {
+      await writeAudit({
+        actorUserId: req.auth.userId,
+        action: 'BULK_MOVE_QUESTIONS_BLOCKED',
+        resourceType: 'Question',
+        metadata: { detail: err.message },
+        ipAddress: clientIp(req),
+      });
+    }
+    throw err;
+  }
   const label = USAGE_LABEL[data.targetUsage];
 
   await writeAudit({
     actorUserId: req.auth.userId,
     action: 'BULK_MOVE_QUESTIONS',
     resourceType: 'Question',
-    metadata: {
-      detail: data.skippedActiveExam
-        ? `Chuyển hàng loạt sang ngân hàng ${label} (${data.movedCount} câu; giữ lại ${data.skippedActiveExam.skippedCount} câu vì đang dùng cho kỳ thi "${data.skippedActiveExam.examTitle}" đang diễn ra)`
-        : `Chuyển hàng loạt sang ngân hàng ${label} (${data.movedCount} câu)`,
-    },
+    metadata: { detail: `Chuyển hàng loạt sang ngân hàng ${label} (${data.movedCount} câu)` },
     ipAddress: clientIp(req),
   });
 
-  const message = data.skippedActiveExam
-    ? `Đã chuyển ${data.movedCount} câu sang ngân hàng ${label}. Giữ lại ${data.skippedActiveExam.skippedCount} câu vì đang được dùng cho kỳ thi "${data.skippedActiveExam.examTitle}" đang diễn ra — vui lòng đợi kỳ thi kết thúc rồi thử lại.`
-    : `Đã chuyển ${data.movedCount} câu sang ngân hàng ${label}`;
-
   res.json({
     success: true,
-    message,
-    code: data.skippedActiveExam ? 'QUESTION_BULK_MOVED_PARTIAL' : 'QUESTION_BULK_MOVED',
+    message: `Đã chuyển ${data.movedCount} câu sang ngân hàng ${label}`,
+    code: 'QUESTION_BULK_MOVED',
     data,
   });
 });

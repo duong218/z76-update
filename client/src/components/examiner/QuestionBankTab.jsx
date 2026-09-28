@@ -489,7 +489,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   // Chuyển các câu đã chọn (trong trang hiện tại) sang ngân hàng khác.
   // - Sang ÔN TẬP: thí sinh sẽ thấy đáp án, câu không còn dùng cho thi chính thức.
   // - Sang THI: câu có thể đã hiện đáp án cho thí sinh khi ôn tập -> cảnh báo về tính công bằng.
-  // Gọi lần lượt updateQuestion cho từng câu; server chặn nếu chuyển sang Ôn tập mà chủ đề đang có kỳ thi phát hành.
+  // Gọi 1 lần endpoint bulk-move-usage với danh sách ID; server chặn CẢ thao tác nếu chuyển sang Ôn tập mà có câu thuộc chủ đề đang có kỳ thi phát hành.
   const handleMoveUsage = async (target) => {
     const toMove = questions.filter((q) => selectedIds.includes(q.id) && (q.usage || 'exam') !== target);
     if (toMove.length === 0) {
@@ -498,7 +498,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     }
     const message =
       target === 'practice'
-        ? `Chuyển ${toMove.length} câu sang ngân hàng ÔN TẬP? Thí sinh sẽ thấy đáp án đúng khi luyện tập, và các câu này sẽ KHÔNG còn được dùng để tạo mã đề thi chính thức.`
+        ? `Chuyển ${toMove.length} câu sang ngân hàng ÔN TẬP? Thí sinh sẽ thấy đáp án đúng khi luyện tập, và các câu này sẽ KHÔNG còn được dùng để tạo mã đề thi chính thức. Nếu chủ đề đang có kỳ thi phát hành, thao tác sẽ bị chặn.`
         : `Chuyển ${toMove.length} câu sang ngân hàng THI CHÍNH THỨC? Nếu thí sinh đã từng ôn tập các câu này thì họ có thể đã biết đáp án, ảnh hưởng đến tính công bằng của kỳ thi.`;
     const ok = await confirmAction(message, {
       title: `Chuyển sang ${USAGE_LABEL[target]}`,
@@ -508,27 +508,22 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     if (!ok) return;
     setActionLoading(true);
     setError('');
-    let moved = 0;
-    const failedMessages = [];
-    for (const q of toMove) {
-      try {
-        await updateQuestion(q.id, { usage: target });
-        moved += 1;
-      } catch (err) {
-        failedMessages.push(err.message || 'Lỗi không xác định');
-      }
+    try {
+      const res = await bulkMoveQuestionsUsage({
+        ids: toMove.map((q) => q.id),
+        targetUsage: target,
+      });
+      setSelectedIds([]);
+      await loadData(1);
+      showToast(`Đã chuyển ${res.movedCount} câu sang ngân hàng ${USAGE_LABEL[target]}.`, 'success');
+    } catch (err) {
+      // Bị chặn (vd kỳ thi đang diễn ra) -> không chuyển câu nào, giữ nguyên lựa chọn để người dùng xử lý
+      const msg = err.message || 'Lỗi khi chuyển câu hỏi';
+      setError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setActionLoading(false);
     }
-    setSelectedIds([]);
-    await loadData(1);
-    if (failedMessages.length === 0) {
-      showToast(`Đã chuyển ${moved} câu sang ngân hàng ${USAGE_LABEL[target]}.`, 'success');
-    } else {
-      showToast(
-        `Đã chuyển ${moved} câu, ${failedMessages.length} câu không chuyển được: ${failedMessages[0]}`,
-        'warning',
-      );
-    }
-    setActionLoading(false);
   };
 
   // Xóa TOÀN BỘ câu hỏi khớp đúng bộ lọc đang áp dụng trên UI (không giới
@@ -604,7 +599,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
 
   // Chuyển TOÀN BỘ câu hỏi khớp bộ lọc hiện tại (không giới hạn trang) sang ngân hàng còn lại.
   // Hướng chuyển suy ra từ tab đang chọn: tab Ôn tập -> sang Thi; tab Thi chính thức -> sang Ôn tập.
-  // Server chỉ chuyển câu đang ở ngân hàng nguồn và giữ lại câu thuộc chủ đề có kỳ thi đang phát hành khi chuyển sang Ôn tập.
+  // Server chỉ chuyển câu đang ở ngân hàng nguồn; khi chuyển sang Ôn tập mà có câu thuộc chủ đề đang có kỳ thi phát hành thì CHẶN cả thao tác (409).
   const handleMoveAllByFilter = async () => {
     if (!selectedUsage) {
       showToast('Hãy chọn tab "Thi chính thức" hoặc "Ôn tập" trước để xác định hướng chuyển.', 'warning');
@@ -623,7 +618,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     }
     const message =
       target === 'practice'
-        ? `Chuyển TẤT CẢ ${total} câu đang khớp bộ lọc (không chỉ trang này) sang ngân hàng ÔN TẬP? Thí sinh sẽ thấy đáp án đúng khi luyện tập, và các câu này sẽ KHÔNG còn được dùng để tạo mã đề thi chính thức. Câu thuộc chủ đề đang có kỳ thi phát hành sẽ được giữ lại, không chuyển.`
+        ? `Chuyển TẤT CẢ ${total} câu đang khớp bộ lọc (không chỉ trang này) sang ngân hàng ÔN TẬP? Thí sinh sẽ thấy đáp án đúng khi luyện tập, và các câu này sẽ KHÔNG còn được dùng để tạo mã đề thi chính thức. Nếu chủ đề đang có kỳ thi phát hành, thao tác sẽ bị chặn.`
         : `Chuyển TẤT CẢ ${total} câu đang khớp bộ lọc (không chỉ trang này) sang ngân hàng THI CHÍNH THỨC? Nếu thí sinh đã từng ôn tập các câu này thì họ có thể đã biết đáp án, ảnh hưởng đến tính công bằng của kỳ thi.`;
     const ok = await confirmAction(message, {
       title: `Chuyển tất cả sang ${USAGE_LABEL[target]}`,
@@ -648,14 +643,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
       });
       setSelectedIds([]);
       await loadData(1);
-      if (res.skippedActiveExam) {
-        showToast(
-          `Đã chuyển ${res.movedCount} câu sang ${USAGE_LABEL[target]}. Giữ lại ${res.skippedActiveExam.skippedCount} câu vì đang được dùng cho kỳ thi "${res.skippedActiveExam.examTitle}" đang diễn ra — vui lòng đợi kỳ thi kết thúc rồi thử lại.`,
-          'warning',
-        );
-      } else {
-        showToast(`Đã chuyển ${res.movedCount} câu sang ngân hàng ${USAGE_LABEL[target]}.`, 'success');
-      }
+      showToast(`Đã chuyển ${res.movedCount} câu sang ngân hàng ${USAGE_LABEL[target]}.`, 'success');
     } catch (err) {
       const msg = err.message || 'Lỗi khi chuyển tất cả theo bộ lọc';
       setError(msg);

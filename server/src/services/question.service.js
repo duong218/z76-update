@@ -418,8 +418,8 @@ export async function deactivateQuestion(id, actorUserId, ipAddress) {
 
 // Chuyển hàng loạt câu hỏi giữa ngân hàng THI CHÍNH THỨC và ÔN TẬP (theo danh sách IDs hoặc theo Bộ lọc hiện tại).
 // - Chỉ chuyển các câu đang nằm ở ngân hàng nguồn; câu đã ở ngân hàng đích được bỏ qua.
-// - Sang ÔN TẬP sẽ lộ đáp án cho thí sinh: giống updateQuestion, GIỮ LẠI các câu thuộc chủ đề đang có kỳ thi
-//   phát hành (PUBLISHED) và báo lại trong skippedActiveExam.
+// - Sang ÔN TẬP sẽ lộ đáp án cho thí sinh: giống updateQuestion, CHẶN CẢ THAO TÁC (409) nếu bất kỳ câu nào khớp
+//   thuộc chủ đề đang có kỳ thi phát hành (PUBLISHED) — không chuyển một phần, phải đợi kỳ thi kết thúc.
 // - Chuyển theo bộ lọc bắt buộc có ít nhất 1 bộ lọc cụ thể (giống xóa hàng loạt) để tránh chuyển nhầm toàn bộ ngân hàng.
 export async function moveQuestionsUsage({ ids, filters, targetUsage } = {}) {
   const target = parseUsage(targetUsage, { required: true });
@@ -452,33 +452,33 @@ export async function moveQuestionsUsage({ ids, filters, targetUsage } = {}) {
 
   const matched = await Question.find(query).select('topicId').lean();
   if (matched.length === 0) {
-    return { targetUsage: target, movedCount: 0, questionIds: [], skippedActiveExam: null };
+    return { targetUsage: target, movedCount: 0, questionIds: [] };
   }
 
-  let movable = matched;
-  let skippedActiveExam = null;
+  // Chuyển sang ÔN TẬP: chặn toàn bộ nếu có câu thuộc chủ đề đang có kỳ thi PUBLISHED
   if (target === QUESTION_USAGE.PRACTICE) {
     const topicIds = [...new Set(matched.map((q) => q.topicId?.toString()).filter(Boolean))];
     const activeExams = await Exam.find({ topicId: { $in: topicIds }, status: EXAM_STATUS.PUBLISHED })
       .select('topicId title')
       .lean();
-    const blockedTopicIds = new Set(activeExams.map((e) => e.topicId.toString()));
-    const blocked = matched.filter((q) => blockedTopicIds.has(q.topicId?.toString()));
-    movable = matched.filter((q) => !blockedTopicIds.has(q.topicId?.toString()));
-    if (blocked.length > 0) {
-      skippedActiveExam = { examTitle: activeExams.map((e) => e.title).join(', '), skippedCount: blocked.length };
+    if (activeExams.length > 0) {
+      const blockedTopicIds = new Set(activeExams.map((e) => e.topicId.toString()));
+      const blockedCount = matched.filter((q) => blockedTopicIds.has(q.topicId?.toString())).length;
+      const examTitles = [...new Set(activeExams.map((e) => e.title))].join('", "');
+      throw new ApiError(
+        409,
+        `Không thể chuyển sang Ôn tập vì ${blockedCount} câu thuộc chủ đề đang được dùng cho kỳ thi "${examTitles}" đang diễn ra (chuyển sang Ôn tập sẽ lộ đáp án cho thí sinh). Vui lòng đợi kỳ thi kết thúc rồi thử lại.`,
+        'QUESTION_USAGE_ACTIVE_EXAM',
+      );
     }
   }
 
-  if (movable.length > 0) {
-    await Question.updateMany({ _id: { $in: movable.map((q) => q._id) } }, { $set: { usage: target } });
-  }
+  await Question.updateMany({ _id: { $in: matched.map((q) => q._id) } }, { $set: { usage: target } });
 
   return {
     targetUsage: target,
-    movedCount: movable.length,
-    questionIds: movable.map((q) => q._id.toString()),
-    skippedActiveExam,
+    movedCount: matched.length,
+    questionIds: matched.map((q) => q._id.toString()),
   };
 }
 

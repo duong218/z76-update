@@ -42,6 +42,8 @@ const ACTION_LABELS = {
   // MỚI — chuyển hàng loạt câu hỏi giữa Thi chính thức <-> Ôn tập theo bộ lọc
   // (bulkMoveQuestionsUsage trong examiner.service.js, route /questions/bulk-move-usage).
   BULK_MOVE_QUESTIONS: 'Chuyển hàng loạt câu hỏi',
+  // Lần thử chuyển sang Ôn tập BỊ CHẶN vì chủ đề đang có kỳ thi published (ghi ở question.controller.js)
+  BULK_MOVE_QUESTIONS_BLOCKED: 'Bị chặn chuyển hàng loạt câu hỏi',
   IMPORT_QUESTIONS: 'Import câu hỏi từ Excel',
   // Ghi chú: các action dạng "chấm" dưới đây được ghi ở tầng service
   // (question.service.js) — SONG SONG với action IN HOA tương ứng ghi ở tầng
@@ -89,6 +91,7 @@ const EMPHASIZED_ACTIONS = new Set([
   'BACKUP_RESTORE',
   'DELETE_QUESTION',
   'BULK_DELETE_QUESTIONS',
+  'BULK_MOVE_QUESTIONS_BLOCKED',
   'question.deactivate',
   'question.bulk_deactivate',
   'DEACTIVATE_TOPIC',

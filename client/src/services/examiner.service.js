@@ -95,7 +95,8 @@ export async function bulkDeleteQuestions({ ids, filters }) {
 
 // Chuyển hàng loạt câu hỏi giữa ngân hàng thi chính thức và ôn tập.
 // Truyền ids (các câu đã chọn) HOẶC filters (toàn bộ kết quả lọc); targetUsage: 'exam' | 'practice'.
-// Trả về { targetUsage, movedCount, questionIds, skippedActiveExam }
+// Trả về { targetUsage, movedCount, questionIds }.
+// Chuyển sang 'practice' bị server chặn (409, code QUESTION_USAGE_ACTIVE_EXAM) nếu có câu thuộc chủ đề đang có kỳ thi phát hành.
 export async function bulkMoveQuestionsUsage({ ids, filters, targetUsage }) {
   const res = await apiRequest('/questions/bulk-move-usage', {
     method: 'POST',

@@ -416,6 +416,72 @@ export async function deactivateQuestion(id, actorUserId, ipAddress) {
   return { id: question._id.toString(), isActive: false };
 }
 
+// Chuyển hàng loạt câu hỏi giữa ngân hàng THI CHÍNH THỨC và ÔN TẬP (theo danh sách IDs hoặc theo Bộ lọc hiện tại).
+// - Chỉ chuyển các câu đang nằm ở ngân hàng nguồn; câu đã ở ngân hàng đích được bỏ qua.
+// - Sang ÔN TẬP sẽ lộ đáp án cho thí sinh: giống updateQuestion, GIỮ LẠI các câu thuộc chủ đề đang có kỳ thi
+//   phát hành (PUBLISHED) và báo lại trong skippedActiveExam.
+// - Chuyển theo bộ lọc bắt buộc có ít nhất 1 bộ lọc cụ thể (giống xóa hàng loạt) để tránh chuyển nhầm toàn bộ ngân hàng.
+export async function moveQuestionsUsage({ ids, filters, targetUsage } = {}) {
+  const target = parseUsage(targetUsage, { required: true });
+  const source = target === QUESTION_USAGE.PRACTICE ? QUESTION_USAGE.EXAM : QUESTION_USAGE.PRACTICE;
+
+  let query;
+  if (Array.isArray(ids) && ids.length > 0) {
+    const validIds = ids.filter((id) => mongoose.isValidObjectId(id));
+    if (validIds.length === 0) {
+      throw new ApiError(400, 'Danh sách ID không hợp lệ', 'QUESTION_BULK_MOVE_INVALID_IDS');
+    }
+    query = { _id: { $in: validIds }, isActive: true };
+  } else if (filters && typeof filters === 'object') {
+    const hasSpecificFilter = ['topicId', 'scope', 'departmentId', 'questionKind', 'difficulty', 'answerType', 'search']
+      .some((k) => filters[k] !== undefined && filters[k] !== null && filters[k] !== '');
+    if (!hasSpecificFilter) {
+      throw new ApiError(
+        400,
+        'Vui lòng chọn ít nhất 1 bộ lọc (chủ đề, phạm vi, bộ phận, độ khó...) trước khi chuyển tất cả, để tránh chuyển nhầm toàn bộ ngân hàng câu hỏi.',
+        'QUESTION_BULK_MOVE_NO_FILTER',
+      );
+    }
+    query = buildQuestionQuery({ ...filters, isActive: true });
+  } else {
+    throw new ApiError(400, 'Thiếu ids hoặc filters để chuyển hàng loạt', 'QUESTION_BULK_MOVE_MISSING_PARAMS');
+  }
+
+  // Chỉ lấy câu đang ở ngân hàng nguồn (ghi đè điều kiện usage nếu bộ lọc có)
+  Object.assign(query, questionUsageFilter(source));
+
+  const matched = await Question.find(query).select('topicId').lean();
+  if (matched.length === 0) {
+    return { targetUsage: target, movedCount: 0, questionIds: [], skippedActiveExam: null };
+  }
+
+  let movable = matched;
+  let skippedActiveExam = null;
+  if (target === QUESTION_USAGE.PRACTICE) {
+    const topicIds = [...new Set(matched.map((q) => q.topicId?.toString()).filter(Boolean))];
+    const activeExams = await Exam.find({ topicId: { $in: topicIds }, status: EXAM_STATUS.PUBLISHED })
+      .select('topicId title')
+      .lean();
+    const blockedTopicIds = new Set(activeExams.map((e) => e.topicId.toString()));
+    const blocked = matched.filter((q) => blockedTopicIds.has(q.topicId?.toString()));
+    movable = matched.filter((q) => !blockedTopicIds.has(q.topicId?.toString()));
+    if (blocked.length > 0) {
+      skippedActiveExam = { examTitle: activeExams.map((e) => e.title).join(', '), skippedCount: blocked.length };
+    }
+  }
+
+  if (movable.length > 0) {
+    await Question.updateMany({ _id: { $in: movable.map((q) => q._id) } }, { $set: { usage: target } });
+  }
+
+  return {
+    targetUsage: target,
+    movedCount: movable.length,
+    questionIds: movable.map((q) => q._id.toString()),
+    skippedActiveExam,
+  };
+}
+
 // Xóa mềm hàng loạt câu hỏi (theo danh sách IDs hoặc theo Bộ lọc hiện tại)
 export async function deactivateManyQuestions({ ids, filters } = {}, actorUserId, ipAddress) {
   let query;

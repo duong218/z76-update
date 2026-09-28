@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { BookOpen, ClipboardCheck, Search, Plus, Edit2, Trash2, Loader2, X, Upload, Download, ChevronLeft, ChevronRight, ChevronDown, AlertCircle, AlertTriangle, CheckSquare, Square, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
-import { fetchQuestions, fetchTopics, fetchDepartments, createQuestion, updateQuestion, deleteQuestion, previewImportQuestions, confirmImportQuestionsExcel, bulkDeleteQuestions, uploadQuestionImage } from '../../services/examiner.service';
+import { BookOpen, ClipboardCheck, Search, Plus, Edit2, Trash2, Loader2, X, Upload, Download, ChevronLeft, ChevronRight, ChevronDown, AlertCircle, AlertTriangle, CheckSquare, Square, Image as ImageIcon, FileSpreadsheet, FilterX, ArrowRightLeft } from 'lucide-react';
+import { fetchQuestions, fetchTopics, fetchDepartments, createQuestion, updateQuestion, deleteQuestion, previewImportQuestions, confirmImportQuestionsExcel, bulkDeleteQuestions, bulkMoveQuestionsUsage, uploadQuestionImage } from '../../services/examiner.service';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
@@ -579,6 +579,92 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     }
   };
 
+  // Có bộ lọc nào đang áp dụng không (kể cả tab ngân hàng và ô tìm kiếm) -> bật nút "Xóa bộ lọc"
+  const hasAnyFilter = Boolean(
+    selectedTopic || selectedScope || selectedDept || selectedDifficulty || selectedAnswerType || selectedUsage || search.trim(),
+  );
+
+  // Đưa toàn bộ bộ lọc (chủ đề, phạm vi, bộ phận, độ khó, hình thức đáp án, tab ngân hàng, từ khóa) về mặc định.
+  // Các bộ lọc dạng select đổi -> effect ở trên tự tải lại trang 1; riêng ô tìm kiếm không nằm trong dependency
+  // của effect nên nếu chỉ có từ khóa thì phải tự gọi loadData.
+  const handleClearFilters = () => {
+    const selectFilterActive = Boolean(
+      selectedTopic || selectedScope || selectedDept || selectedDifficulty || selectedAnswerType || selectedUsage,
+    );
+    searchRef.current = '';
+    setSearch('');
+    setSelectedTopic('');
+    setSelectedScope('');
+    setSelectedDept('');
+    setSelectedDifficulty('');
+    setSelectedAnswerType('');
+    setSelectedUsage('');
+    if (!selectFilterActive) loadData(1);
+  };
+
+  // Chuyển TOÀN BỘ câu hỏi khớp bộ lọc hiện tại (không giới hạn trang) sang ngân hàng còn lại.
+  // Hướng chuyển suy ra từ tab đang chọn: tab Ôn tập -> sang Thi; tab Thi chính thức -> sang Ôn tập.
+  // Server chỉ chuyển câu đang ở ngân hàng nguồn và giữ lại câu thuộc chủ đề có kỳ thi đang phát hành khi chuyển sang Ôn tập.
+  const handleMoveAllByFilter = async () => {
+    if (!selectedUsage) {
+      showToast('Hãy chọn tab "Thi chính thức" hoặc "Ôn tập" trước để xác định hướng chuyển.', 'warning');
+      return;
+    }
+    const hasSpecificFilter = selectedTopic || selectedScope || selectedDept || selectedDifficulty || selectedAnswerType || search.trim();
+    if (!hasSpecificFilter) {
+      showToast('Vui lòng chọn ít nhất 1 bộ lọc (chủ đề, phạm vi, bộ phận, độ khó, hình thức đáp án hoặc từ khóa) trước khi chuyển tất cả, để tránh chuyển nhầm toàn bộ ngân hàng câu hỏi.', 'warning');
+      return;
+    }
+    const target = selectedUsage === 'practice' ? 'exam' : 'practice';
+    const total = pagination.total;
+    if (total === 0) {
+      showToast(`Không có câu nào khớp bộ lọc để chuyển sang ${USAGE_LABEL[target]}.`, 'warning');
+      return;
+    }
+    const message =
+      target === 'practice'
+        ? `Chuyển TẤT CẢ ${total} câu đang khớp bộ lọc (không chỉ trang này) sang ngân hàng ÔN TẬP? Thí sinh sẽ thấy đáp án đúng khi luyện tập, và các câu này sẽ KHÔNG còn được dùng để tạo mã đề thi chính thức. Câu thuộc chủ đề đang có kỳ thi phát hành sẽ được giữ lại, không chuyển.`
+        : `Chuyển TẤT CẢ ${total} câu đang khớp bộ lọc (không chỉ trang này) sang ngân hàng THI CHÍNH THỨC? Nếu thí sinh đã từng ôn tập các câu này thì họ có thể đã biết đáp án, ảnh hưởng đến tính công bằng của kỳ thi.`;
+    const ok = await confirmAction(message, {
+      title: `Chuyển tất cả sang ${USAGE_LABEL[target]}`,
+      confirmLabel: `Chuyển ${total} câu`,
+      cancelLabel: 'Không chuyển',
+    });
+    if (!ok) return;
+    setActionLoading(true);
+    setError('');
+    try {
+      const res = await bulkMoveQuestionsUsage({
+        filters: {
+          topicId: selectedTopic,
+          scope: selectedScope,
+          departmentId: selectedDept,
+          difficulty: selectedDifficulty,
+          answerType: selectedAnswerType,
+          usage: selectedUsage,
+          search,
+        },
+        targetUsage: target,
+      });
+      setSelectedIds([]);
+      await loadData(1);
+      if (res.skippedActiveExam) {
+        showToast(
+          `Đã chuyển ${res.movedCount} câu sang ${USAGE_LABEL[target]}. Giữ lại ${res.skippedActiveExam.skippedCount} câu vì đang được dùng cho kỳ thi "${res.skippedActiveExam.examTitle}" đang diễn ra — vui lòng đợi kỳ thi kết thúc rồi thử lại.`,
+          'warning',
+        );
+      } else {
+        showToast(`Đã chuyển ${res.movedCount} câu sang ngân hàng ${USAGE_LABEL[target]}.`, 'success');
+      }
+    } catch (err) {
+      const msg = err.message || 'Lỗi khi chuyển tất cả theo bộ lọc';
+      setError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // BƯỚC 1/2 — Chọn file là phân tích ngay (chưa ghi DB): server trả về
   // phòng ban còn thiếu (để tạo ngay trong modal) và các câu trùng (để chọn
   // giữ câu cũ hay vẫn thêm câu mới).
@@ -819,7 +905,19 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
         </div>
 
         <div className="flex flex-wrap justify-between items-center pt-2 gap-3 border-t border-slate-100">
-          <div className="text-sm text-slate-500 font-medium">Tổng cộng: {pagination.total} câu hỏi</div>
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-slate-500 font-medium">Tổng cộng: {pagination.total} câu hỏi</div>
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              disabled={!hasAnyFilter}
+              className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] border border-slate-300 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 active:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed touch-manipulation"
+              title="Đưa tất cả bộ lọc và ô tìm kiếm về mặc định"
+            >
+              <FilterX className="w-4 h-4" />
+              Xóa bộ lọc
+            </button>
+          </div>
           <div className="flex gap-2 w-full sm:w-auto">
             <button
               onClick={() => {
@@ -881,6 +979,24 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
             >
               <Trash2 className="w-4 h-4" />
               Xóa {selectedIds.length > 0 ? `${selectedIds.length} câu đã chọn` : 'đã chọn'}
+            </button>
+            <button
+              type="button"
+              onClick={handleMoveAllByFilter}
+              disabled={actionLoading || !selectedUsage}
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-[#008BC5] text-white rounded-lg font-medium hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors disabled:opacity-40 disabled:cursor-not-allowed touch-manipulation"
+              title={
+                selectedUsage
+                  ? 'Chuyển toàn bộ câu hỏi khớp bộ lọc hiện tại (không chỉ trang này) sang ngân hàng còn lại'
+                  : 'Chọn tab "Thi chính thức" hoặc "Ôn tập" trước để xác định hướng chuyển'
+              }
+            >
+              <ArrowRightLeft className="w-4 h-4" />
+              {selectedUsage === 'practice'
+                ? `Chuyển tất cả sang Thi (${pagination.total})`
+                : selectedUsage === 'exam'
+                  ? `Chuyển tất cả sang Ôn tập (${pagination.total})`
+                  : 'Chuyển tất cả theo bộ lọc'}
             </button>
             <button
               type="button"

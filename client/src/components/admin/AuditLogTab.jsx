@@ -39,6 +39,9 @@ const ACTION_LABELS = {
   UPDATE_QUESTION: 'Cập nhật câu hỏi',
   DELETE_QUESTION: 'Ngừng sử dụng câu hỏi',
   BULK_DELETE_QUESTIONS: 'Xóa hàng loạt câu hỏi',
+  // MỚI — chuyển hàng loạt câu hỏi giữa Thi chính thức <-> Ôn tập theo bộ lọc
+  // (bulkMoveQuestionsUsage trong examiner.service.js, route /questions/bulk-move-usage).
+  BULK_MOVE_QUESTIONS: 'Chuyển hàng loạt câu hỏi',
   IMPORT_QUESTIONS: 'Import câu hỏi từ Excel',
   // Ghi chú: các action dạng "chấm" dưới đây được ghi ở tầng service
   // (question.service.js) — SONG SONG với action IN HOA tương ứng ghi ở tầng

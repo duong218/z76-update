@@ -43,6 +43,7 @@ router.post('/upload-image', (req, res, next) => {
 
 router.get('/stats/by-topic/:topicId', questionController.getStatsByTopic);
 router.post('/bulk-delete', questionController.bulkRemove);
+router.post('/bulk-move-usage', questionController.bulkMoveUsage);
 router.get('/:id', questionController.getById);
 router.post('/', questionController.create);
 router.patch('/:id', questionController.update);

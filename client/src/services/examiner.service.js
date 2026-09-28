@@ -93,6 +93,18 @@ export async function bulkDeleteQuestions({ ids, filters }) {
   return res.data;
 }
 
+// Chuyển hàng loạt câu hỏi giữa ngân hàng thi chính thức và ôn tập.
+// Truyền ids (các câu đã chọn) HOẶC filters (toàn bộ kết quả lọc); targetUsage: 'exam' | 'practice'.
+// Trả về { targetUsage, movedCount, questionIds, skippedActiveExam }
+export async function bulkMoveQuestionsUsage({ ids, filters, targetUsage }) {
+  const res = await apiRequest('/questions/bulk-move-usage', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ ids, filters, targetUsage }),
+  });
+  return res.data;
+}
+
 export async function fetchTopics() {
   const res = await apiRequest('/topics', {
     headers: getAuthHeaders(),

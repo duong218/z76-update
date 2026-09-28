@@ -228,6 +228,36 @@ export const bulkRemove = asyncHandler(async (req, res) => {
   });
 });
 
+// Chuyển hàng loạt câu hỏi giữa ngân hàng thi chính thức và ôn tập (theo IDs hoặc theo bộ lọc)
+export const bulkMoveUsage = asyncHandler(async (req, res) => {
+  const { ids, filters, targetUsage } = req.body ?? {};
+  const data = await questionService.moveQuestionsUsage({ ids, filters, targetUsage });
+  const label = USAGE_LABEL[data.targetUsage];
+
+  await writeAudit({
+    actorUserId: req.auth.userId,
+    action: 'BULK_MOVE_QUESTIONS',
+    resourceType: 'Question',
+    metadata: {
+      detail: data.skippedActiveExam
+        ? `Chuyển hàng loạt sang ngân hàng ${label} (${data.movedCount} câu; giữ lại ${data.skippedActiveExam.skippedCount} câu vì đang dùng cho kỳ thi "${data.skippedActiveExam.examTitle}" đang diễn ra)`
+        : `Chuyển hàng loạt sang ngân hàng ${label} (${data.movedCount} câu)`,
+    },
+    ipAddress: clientIp(req),
+  });
+
+  const message = data.skippedActiveExam
+    ? `Đã chuyển ${data.movedCount} câu sang ngân hàng ${label}. Giữ lại ${data.skippedActiveExam.skippedCount} câu vì đang được dùng cho kỳ thi "${data.skippedActiveExam.examTitle}" đang diễn ra — vui lòng đợi kỳ thi kết thúc rồi thử lại.`
+    : `Đã chuyển ${data.movedCount} câu sang ngân hàng ${label}`;
+
+  res.json({
+    success: true,
+    message,
+    code: data.skippedActiveExam ? 'QUESTION_BULK_MOVED_PARTIAL' : 'QUESTION_BULK_MOVED',
+    data,
+  });
+});
+
 // Thống kê số lượng câu hỏi theo từng mức độ khó trong một chủ đề
 export const getStatsByTopic = asyncHandler(async (req, res) => {
   const data = await questionService.getQuestionStatsByTopic(req.params.topicId);

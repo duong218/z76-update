@@ -19,6 +19,15 @@ export async function fetchPracticeProgress() {
   return result.data;
 }
 
+/** Chuỗi ngày luyện tập liên tiếp, huy hiệu đã đạt, 1 câu động viên ngắn */
+export async function fetchPracticeAchievements() {
+  const result = await apiRequest('/practice/achievements', {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  });
+  return result.data; // { streakDays, badges, message }
+}
+
 /**
  * Bắt đầu bài luyện.
  * options: { topicIds: string[], questionCount: number, timeLimitMin: number,

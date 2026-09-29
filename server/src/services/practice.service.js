@@ -502,3 +502,96 @@ export async function getPracticeProgress(userId) {
     })),
   };
 }
+
+// Tính số ngày luyện tập liên tiếp (streak) tính đến hôm nay, và các huy hiệu đã đạt.
+// Không lưu bảng riêng - tính trực tiếp từ PracticeSession mỗi lần gọi, dữ liệu ít nên không nặng.
+function computeStreakDays(submittedDates) {
+  // submittedDates: mảng Date đã sort giảm dần (mới nhất trước)
+  if (submittedDates.length === 0) return 0;
+
+  const toDayKey = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x.getTime();
+  };
+
+  const uniqueDays = [...new Set(submittedDates.map(toDayKey))].sort((a, b) => b - a);
+
+  const today = toDayKey(new Date());
+  const oneDayMs = 24 * 60 * 60 * 1000;
+
+  // Chuỗi tính từ hôm nay hoặc hôm qua (nếu hôm nay chưa luyện thì vẫn còn "giữ" chuỗi tới hết hôm nay)
+  if (uniqueDays[0] !== today && uniqueDays[0] !== today - oneDayMs) return 0;
+
+  let streak = 1;
+  for (let i = 1; i < uniqueDays.length; i += 1) {
+    if (uniqueDays[i - 1] - uniqueDays[i] === oneDayMs) {
+      streak += 1;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// Danh sách mốc huy hiệu - đơn giản, dễ hiểu, không quá nhiều mốc gây rối mắt.
+// Ngưỡng có thể chỉnh lại ở đây khi cần, không ảnh hưởng chỗ khác.
+const BADGE_DEFS = [
+  { id: 'questions_50', label: 'Chăm chỉ khởi đầu', desc: 'Hoàn thành 50 câu luyện tập', check: (st) => st.totalQuestions >= 50 },
+  { id: 'questions_200', label: 'Bền bỉ', desc: 'Hoàn thành 200 câu luyện tập', check: (st) => st.totalQuestions >= 200 },
+  { id: 'questions_500', label: 'Kiên trì vượt trội', desc: 'Hoàn thành 500 câu luyện tập', check: (st) => st.totalQuestions >= 500 },
+  { id: 'sessions_10', label: 'Luyện tập đều đặn', desc: 'Hoàn thành 10 bài luyện tập', check: (st) => st.totalSessions >= 10 },
+  { id: 'sessions_30', label: 'Ôn tập chuyên cần', desc: 'Hoàn thành 30 bài luyện tập', check: (st) => st.totalSessions >= 30 },
+  { id: 'streak_3', label: 'Duy trì 3 ngày', desc: 'Luyện tập 3 ngày liên tiếp', check: (st) => st.streakDays >= 3 },
+  { id: 'streak_7', label: 'Duy trì 1 tuần', desc: 'Luyện tập 7 ngày liên tiếp', check: (st) => st.streakDays >= 7 },
+  {
+    id: 'topic_master',
+    label: 'Nắm vững chủ đề',
+    desc: 'Một chủ đề đạt từ 90% đúng trở lên (tối thiểu 20 câu)',
+    check: (st) => st.topics.some((t) => t.questions >= 20 && t.percent >= 90),
+  },
+];
+
+// Câu động viên ngắn, chọn theo tình huống - giữ giọng trân trọng, phù hợp người 25-55 tuổi, không sến.
+function buildEncouragement({ streakDays, totalSessions, weakest }) {
+  if (totalSessions === 0) {
+    return 'Bắt đầu buổi luyện tập đầu tiên của bạn nhé.';
+  }
+  if (streakDays >= 7) {
+    return `Bạn đã duy trì ${streakDays} ngày liên tiếp, rất đáng ghi nhận!`;
+  }
+  if (streakDays >= 3) {
+    return `Bạn đang luyện tập đều đặn ${streakDays} ngày liên tiếp, cố gắng giữ nhịp này nhé.`;
+  }
+  if (weakest && weakest.percent < 70) {
+    return `Bạn đã tiến bộ nhiều rồi, thử ôn thêm chủ đề "${weakest.name}" nhé.`;
+  }
+  return 'Cảm ơn bạn đã dành thời gian ôn luyện, cố gắng phát huy nhé.';
+}
+
+export async function getPracticeAchievements(userId) {
+  const progress = await getPracticeProgress(userId);
+
+  const submittedDates = await PracticeSession.find({ userId, status: 'submitted' })
+    .select('submittedAt')
+    .lean();
+  const streakDays = computeStreakDays(submittedDates.map((s) => s.submittedAt).filter(Boolean));
+
+  const stats = {
+    totalQuestions: progress.totalQuestions,
+    totalSessions: progress.totalSessions,
+    streakDays,
+    topics: progress.topics,
+  };
+
+  const badges = BADGE_DEFS.filter((b) => b.check(stats)).map((b) => ({
+    id: b.id,
+    label: b.label,
+    desc: b.desc,
+  }));
+
+  const weakest = progress.topics[0];
+  const message = buildEncouragement({ streakDays, totalSessions: progress.totalSessions, weakest });
+
+  return { streakDays, badges, message };
+}

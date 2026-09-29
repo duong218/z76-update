@@ -16,6 +16,7 @@ import { useConfirm } from '../ConfirmDialog';
 import {
   fetchPracticeTopics,
   fetchPracticeProgress,
+  fetchPracticeAchievements,
   startPractice,
   submitPractice,
   checkPracticeAnswer,
@@ -24,7 +25,8 @@ import {
 } from '../../services/practice.service';
 
 const QUESTION_COUNTS = [5, 10, 20, 30];
-const TIME_LIMITS = [0, 5, 10, 15, 30];
+// TẠM (chỉ để test tự nộp khi hết giờ): mốc 1 phút — xóa số 1 này trước khi bảo vệ/triển khai
+const TIME_LIMITS = [0, 1, 5, 10, 15, 30];
 const DIFFICULTIES = [
   { value: 'all', label: 'Tất cả' },
   { value: 'easy', label: 'Dễ' },
@@ -880,16 +882,23 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
 /** Khối tiến độ luyện tập, hiển thị trên Dashboard thí sinh */
 export const PracticeProgressCard = ({ onPracticeTopic }) => {
   const [progress, setProgress] = useState(null);
+  const [achievements, setAchievements] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetchPracticeProgress()
-      .then((data) => {
-        if (!cancelled) setProgress(data);
+    Promise.all([fetchPracticeProgress(), fetchPracticeAchievements()])
+      .then(([progressData, achievementsData]) => {
+        if (!cancelled) {
+          setProgress(progressData);
+          setAchievements(achievementsData);
+        }
       })
       .catch(() => {
-        if (!cancelled) setProgress(null);
+        if (!cancelled) {
+          setProgress(null);
+          setAchievements(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -917,6 +926,18 @@ export const PracticeProgressCard = ({ onPracticeTopic }) => {
         <TrendingUp className="w-5 h-5 text-[#008BC5]" />
         Tiến độ luyện tập
       </h2>
+
+      {achievements?.message && (
+        <div className="p-3 bg-[#EFF8FF] border border-[#008BC5]/20 rounded-lg text-sm text-[#0F172A]">
+          {achievements.message}
+        </div>
+      )}
+
+      {achievements?.streakDays > 0 && (
+        <div className="text-sm text-slate-600">
+          🔥 Chuỗi <strong>{achievements.streakDays}</strong> ngày luyện tập liên tiếp
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="p-3 bg-slate-50 rounded-lg">
@@ -962,6 +983,23 @@ export const PracticeProgressCard = ({ onPracticeTopic }) => {
           >
             Luyện ngay
           </button>
+        </div>
+      )}
+
+      {achievements?.badges?.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-[#0F172A]">Huy hiệu đã đạt</div>
+          <div className="flex flex-wrap gap-2">
+            {achievements.badges.map((b) => (
+              <span
+                key={b.id}
+                title={b.desc}
+                className="px-3 py-1.5 bg-[#F0FDF4] border border-[#22C55E]/30 text-[#166534] text-xs font-semibold rounded-full"
+              >
+                🏅 {b.label}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ import {
   checkPracticeAnswer,
   getActivePractice,
   getAvailableTopics,
+  getPracticeAchievements,
   getPracticeProgress,
   startPractice,
   submitPractice,
@@ -23,6 +24,12 @@ export const practiceController = {
   progress: asyncHandler(async (req, res) => {
     const data = await getPracticeProgress(req.auth.userId);
     res.json({ success: true, message: 'OK', code: 'PRACTICE_PROGRESS', data });
+  }),
+
+  // Chuỗi ngày luyện tập liên tiếp + huy hiệu đã đạt + 1 câu động viên ngắn
+  achievements: asyncHandler(async (req, res) => {
+    const data = await getPracticeAchievements(req.auth.userId);
+    res.json({ success: true, message: 'OK', code: 'PRACTICE_ACHIEVEMENTS', data });
   }),
 
   start: asyncHandler(async (req, res) => {

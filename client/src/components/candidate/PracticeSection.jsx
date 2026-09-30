@@ -25,8 +25,7 @@ import {
 } from '../../services/practice.service';
 
 const QUESTION_COUNTS = [5, 10, 20, 30];
-// TẠM (chỉ để test tự nộp khi hết giờ): mốc 1 phút — xóa số 1 này trước khi bảo vệ/triển khai
-const TIME_LIMITS = [0, 1, 5, 10, 15, 30];
+const TIME_LIMITS = [0, 5, 10, 15, 30];
 const DIFFICULTIES = [
   { value: 'all', label: 'Tất cả' },
   { value: 'easy', label: 'Dễ' },

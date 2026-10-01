@@ -1509,6 +1509,7 @@ A. Phương án 1
 C. Phương án 3
 D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
                   <p>Bộ phận để trống = Phạm vi Chung; có ghi tên bộ phận = Phạm vi Riêng. Chỉ nhận file .docx.</p>
+                  <p>Gõ chữ cái A. B. C. trực tiếp ở đầu mỗi dòng (không dùng danh sách tự đánh số của Word). Gạch chân phải phủ cả dòng đáp án — nếu chỉ gạch một phần, hệ thống sẽ hỏi lại. Dùng dấu * ở đầu dòng là cách chắc chắn nhất.</p>
                 </div>
               )}
 
@@ -1676,7 +1677,7 @@ D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 <div className="bg-slate-50 rounded-lg p-3">
                   <div className="text-xl font-bold text-[#0F172A]">{importPreview.totalRows}</div>
-                  <div className="text-sm text-slate-500">Tổng số dòng</div>
+                  <div className="text-sm text-slate-500">{importFileKind === 'word' ? 'Tổng số câu' : 'Tổng số dòng'}</div>
                 </div>
                 <div className="bg-[#F0FDF4] rounded-lg p-3">
                   <div className="text-xl font-bold text-[#22C55E]">{importPreview.readyCount}</div>
@@ -1774,7 +1775,7 @@ D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
               {importPreview.needsReview?.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                    <b>{importPreview.needsReview.length} câu</b> dùng cách đánh dấu đáp án đúng khác với đa số file (vd file chủ yếu gạch chân nhưng câu này lại dùng dấu *). Hệ thống đã chọn sẵn theo cách câu đó dùng — kiểm tra lại hoặc tick lại cho đúng trước khi xác nhận nhập.
+                    <b>{importPreview.needsReview.length} câu</b> cần bạn xác nhận lại đáp án đúng: dùng cách đánh dấu khác với đa số file (vd file chủ yếu gạch chân nhưng câu này lại dùng dấu *) hoặc có đáp án chỉ được gạch chân một phần. Hệ thống đã chọn sẵn theo gợi ý — kiểm tra lại hoặc tick lại cho đúng trước khi xác nhận nhập.
                   </p>
                   <div className="border border-amber-200 rounded-lg divide-y divide-amber-100 max-h-64 overflow-y-auto" data-lenis-prevent>
                     {importPreview.needsReview.map((r) => (
@@ -1783,6 +1784,16 @@ D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
                           <span className="text-slate-400 w-14 shrink-0">Câu {r.row}</span>
                           <span className="flex-1 min-w-0 text-slate-700">{r.content}</span>
                         </div>
+                        {r.reasons?.length > 0 && (
+                          <p className="pl-14 text-[11px] text-amber-600">
+                            {[
+                              r.reasons.includes('minority') && 'Dùng cách đánh dấu khác với đa số file',
+                              r.reasons.includes('partialUnderline') && 'Có đáp án chỉ gạch chân một phần',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </p>
+                        )}
                         <div className="flex flex-wrap gap-2 pl-14">
                           {r.options.map((o) => (
                             <label
@@ -1801,6 +1812,7 @@ D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
                                 className="w-3.5 h-3.5"
                               />
                               {o.letter}. {o.content.slice(0, 40)}
+                              {o.partialUnderline && <span className="text-amber-600 font-normal">(gạch chân một phần)</span>}
                             </label>
                           ))}
                         </div>
@@ -1825,7 +1837,7 @@ D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
                           disabled={importConfirming}
                           className="w-4 h-4 mt-0.5 shrink-0"
                         />
-                        <span className="text-slate-400 w-14 shrink-0">Dòng {d.row}</span>
+                        <span className="text-slate-400 w-14 shrink-0">{importFileKind === 'word' ? 'Câu' : 'Dòng'} {d.row}</span>
                         <span className="flex-1 min-w-0 text-slate-700">{d.content}</span>
                       </label>
                     ))}
@@ -1837,11 +1849,11 @@ D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
                   sửa lại file cho lần import sau. */}
               {importPreview.errors?.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs text-slate-500">Các dòng dưới đây có lỗi khác, sẽ <b>luôn bị bỏ qua</b>:</p>
+                  <p className="text-xs text-slate-500">Các {importFileKind === 'word' ? 'câu' : 'dòng'} dưới đây có lỗi khác, sẽ <b>luôn bị bỏ qua</b>:</p>
                   <div className="border border-red-200 rounded-lg divide-y divide-red-100 max-h-40 overflow-y-auto" data-lenis-prevent>
                     {importPreview.errors.map((e) => (
                       <div key={e.row} className="p-2.5 text-sm flex items-start gap-2">
-                        <span className="text-slate-400 w-14 shrink-0">Dòng {e.row}</span>
+                        <span className="text-slate-400 w-14 shrink-0">{importFileKind === 'word' ? 'Câu' : 'Dòng'} {e.row}</span>
                         <span className="flex-1 min-w-0 text-[#E53E3E]">{e.message}</span>
                       </div>
                     ))}

@@ -900,13 +900,62 @@ function stripHtmlToText(html) {
     .trim();
 }
 
+// Giải mã entity HTML cơ bản cho 1 đoạn text (không trim). &amp; giải mã SAU CÙNG
+// để chuỗi như "&amp;lt;" không bị giải mã 2 lần.
+function decodeBasicEntities(str) {
+  return String(str ?? '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\u00A0/g, ' ')
+    .replace(/&amp;/g, '&');
+}
+
+// Tách 1 đoạn HTML của mammoth thành mảng ký tự, mỗi ký tự kèm cờ u = đang nằm
+// trong thẻ <u>...</u> hay không. Các thẻ khác (<strong>, <em>...) bị bỏ qua.
+function htmlToUnderlineChars(html) {
+  const chars = [];
+  let underlineDepth = 0;
+  for (const token of String(html ?? '').split(/(<[^>]+>)/)) {
+    if (!token) continue;
+    if (token.startsWith('<')) {
+      if (/^<u(\s[^>]*)?>$/i.test(token)) underlineDepth += 1;
+      else if (/^<\/u>$/i.test(token) && underlineDepth > 0) underlineDepth -= 1;
+      continue;
+    }
+    for (const ch of decodeBasicEntities(token)) chars.push({ ch, u: underlineDepth > 0 });
+  }
+  return chars;
+}
+
+// Đo tỉ lệ gạch chân trên các ký tự "có nghĩa" (chữ + số). Khoảng trắng và dấu câu
+// bị bỏ qua nên gạch thừa/thiếu khoảng trắng cuối dòng không làm lệch kết quả.
+function measureUnderlineRatio(chars) {
+  let total = 0;
+  let underlined = 0;
+  for (const c of chars) {
+    if (!/[\p{L}\p{N}]/u.test(c.ch)) continue;
+    total += 1;
+    if (c.u) underlined += 1;
+  }
+  return { total, underlined, ratio: total === 0 ? 0 : underlined / total };
+}
+
+// Từ ngưỡng này trở lên, phương án được coi là "đáp án đúng" theo cách gạch chân.
+// Dưới 100% (gạch thiếu 1-2 chữ) vẫn tính đúng nhưng bị đưa vào needsReview.
+// Dưới ngưỡng (vd chỉ gạch 1 cụm từ để nhấn mạnh) thì KHÔNG tính là đáp án đúng,
+// nhưng vẫn bị gắn cờ needsReview vì có phần gạch chân.
+const WORD_UNDERLINE_CORRECT_RATIO = 0.5;
+
 // Mammoth mặc định KHÔNG bọc thẻ <u> quanh phần gạch chân (underline không có
 // style map sẵn), nên phải khai báo styleMap "u => u" để runs có underline
 // được bọc trong <u>...</u> — đây là cú pháp style-map chính thức của mammoth,
 // không phải tự chế; "u" ở vế trái là document-matcher có sẵn cho underline.
 const WORD_STYLE_MAP = ['u => u'];
 
-// Chuyển file .docx thành danh sách đoạn văn { html, text, hasUnderline }
+// Chuyển file .docx thành danh sách đoạn văn { html, text, hasUnderline, chars }
 async function readWordParagraphs(filePath) {
   if (!fs.existsSync(filePath)) {
     throw new ApiError(400, 'Không đọc được file upload', 'IMPORT_FILE_MISSING');
@@ -930,6 +979,7 @@ async function readWordParagraphs(filePath) {
     html: m[1],
     text: stripHtmlToText(m[1]),
     hasUnderline: /<u>/.test(m[1]),
+    chars: htmlToUnderlineChars(m[1]),
   }));
 }
 
@@ -981,7 +1031,13 @@ async function readImportRowsFromWord(filePath) {
       const m = p.text.match(WORD_OPTION_RE);
       if (!m) continue;
       const starMarked = Boolean(m[1]);
-      const underlineMarked = p.hasUnderline;
+      // Đo gạch chân trên phần NỘI DUNG đáp án (bỏ tiền tố "*A." ở đầu dòng)
+      const fullText = p.chars.map((c) => c.ch).join('');
+      const prefix = fullText.match(/^\s*\*?\s*[A-Za-z]\s*[.)]\s*/u);
+      const contentChars = p.chars.slice(prefix ? prefix[0].length : 0);
+      const { total, underlined, ratio } = measureUnderlineRatio(contentChars);
+      const underlineMarked = total > 0 && ratio >= WORD_UNDERLINE_CORRECT_RATIO;
+      const underlinePartial = underlined > 0 && underlined < total; // có gạch nhưng không phủ hết
       if (starMarked) starTotal += 1;
       if (underlineMarked) underlineTotal += 1;
       options.push({
@@ -990,6 +1046,7 @@ async function readImportRowsFromWord(filePath) {
         content: m[3].trim(),
         starMarked,
         underlineMarked,
+        underlinePartial,
       });
     }
     return { ...b, options };
@@ -1025,6 +1082,12 @@ async function readImportRowsFromWord(filePath) {
       ambiguous = false; // sẽ bị buildQuestionFromImportRow báo lỗi "thiếu đáp án đúng" ở dưới
     }
 
+    // Có đáp án chỉ gạch chân một phần (quên gạch vài chữ, hoặc chỉ gạch 1 cụm từ) -> cần xác nhận lại
+    const partialIdx = b.options.filter((o) => o.underlinePartial).map((o) => o.index);
+    const reviewReasons = [];
+    if (ambiguous) reviewReasons.push('minority');
+    if (partialIdx.length > 0) reviewReasons.push('partialUnderline');
+
     const row = {
       chude: b.topicName,
       noidung: b.content,
@@ -1041,13 +1104,31 @@ async function readImportRowsFromWord(filePath) {
     rows.push(row);
     meta.push({
       questionNumber: b.questionNumber,
-      ambiguous,
+      ambiguous: reviewReasons.length > 0,
+      reviewReasons,
       suggestedCorrect,
-      options: b.options.map((o) => ({ index: o.index, letter: o.letter, content: o.content })),
+      options: b.options.map((o) => ({
+        index: o.index,
+        letter: o.letter,
+        content: o.content,
+        partialUnderline: o.underlinePartial,
+      })),
     });
   }
 
   return { rows, meta };
+}
+
+// Câu không nhận diện được phương án nào (vd dùng danh sách tự đánh số của Word, hoặc
+// phương án không bắt đầu bằng "A." / "A)") -> báo lỗi dễ hiểu thay vì "cần ít nhất 2 phương án".
+function assertWordOptionsParsed(m) {
+  if (m.options.length === 0) {
+    throw new ApiError(
+      400,
+      `Câu ${m.questionNumber}: không nhận diện được phương án nào. Hãy gõ chữ cái A. B. C. trực tiếp ở đầu mỗi dòng (không dùng danh sách tự đánh số của Word), mỗi phương án 1 dòng riêng.`,
+      'IMPORT_NO_OPTIONS',
+    );
+  }
 }
 
 // buildQuestionFromImportRow báo lỗi dạng "Dòng N: ..." (ngôn ngữ dành cho Excel).
@@ -1090,6 +1171,7 @@ export async function previewImportQuestionsFromWordFile(filePath, usage) {
   for (let i = 0; i < rows.length; i += 1) {
     const m = meta[i];
     try {
+      assertWordOptionsParsed(m);
       const payload = await buildQuestionFromImportRow(rows[i], m.questionNumber);
       const dedupeKey = buildDedupeKey(payload);
       if (seenKeys.has(dedupeKey)) {
@@ -1103,6 +1185,7 @@ export async function previewImportQuestionsFromWordFile(filePath, usage) {
           row: m.questionNumber,
           content: payload.content.slice(0, 160),
           suggestedCorrect: m.suggestedCorrect,
+          reasons: m.reviewReasons, // ['minority'] (khác cách đa số) và/hoặc ['partialUnderline'] (gạch chân một phần)
           options: m.options,
         });
       }
@@ -1190,6 +1273,7 @@ export async function confirmImportQuestionsFromWord(token, options, createdBy, 
       rows[i].answertype = override.length > 1 ? 'multiple' : 'single';
     }
     try {
+      assertWordOptionsParsed(m);
       const payload = await buildQuestionFromImportRow(rows[i], m.questionNumber);
       const dedupeKey = buildDedupeKey(payload);
 

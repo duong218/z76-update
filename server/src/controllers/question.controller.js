@@ -285,6 +285,49 @@ export const previewImport = asyncHandler(async (req, res) => {
   });
 });
 
+// Bước 1 Import câu hỏi từ file Word (.docx): Đọc file và tạo bản xem trước
+export const previewImportWord = asyncHandler(async (req, res) => {
+  if (!req.file?.path) {
+    throw new ApiError(400, 'Thiếu file Word (field: file)', 'IMPORT_FILE_MISSING');
+  }
+  const data = await questionService.previewImportQuestionsFromWordFile(req.file.path, req.body?.usage);
+  res.json({
+    success: true,
+    message: 'Đã phân tích file, vui lòng xem lại trước khi xác nhận',
+    code: 'QUESTION_IMPORT_PREVIEW_OK',
+    data,
+  });
+});
+
+// Bước 2 Import câu hỏi từ file Word: Lưu danh sách câu hỏi hợp lệ vào CSDL
+export const confirmImportWord = asyncHandler(async (req, res) => {
+  const { token, createDepartments, keepDuplicateRows, usage, correctOverrides } = req.body ?? {};
+  if (!token) {
+    throw new ApiError(400, 'Thiếu token phiên import (hãy preview lại)', 'IMPORT_TOKEN_MISSING');
+  }
+  const data = await questionService.confirmImportQuestionsFromWord(
+    token,
+    { createDepartments, keepDuplicateRows, usage, correctOverrides },
+    req.auth.userId,
+    req.auth.userId,
+    clientIp(req),
+  );
+
+  await writeAudit({
+    actorUserId: req.auth.userId,
+    action: 'IMPORT_QUESTIONS',
+    resourceType: 'Question',
+    metadata: { detail: `Import câu hỏi từ Word vào ngân hàng ${USAGE_LABEL[data.usage]} (Thành công: ${data.imported}, Lỗi: ${data.failed}, Bỏ qua trùng: ${data.skipped})` },
+    ipAddress: clientIp(req),
+  });
+  res.json({
+    success: true,
+    message: `Import vào ngân hàng ${USAGE_LABEL[data.usage]} xong: ${data.imported} thành công, ${data.skipped} bỏ qua (trùng), ${data.failed} lỗi`,
+    code: 'QUESTION_IMPORT_DONE',
+    data,
+  });
+});
+
 // Bước 2 Import câu hỏi từ file Excel: Lưu danh sách câu hỏi hợp lệ vào CSDL
 export const confirmImport = asyncHandler(async (req, res) => {
   const { token, createDepartments, keepDuplicateRows, usage } = req.body ?? {};

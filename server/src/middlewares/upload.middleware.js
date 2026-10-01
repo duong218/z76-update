@@ -54,6 +54,26 @@ export const uploadExcel = multer({
   fileFilter: excelFilter,
 }).single('file');
 
+// --- Khối xử lý Upload File Word (Import câu hỏi) — chỉ nhận .docx, mammoth không đọc tốt .doc cũ ---
+const MAX_WORD_BYTES = 5 * 1024 * 1024;
+
+function wordFilter(_req, file, cb) {
+  const ok =
+    file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.originalname.toLowerCase().endsWith('.docx');
+  if (!ok) {
+    cb(new ApiError(400, 'Chỉ chấp nhận file Word (.docx)', 'IMPORT_FILE_TYPE'));
+    return;
+  }
+  cb(null, true);
+}
+
+export const uploadWord = multer({
+  storage,
+  limits: { fileSize: MAX_WORD_BYTES },
+  fileFilter: wordFilter,
+}).single('file');
+
 // --- Khối xử lý Upload Tài liệu ôn tập (PDF / Word / Excel) ---
 const STUDY_DOCUMENT_MIME_TYPES = new Set([
   'application/pdf',

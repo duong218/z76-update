@@ -72,6 +72,30 @@ export async function confirmImportQuestionsExcel({ token, createDepartments, ke
   return res.data; // { usage, imported, skipped, failed, errors, skippedDuplicates, questionIds }
 }
 
+// usage: 'exam' | 'practice' — bắt buộc, giống import Excel. Chỉ nhận file .docx.
+export async function previewImportQuestionsWord(file, usage) {
+  const formData = new FormData();
+  formData.append('usage', usage);
+  formData.append('file', file);
+
+  const res = await apiRequest('/questions/import/word/preview', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: formData,
+  });
+  return res.data; // giống preview Excel, thêm needsReview: [{ row, content, suggestedCorrect, options }]
+}
+
+// correctOverrides: { [soCauTrongWord]: number[] } — đáp án đúng người dùng chọn lại cho các câu trong needsReview
+export async function confirmImportQuestionsWord({ token, createDepartments, keepDuplicateRows, usage, correctOverrides }) {
+  const res = await apiRequest('/questions/import/word/confirm', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ token, createDepartments, keepDuplicateRows, usage, correctOverrides }),
+  });
+  return res.data;
+}
+
 export async function uploadQuestionImage(file) {
   const formData = new FormData();
   formData.append('image', file);

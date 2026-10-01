@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as questionController from '../controllers/question.controller.js';
 import { authenticate, requireRoleCodes } from '../middlewares/auth.middleware.js';
 import { requirePasswordChanged } from '../middlewares/require-password-changed.middleware.js';
-import { uploadExcel, uploadQuestionImage } from '../middlewares/upload.middleware.js';
+import { uploadExcel, uploadWord, uploadQuestionImage } from '../middlewares/upload.middleware.js';
 import { ApiError } from '../utils/api-error.js';
 
 const router = Router();
@@ -26,6 +26,22 @@ router.post('/import/preview', (req, res, next) => {
 }, questionController.previewImport);
 
 router.post('/import/confirm', questionController.confirmImport);
+
+router.post('/import/word/preview', (req, res, next) => {
+  uploadWord(req, res, (err) => {
+    if (err instanceof ApiError) {
+      next(err);
+      return;
+    }
+    if (err) {
+      next(new ApiError(400, err.message ?? 'Upload thất bại', 'IMPORT_UPLOAD_ERROR'));
+      return;
+    }
+    next();
+  });
+}, questionController.previewImportWord);
+
+router.post('/import/word/confirm', questionController.confirmImportWord);
 
 router.post('/upload-image', (req, res, next) => {
   uploadQuestionImage(req, res, (err) => {

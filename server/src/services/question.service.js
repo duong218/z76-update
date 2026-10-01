@@ -8,6 +8,7 @@ import path from 'path';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import XLSX from 'xlsx';
+import mammoth from 'mammoth';
 import { v2 as cloudinary } from 'cloudinary';
 import {
   ANSWER_TYPE,
@@ -849,6 +850,374 @@ export async function confirmImportQuestions(token, options, createdBy, actorUse
         row: rowIndex,
         message: err.message ?? 'Lỗi không xác định',
         code: err.code ?? 'IMPORT_ROW_ERROR',
+      });
+    }
+  }
+
+  try {
+    fs.unlinkSync(filePath);
+  } catch {
+    /* ignore cleanup */
+  }
+
+  return {
+    usage: usageValue,
+    imported: created.length,
+    failed: errors.length,
+    skipped: skippedDuplicates.length,
+    errors,
+    skippedDuplicates,
+    questionIds: created,
+  };
+}
+
+// ============================================================================
+// IMPORT TỪ FILE WORD (.docx) — tái sử dụng buildQuestionFromImportRow /
+// loadSeenKeys / buildDedupeKey / resolveImportTokenPath của luồng Excel.
+// Khuôn mẫu bắt buộc (xác nhận với BA ngày hiện tại):
+//   Câu 1: (chủ đề: xxxxx - bộ phận: xxxxx - độ khó: xxxxx) Nội dung câu hỏi?
+//   A. Phương án 1
+//   *B. Phương án đúng (đánh dấu bằng dấu * ở đầu)
+//   C. Phương án 3
+//   D. Phương án đúng khác (đánh dấu bằng cách GẠCH CHÂN toàn bộ dòng)
+//   - Bộ phận để trống -> Phạm vi Chung; có ghi bộ phận -> Phạm vi Riêng.
+//   - Cho phép cả 2 cách đánh dấu (*, gạch chân) trong cùng 1 file. Cách nào
+//     xuất hiện NHIỀU hơn trong toàn file được coi là "cách chính". Câu nào
+//     chỉ đánh dấu theo cách còn lại (thiểu số) sẽ bị đưa vào needsReview để
+//     người ra đề xác nhận lại ở bước preview trước khi ghi vào CSDL.
+// ============================================================================
+
+// Bóc tách text thuần từ 1 đoạn HTML do mammoth trả về (bỏ thẻ, giải mã entity cơ bản)
+function stripHtmlToText(html) {
+  return String(html ?? '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\u00A0/g, ' ')
+    .trim();
+}
+
+// Mammoth mặc định KHÔNG bọc thẻ <u> quanh phần gạch chân (underline không có
+// style map sẵn), nên phải khai báo styleMap "u => u" để runs có underline
+// được bọc trong <u>...</u> — đây là cú pháp style-map chính thức của mammoth,
+// không phải tự chế; "u" ở vế trái là document-matcher có sẵn cho underline.
+const WORD_STYLE_MAP = ['u => u'];
+
+// Chuyển file .docx thành danh sách đoạn văn { html, text, hasUnderline }
+async function readWordParagraphs(filePath) {
+  if (!fs.existsSync(filePath)) {
+    throw new ApiError(400, 'Không đọc được file upload', 'IMPORT_FILE_MISSING');
+  }
+  let result;
+  try {
+    result = await mammoth.convertToHtml({ path: filePath }, { styleMap: WORD_STYLE_MAP });
+  } catch (err) {
+    throw new ApiError(
+      400,
+      'File không đúng định dạng Word (.docx) hoặc đã bị hỏng. Vui lòng kiểm tra lại file và tải lên lại.',
+      'IMPORT_INVALID_FORMAT',
+    );
+  }
+  const html = result.value ?? '';
+  const matches = [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)];
+  if (matches.length === 0) {
+    throw new ApiError(400, 'File Word trống hoặc không có đoạn văn nào', 'IMPORT_EMPTY');
+  }
+  return matches.map((m) => ({
+    html: m[1],
+    text: stripHtmlToText(m[1]),
+    hasUnderline: /<u>/.test(m[1]),
+  }));
+}
+
+const WORD_HEADER_RE =
+  /^C[aâ]u\s*\d+\s*:\s*\(\s*ch[uủ]\s*đ[eề]\s*:\s*(.*?)\s*-\s*b[ôộ]\s*ph[aậ]n\s*:\s*(.*?)\s*-\s*đ[ôộ]\s*kh[óo]\s*:\s*(.*?)\s*\)\s*(.*)$/iu;
+const WORD_OPTION_RE = /^(\*)?\s*([A-Za-z])\s*[.)]\s*(.+)$/u;
+
+// Phân tích toàn bộ file Word thành danh sách "dòng" tương đương dòng Excel,
+// để tái sử dụng nguyên vẹn buildQuestionFromImportRow(). Trả về
+// { rows, meta } — meta[i] song song với rows[i], chứa { questionNumber,
+// ambiguous, suggestedCorrect, options } phục vụ hiển thị needsReview.
+async function readImportRowsFromWord(filePath) {
+  const paragraphs = await readWordParagraphs(filePath);
+
+  const blocks = []; // { questionNumber, headerLine, optionParagraphs: [] }
+  for (const p of paragraphs) {
+    const headerMatch = p.text.match(WORD_HEADER_RE);
+    if (headerMatch) {
+      const numMatch = p.text.match(/^C[aâ]u\s*(\d+)/iu);
+      blocks.push({
+        questionNumber: numMatch ? Number(numMatch[1]) : blocks.length + 1,
+        topicName: headerMatch[1].trim(),
+        deptName: headerMatch[2].trim(),
+        difficultyRaw: headerMatch[3].trim(),
+        content: headerMatch[4].trim(),
+        optionParagraphs: [],
+      });
+      continue;
+    }
+    if (blocks.length === 0) continue; // bỏ qua đoạn văn trước câu hỏi đầu tiên (nếu có)
+    if (p.text.trim() === '') continue;
+    blocks[blocks.length - 1].optionParagraphs.push(p);
+  }
+
+  if (blocks.length === 0) {
+    throw new ApiError(
+      400,
+      'Không tìm thấy câu hỏi nào đúng khuôn "Câu N: (chủ đề: ... - bộ phận: ... - độ khó: ...) Nội dung". Kiểm tra lại định dạng file.',
+      'IMPORT_EMPTY',
+    );
+  }
+
+  // Xác định cách đánh dấu "chính" của toàn file (xuất hiện nhiều hơn)
+  let starTotal = 0;
+  let underlineTotal = 0;
+  const parsedBlocks = blocks.map((b) => {
+    const options = [];
+    for (const p of b.optionParagraphs) {
+      const m = p.text.match(WORD_OPTION_RE);
+      if (!m) continue;
+      const starMarked = Boolean(m[1]);
+      const underlineMarked = p.hasUnderline;
+      if (starMarked) starTotal += 1;
+      if (underlineMarked) underlineTotal += 1;
+      options.push({
+        index: options.length + 1,
+        letter: m[2].toUpperCase(),
+        content: m[3].trim(),
+        starMarked,
+        underlineMarked,
+      });
+    }
+    return { ...b, options };
+  });
+
+  const dominant = underlineTotal >= starTotal ? 'underline' : 'star';
+
+  const rows = [];
+  const meta = [];
+  for (const b of parsedBlocks) {
+    const starSet = b.options.filter((o) => o.starMarked).map((o) => o.index);
+    const underlineSet = b.options.filter((o) => o.underlineMarked).map((o) => o.index);
+    const dominantSet = dominant === 'underline' ? underlineSet : starSet;
+    const minoritySet = dominant === 'underline' ? starSet : underlineSet;
+
+    let suggestedCorrect;
+    let ambiguous;
+    if (dominantSet.length > 0 && minoritySet.length === 0) {
+      suggestedCorrect = dominantSet;
+      ambiguous = false;
+    } else if (dominantSet.length === 0 && minoritySet.length > 0) {
+      // Câu lẻ dùng cách đánh dấu thiểu số trong 1 file đa số dùng cách kia -> cần xác nhận lại
+      suggestedCorrect = minoritySet;
+      ambiguous = true;
+    } else if (dominantSet.length > 0 && minoritySet.length > 0) {
+      // Cả 2 cách cùng đánh dấu nhưng không trùng khớp hoàn toàn -> vẫn ưu tiên cách chính, nhưng cảnh báo
+      const sameSet =
+        dominantSet.length === minoritySet.length && dominantSet.every((v) => minoritySet.includes(v));
+      suggestedCorrect = dominantSet;
+      ambiguous = !sameSet;
+    } else {
+      suggestedCorrect = [];
+      ambiguous = false; // sẽ bị buildQuestionFromImportRow báo lỗi "thiếu đáp án đúng" ở dưới
+    }
+
+    const row = {
+      chude: b.topicName,
+      noidung: b.content,
+      bophan: b.deptName || undefined,
+      phamvi: b.deptName ? 'rieng' : 'chung',
+      dokho: b.difficultyRaw || 'medium',
+      correct: suggestedCorrect.join(','),
+      answertype: suggestedCorrect.length > 1 ? 'multiple' : 'single',
+    };
+    b.options.forEach((o, idx) => {
+      row[`option${idx + 1}`] = o.content;
+    });
+
+    rows.push(row);
+    meta.push({
+      questionNumber: b.questionNumber,
+      ambiguous,
+      suggestedCorrect,
+      options: b.options.map((o) => ({ index: o.index, letter: o.letter, content: o.content })),
+    });
+  }
+
+  return { rows, meta };
+}
+
+// buildQuestionFromImportRow báo lỗi dạng "Dòng N: ..." (ngôn ngữ dành cho Excel).
+// Với Word, đổi nhãn thành "Câu N" cho đúng ngữ cảnh người dùng đang thấy trong file.
+function relabelRowError(err) {
+  if (err instanceof ApiError && typeof err.message === 'string') {
+    const relabeled = new ApiError(err.statusCode, err.message.replace(/^Dòng/, 'Câu'), err.code);
+    relabeled.departmentName = err.departmentName;
+    relabeled.departmentCode = err.departmentCode;
+    relabeled.departmentDescription = err.departmentDescription;
+    return relabeled;
+  }
+  return err;
+}
+
+// Bước 1: Xem trước (Preview) Import Word — cùng cấu trúc trả về như Excel,
+// thêm field needsReview cho các câu dùng cách đánh dấu thiểu số cần xác nhận lại.
+export async function previewImportQuestionsFromWordFile(filePath, usage) {
+  let usageValue;
+  try {
+    usageValue = parseUsage(usage, { required: true });
+  } catch (err) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch {
+      /* ignore cleanup */
+    }
+    throw err;
+  }
+
+  const { rows, meta } = await readImportRowsFromWord(filePath);
+  const seenKeys = await loadSeenKeys(usageValue);
+
+  const ready = [];
+  const duplicates = [];
+  const errors = [];
+  const missingDepts = new Map();
+  const needsReview = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const m = meta[i];
+    try {
+      const payload = await buildQuestionFromImportRow(rows[i], m.questionNumber);
+      const dedupeKey = buildDedupeKey(payload);
+      if (seenKeys.has(dedupeKey)) {
+        duplicates.push({ row: m.questionNumber, content: payload.content.slice(0, 120) });
+      } else {
+        seenKeys.add(dedupeKey);
+        ready.push({ row: m.questionNumber, content: payload.content.slice(0, 120) });
+      }
+      if (m.ambiguous) {
+        needsReview.push({
+          row: m.questionNumber,
+          content: payload.content.slice(0, 160),
+          suggestedCorrect: m.suggestedCorrect,
+          options: m.options,
+        });
+      }
+    } catch (err) {
+      const relabeled = relabelRowError(err);
+      if (relabeled.code === 'IMPORT_DEPARTMENT_NOT_FOUND') {
+        const key = normalizeDeptName(relabeled.departmentName);
+        const entry = missingDepts.get(key) ?? {
+          name: relabeled.departmentName,
+          code: '',
+          description: '',
+          rowCount: 0,
+        };
+        entry.rowCount += 1;
+        if (!entry.code && relabeled.departmentCode) entry.code = relabeled.departmentCode;
+        if (!entry.description && relabeled.departmentDescription) entry.description = relabeled.departmentDescription;
+        missingDepts.set(key, entry);
+      }
+      errors.push({
+        row: m.questionNumber,
+        message: relabeled.message ?? 'Lỗi không xác định',
+        code: relabeled.code ?? 'IMPORT_ROW_ERROR',
+      });
+    }
+  }
+
+  return {
+    token: path.basename(filePath),
+    usage: usageValue,
+    totalRows: rows.length,
+    readyCount: ready.length,
+    duplicateCount: duplicates.length,
+    errorCount: errors.length,
+    missingDepartments: [...missingDepts.values()],
+    duplicates,
+    ready,
+    errors,
+    needsReview,
+  };
+}
+
+// Bước 2: Xác nhận (Confirm) Import Word vào CSDL.
+// correctOverrides: { [questionNumber]: number[] } — đáp án đúng do người ra đề
+// chọn lại ở bước preview cho các câu nằm trong needsReview; câu không có override
+// thì giữ nguyên suggestedCorrect đã tính khi preview (đúng ý: "bỏ qua thì cũng được").
+export async function confirmImportQuestionsFromWord(token, options, createdBy, actorUserId, ipAddress) {
+  const { createDepartments = [], keepDuplicateRows = [], usage, correctOverrides = {} } = options ?? {};
+  const usageValue = parseUsage(usage, { required: true });
+  const filePath = resolveImportTokenPath(token);
+  if (!fs.existsSync(filePath)) {
+    throw new ApiError(
+      400,
+      'Phiên import đã hết hạn hoặc đã được xử lý, vui lòng tải file lên lại',
+      'IMPORT_TOKEN_EXPIRED',
+    );
+  }
+
+  for (const dept of createDepartments) {
+    const name = dept?.name?.trim();
+    if (!name) continue;
+    const code = dept?.code?.trim();
+    if (!code) {
+      throw new ApiError(
+        400,
+        `Vui lòng nhập mã bộ phận cho "${name}" trước khi import, hoặc bỏ tick "Tạo bộ phận mới" để bỏ qua các câu hỏi riêng của bộ phận này.`,
+        'IMPORT_DEPARTMENT_CODE_REQUIRED',
+      );
+    }
+    await upsertDepartmentForImport({ name, code, description: dept?.description });
+  }
+
+  const { rows, meta } = await readImportRowsFromWord(filePath);
+  const seenKeys = await loadSeenKeys(usageValue);
+  const keepSet = new Set(keepDuplicateRows);
+
+  const created = [];
+  const errors = [];
+  const skippedDuplicates = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const m = meta[i];
+    const override = correctOverrides?.[m.questionNumber] ?? correctOverrides?.[String(m.questionNumber)];
+    if (Array.isArray(override) && override.length > 0) {
+      rows[i].correct = override.join(',');
+      rows[i].answertype = override.length > 1 ? 'multiple' : 'single';
+    }
+    try {
+      const payload = await buildQuestionFromImportRow(rows[i], m.questionNumber);
+      const dedupeKey = buildDedupeKey(payload);
+
+      if (seenKeys.has(dedupeKey) && !keepSet.has(m.questionNumber)) {
+        skippedDuplicates.push({ row: m.questionNumber, content: payload.content.slice(0, 80) });
+        continue;
+      }
+
+      const question = await Question.create({
+        content: payload.content,
+        questionKind: payload.questionKind,
+        answerType: payload.answerType,
+        difficulty: payload.difficulty,
+        scope: payload.scope,
+        usage: usageValue,
+        topicId: payload.topicId,
+        departmentId: payload.departmentId,
+        createdBy,
+      });
+      await replaceAnswers(question._id, payload.answers);
+      created.push(question._id.toString());
+      seenKeys.add(dedupeKey);
+    } catch (err) {
+      const relabeled = relabelRowError(err);
+      errors.push({
+        row: m.questionNumber,
+        message: relabeled.message ?? 'Lỗi không xác định',
+        code: relabeled.code ?? 'IMPORT_ROW_ERROR',
       });
     }
   }

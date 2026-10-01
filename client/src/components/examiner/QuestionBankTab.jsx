@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BookOpen, ClipboardCheck, Search, Plus, Edit2, Trash2, Loader2, X, Upload, Download, ChevronLeft, ChevronRight, ChevronDown, AlertCircle, AlertTriangle, CheckSquare, Square, Image as ImageIcon, FileSpreadsheet, FilterX, ArrowRightLeft } from 'lucide-react';
-import { fetchQuestions, fetchTopics, fetchDepartments, createQuestion, updateQuestion, deleteQuestion, previewImportQuestions, confirmImportQuestionsExcel, bulkDeleteQuestions, bulkMoveQuestionsUsage, uploadQuestionImage } from '../../services/examiner.service';
+import { fetchQuestions, fetchTopics, fetchDepartments, createQuestion, updateQuestion, deleteQuestion, previewImportQuestions, confirmImportQuestionsExcel, previewImportQuestionsWord, confirmImportQuestionsWord, bulkDeleteQuestions, bulkMoveQuestionsUsage, uploadQuestionImage } from '../../services/examiner.service';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
@@ -138,6 +138,11 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   const [showImportGuide, setShowImportGuide] = useState(false);
   // Ngân hàng đích của lần import này ('exam' | 'practice'). null = chưa chọn -> chưa cho tải file
   const [importUsage, setImportUsage] = useState(null);
+  // Loại file đang import: 'excel' (mặc định, giữ nguyên hành vi cũ) hoặc 'word' (.docx)
+  const [importFileKind, setImportFileKind] = useState('excel');
+  // Các câu Word dùng cách đánh dấu đáp án đúng THIỂU SỐ trong file (vd file toàn
+  // gạch chân nhưng vài câu lại dùng *) cần xác nhận lại: { [soCau]: number[] đáp án đúng đã chọn }
+  const [reviewOverrides, setReviewOverrides] = useState({});
 
   useScrollLock(isFormOpen || isImportOpen || showImportGuide);
   const [importLoading, setImportLoading] = useState(false); // đang upload + phân tích file (bước preview)
@@ -667,7 +672,10 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     setImportLoading(true);
     setError('');
     try {
-      const data = await previewImportQuestions(file, importUsage);
+      const data =
+        importFileKind === 'word'
+          ? await previewImportQuestionsWord(file, importUsage)
+          : await previewImportQuestions(file, importUsage);
       setImportPreview(data);
       setDeptDrafts(
         (data.missingDepartments || []).map((d) => ({
@@ -681,20 +689,34 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
         })),
       );
       setKeepDupRows([]); // mặc định: câu trùng bị bỏ qua, giữ câu cũ
+      // Mặc định mỗi câu cần xác nhận lại giữ nguyên gợi ý của server (= coi "bỏ qua" là chấp nhận gợi ý)
+      setReviewOverrides(
+        Object.fromEntries((data.needsReview || []).map((r) => [r.row, r.suggestedCorrect])),
+      );
       setIsImportOpen(false);
       setShowImportGuide(false);
     } catch (err) {
-      setError(err.message || 'Xem trước file Excel thất bại');
+      setError(err.message || (importFileKind === 'word' ? 'Xem trước file Word thất bại' : 'Xem trước file Excel thất bại'));
     } finally {
       setImportLoading(false);
       e.target.value = '';
     }
   };
 
+  // Bật/tắt 1 đáp án trong danh sách đáp án đúng của 1 câu đang cần xác nhận lại (needsReview)
+  const toggleReviewOption = (row, optionIndex) => {
+    setReviewOverrides((prev) => {
+      const cur = prev[row] || [];
+      const next = cur.includes(optionIndex) ? cur.filter((i) => i !== optionIndex) : [...cur, optionIndex];
+      return { ...prev, [row]: next };
+    });
+  };
+
   // Đóng cửa sổ chọn file (chưa có bản xem trước): bỏ luôn lựa chọn ngân hàng để lần sau phải chọn lại
   const closeImportModal = () => {
     setIsImportOpen(false);
     setImportUsage(null);
+    setImportFileKind('excel');
   };
 
   const closeImportPreview = () => {
@@ -702,6 +724,8 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     setImportPreview(null);
     setDeptDrafts([]);
     setKeepDupRows([]);
+    setReviewOverrides({});
+    setImportFileKind('excel');
   };
 
   const toggleDeptInclude = (name) => {
@@ -757,14 +781,18 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
     setImportConfirming(true);
     setError('');
     try {
-      const res = await confirmImportQuestionsExcel({
+      const payload = {
         usage: targetUsage,
         token: importPreview.token,
         createDepartments: deptDrafts
           .filter((d) => d.include)
           .map((d) => ({ name: d.name, code: d.code.trim(), description: d.description.trim() })),
         keepDuplicateRows: keepDupRows,
-      });
+      };
+      const res =
+        importFileKind === 'word'
+          ? await confirmImportQuestionsWord({ ...payload, correctOverrides: reviewOverrides })
+          : await confirmImportQuestionsExcel(payload);
       showToast(
         `Đã thêm vào ngân hàng ${USAGE_LABEL[targetUsage]}: ${res.imported} thành công, ${res.skipped} bỏ qua (trùng), ${res.failed} lỗi.`,
         res.failed > 0 ? 'warning' : 'success',
@@ -773,6 +801,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
       setImportPreview(null);
       setDeptDrafts([]);
       setKeepDupRows([]);
+      setReviewOverrides({});
       await loadData(1);
     } catch (err) {
       setError(err.message || 'Import thất bại (phiên xem trước có thể đã hết hạn, hãy tải file lên lại)');
@@ -915,7 +944,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
               className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 active:bg-slate-100 transition-colors"
             >
               <Upload className="w-4 h-4" />
-              <span>Import Excel</span>
+              <span>Import câu hỏi</span>
             </button>
             <button
               onClick={handleOpenAdd}
@@ -1368,7 +1397,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60">
           <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto border border-slate-100" data-lenis-prevent>
             <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0">
-              <h3 className="font-bold text-lg text-[#0F172A]">Nhập câu hỏi từ file Excel</h3>
+              <h3 className="font-bold text-lg text-[#0F172A]">Nhập câu hỏi từ file</h3>
               <button
                 onClick={closeImportModal}
                 className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center"
@@ -1437,18 +1466,57 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                 </button>
               </div>
 
-              <a
-                href="/templates/Mau_Import_Cau_Hoi_Z176.xlsx"
-                download
-                className="flex items-center justify-center gap-2 w-full py-3 min-h-[46px] border border-[#008BC5]/30 bg-[#EAF6FF] text-[#008BC5] rounded-lg font-semibold text-sm hover:bg-[#008BC5]/10 active:bg-[#008BC5]/10 transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                Tải file mẫu Excel (đúng định dạng cột)
-              </a>
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setImportFileKind('excel')}
+                  disabled={importLoading}
+                  className={`flex-1 py-2 rounded-md text-sm font-semibold transition-colors ${
+                    importFileKind === 'excel' ? 'bg-white shadow text-[#008BC5]' : 'text-slate-500'
+                  }`}
+                >
+                  File Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportFileKind('word')}
+                  disabled={importLoading}
+                  className={`flex-1 py-2 rounded-md text-sm font-semibold transition-colors ${
+                    importFileKind === 'word' ? 'bg-white shadow text-[#008BC5]' : 'text-slate-500'
+                  }`}
+                >
+                  File Word (.docx)
+                </button>
+              </div>
+
+              {importFileKind === 'excel' && (
+                <a
+                  href="/templates/Mau_Import_Cau_Hoi_Z176.xlsx"
+                  download
+                  className="flex items-center justify-center gap-2 w-full py-3 min-h-[46px] border border-[#008BC5]/30 bg-[#EAF6FF] text-[#008BC5] rounded-lg font-semibold text-sm hover:bg-[#008BC5]/10 active:bg-[#008BC5]/10 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Tải file mẫu Excel (đúng định dạng cột)
+                </a>
+              )}
+
+              {importFileKind === 'word' && (
+                <div className="p-3 border border-slate-200 rounded-lg bg-slate-50 text-xs text-slate-600 space-y-1.5">
+                  <p className="font-semibold text-slate-700">Mỗi câu phải đúng khuôn sau:</p>
+                  <pre className="whitespace-pre-wrap bg-white border border-slate-200 rounded p-2 text-[11px] leading-relaxed">{`Câu 1: (chủ đề: Tài chính - bộ phận: - độ khó: dễ) Nội dung câu hỏi?
+A. Phương án 1
+*B. Phương án đúng (đánh dấu * ở đầu)
+C. Phương án 3
+D. Phương án đúng khác (hoặc GẠCH CHÂN cả dòng)`}</pre>
+                  <p>Bộ phận để trống = Phạm vi Chung; có ghi tên bộ phận = Phạm vi Riêng. Chỉ nhận file .docx.</p>
+                </div>
+              )}
 
               {/* Panel xem nhanh cột bắt buộc — không cần mở file Excel cũng
                   biết được cấu trúc file cần có, hữu ích cho người dùng lần
-                  đầu import (vd người kế nhiệm sau này không quen hệ thống). */}
+                  đầu import (vd người kế nhiệm sau này không quen hệ thống).
+                  Chỉ áp dụng cho Excel, Word đã có khối hướng dẫn riêng ở trên. */}
+              {importFileKind === 'excel' && (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <button
                   type="button"
@@ -1522,11 +1590,12 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                   </div>
                 )}
               </div>
+              )}
 
               <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 cursor-pointer relative">
                 <input
                   type="file"
-                  accept=".xlsx, .xls"
+                  accept={importFileKind === 'word' ? '.docx' : '.xlsx, .xls'}
                   onChange={handleImportFile}
                   disabled={importLoading}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-wait"
@@ -1537,14 +1606,24 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                   <Upload className="w-10 h-10 text-slate-400 mx-auto mb-2" />
                 )}
                 <p className="text-sm font-semibold text-slate-700">
-                  {importLoading ? 'Đang phân tích file...' : 'Tải file Excel câu hỏi lên đây'}
+                  {importLoading
+                    ? 'Đang phân tích file...'
+                    : importFileKind === 'word'
+                      ? 'Tải file Word câu hỏi lên đây'
+                      : 'Tải file Excel câu hỏi lên đây'}
                 </p>
-                <p className="text-xs text-slate-400 mt-1">Định dạng hỗ trợ: .xlsx, .xls (Tối đa 5MB) — chọn file sẽ tự xem trước, chưa ghi vào hệ thống</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {importFileKind === 'word'
+                    ? 'Định dạng hỗ trợ: .docx (Tối đa 5MB) — chọn file sẽ tự xem trước, chưa ghi vào hệ thống'
+                    : 'Định dạng hỗ trợ: .xlsx, .xls (Tối đa 5MB) — chọn file sẽ tự xem trước, chưa ghi vào hệ thống'}
+                </p>
               </div>
 
-              <p className="text-xs text-slate-500">
-                Xem sheet "HuongDan" trong file mẫu để biết chi tiết từng cột: Chủ đề, Nội dung, Phạm vi, Bộ phận, Loại, Đáp án, Độ khó, Lựa chọn 1–8, Đáp án đúng.
-              </p>
+              {importFileKind === 'excel' && (
+                <p className="text-xs text-slate-500">
+                  Xem sheet "HuongDan" trong file mẫu để biết chi tiết từng cột: Chủ đề, Nội dung, Phạm vi, Bộ phận, Loại, Đáp án, Độ khó, Lựa chọn 1–8, Đáp án đúng.
+                </p>
+              )}
 
               <div className="pt-2 flex gap-3 pb-1">
                 <button
@@ -1688,6 +1767,49 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
 
               {/* CÂU TRÙNG — mặc định bỏ qua (giữ câu cũ), tick để vẫn thêm
                   câu mới dù nội dung trùng (vd cố ý tạo 2 câu giống nhau). */}
+              {/* NEEDS REVIEW (chỉ Word) — câu dùng cách đánh dấu đáp án đúng THIỂU SỐ
+                  trong file (vd file toàn gạch chân nhưng câu này lại dùng *). Mặc định
+                  đã chọn sẵn theo gợi ý của hệ thống — không bấm gì cũng được ("bỏ qua"
+                  = chấp nhận gợi ý), hoặc tự tick lại cho đúng trước khi xác nhận nhập. */}
+              {importPreview.needsReview?.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                    <b>{importPreview.needsReview.length} câu</b> dùng cách đánh dấu đáp án đúng khác với đa số file (vd file chủ yếu gạch chân nhưng câu này lại dùng dấu *). Hệ thống đã chọn sẵn theo cách câu đó dùng — kiểm tra lại hoặc tick lại cho đúng trước khi xác nhận nhập.
+                  </p>
+                  <div className="border border-amber-200 rounded-lg divide-y divide-amber-100 max-h-64 overflow-y-auto" data-lenis-prevent>
+                    {importPreview.needsReview.map((r) => (
+                      <div key={r.row} className="p-2.5 text-sm space-y-1.5">
+                        <div className="flex items-start gap-2">
+                          <span className="text-slate-400 w-14 shrink-0">Câu {r.row}</span>
+                          <span className="flex-1 min-w-0 text-slate-700">{r.content}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 pl-14">
+                          {r.options.map((o) => (
+                            <label
+                              key={o.index}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs cursor-pointer ${
+                                (reviewOverrides[r.row] || []).includes(o.index)
+                                  ? 'border-[#22C55E] bg-[#F0FDF4] text-[#166534] font-semibold'
+                                  : 'border-slate-200 text-slate-600'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={(reviewOverrides[r.row] || []).includes(o.index)}
+                                onChange={() => toggleReviewOption(r.row, o.index)}
+                                disabled={importConfirming}
+                                className="w-3.5 h-3.5"
+                              />
+                              {o.letter}. {o.content.slice(0, 40)}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {importPreview.duplicates?.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs text-slate-500">

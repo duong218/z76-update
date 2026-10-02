@@ -1,5 +1,17 @@
 import mongoose from 'mongoose';
 
+/**
+ * MỚI — Ai là người chọn vai trò (phòng ban) mà thí sinh thi trong kỳ này:
+ * - candidate: thí sinh tự chọn trước khi bấm bắt đầu thi (có hộp thoại xác nhận phía client)
+ * - leader: Người duyệt đề chọn lại khi cấp thêm lượt thi cho thí sinh lỡ chọn nhầm
+ * - system: thí sinh chỉ có 1 phòng ban (không có gì để chọn) — hệ thống tự khóa theo phòng chính
+ */
+export const ROLE_CHOSEN_BY = {
+  CANDIDATE: 'candidate',
+  LEADER: 'leader',
+  SYSTEM: 'system',
+};
+
 const examCandidateSchema = new mongoose.Schema(
   {
     examId: {
@@ -31,6 +43,14 @@ const examCandidateSchema = new mongoose.Schema(
      * có thể được cấp lại nhiều lần trước khi dùng hết.
      */
     extraAttemptsGranted: { type: Number, default: 0, min: 0 },
+    /**
+     * MỚI — Thời điểm vai trò (phòng ban của mã đề `examCodeId`) bị KHÓA cho kỳ thi này.
+     * Chưa có giá trị = thí sinh chưa xác nhận vai trò (mã đề hiện tại chỉ là mã mặc định
+     * theo phòng chính). Sau khi khóa, thí sinh KHÔNG tự đổi được nữa — chỉ Người duyệt đề
+     * đổi được khi cấp thêm lượt thi (xem exam-attempt.service.js#grantExtraAttempt).
+     */
+    roleConfirmedAt: { type: Date },
+    roleChosenBy: { type: String, enum: Object.values(ROLE_CHOSEN_BY) },
   },
   { timestamps: true },
 );

@@ -4,14 +4,16 @@
  */
 
 import fs from 'fs';
+import mongoose from 'mongoose';
 import { StudyDocument, Employee, Topic } from '../models/index.js';
 import { DOCUMENT_SCOPE } from '../models/constants.js';
+import { getEmployeeDepartmentIds } from '../models/employee.model.js';
 import { ApiError, assertFound } from '../utils/api-error.js';
 
-// Lấy ID phòng ban của thí sinh qua hồ sơ Employee
-async function getCandidateDepartmentId(userId) {
-  const emp = await Employee.findOne({ userId }).select('departmentId').lean();
-  return emp?.departmentId ?? null;
+// Lấy các ID phòng ban của thí sinh (phòng chính + phòng kiêm nhiệm) qua hồ sơ Employee — dạng chuỗi, không trùng
+async function getCandidateDepartmentIds(userId) {
+  const emp = await Employee.findOne({ userId }).select('departmentId extraDepartmentIds').lean();
+  return getEmployeeDepartmentIds(emp);
 }
 
 // Lấy danh sách tài liệu dành cho cán bộ quản lý (Admin / Examiner / Leader)
@@ -26,14 +28,17 @@ export async function listDocumentsForStaff({ topicId } = {}) {
     .lean();
 }
 
-// Lấy danh sách tài liệu dành cho Thí sinh (Lọc tài liệu chung + tài liệu riêng đúng phòng ban của mình)
+// Lấy danh sách tài liệu dành cho Thí sinh (Lọc tài liệu chung + tài liệu riêng của phòng chính và các phòng kiêm nhiệm của mình)
 export async function listDocumentsForCandidate(userId, { topicId } = {}) {
-  const departmentId = await getCandidateDepartmentId(userId);
-  const scopeQuery = departmentId
+  const departmentIds = await getCandidateDepartmentIds(userId);
+  const scopeQuery = departmentIds.length
     ? {
         $or: [
           { scope: DOCUMENT_SCOPE.COMMON },
-          { scope: DOCUMENT_SCOPE.DEPARTMENT_SPECIFIC, departmentId },
+          {
+            scope: DOCUMENT_SCOPE.DEPARTMENT_SPECIFIC,
+            departmentId: { $in: departmentIds.map((id) => new mongoose.Types.ObjectId(id)) },
+          },
         ],
       }
     : { scope: DOCUMENT_SCOPE.COMMON };
@@ -103,8 +108,8 @@ export async function getDocumentForAccess(id, requester) {
   }
 
   if (requester.roleCode === 'candidate' && doc.scope === DOCUMENT_SCOPE.DEPARTMENT_SPECIFIC) {
-    const departmentId = await getCandidateDepartmentId(requester.userId);
-    if (!departmentId || departmentId.toString() !== doc.departmentId?.toString()) {
+    const departmentIds = await getCandidateDepartmentIds(requester.userId);
+    if (!doc.departmentId || !departmentIds.includes(doc.departmentId.toString())) {
       throw new ApiError(403, 'Bạn không có quyền truy cập tài liệu này', 'DOCUMENT_FORBIDDEN');
     }
   }
@@ -114,4 +119,4 @@ export async function getDocumentForAccess(id, requester) {
   }
 
   return doc;
-}
+}

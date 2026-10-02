@@ -10,6 +10,7 @@ import { Answer, Employee, Question, Topic } from '../models/index.js';
 import { PracticeSession } from '../models/practice-session.model.js';
 import { QUESTION_SCOPE, QUESTION_USAGE } from '../models/constants.js';
 import { questionUsageFilter } from '../models/question.model.js';
+import { getEmployeeDepartmentIds } from '../models/employee.model.js';
 import { ApiError } from '../utils/api-error.js';
 
 const MAX_QUESTIONS = 30;
@@ -19,10 +20,11 @@ const MODE_VALUES = new Set(['instant', 'exam']);
 const TIME_GRACE_SEC = 15;
 
 // Bộ lọc câu hỏi hợp lệ cho thí sinh: đúng chủ đề, đang hoạt động,
-// và (câu chung HOẶC câu riêng của đúng phòng ban thí sinh)
+// và (câu chung HOẶC câu riêng của phòng ban thí sinh — phòng chính + các phòng kiêm nhiệm)
 async function buildEligibleFilter(userId, topicIds, difficulty = 'all') {
-  const employee = await Employee.findOne({ userId }).select('departmentId').lean();
-  if (!employee?.departmentId) {
+  const employee = await Employee.findOne({ userId }).select('departmentId extraDepartmentIds').lean();
+  const departmentIds = getEmployeeDepartmentIds(employee);
+  if (departmentIds.length === 0) {
     throw new ApiError(400, 'Tài khoản chưa gắn phòng ban', 'PRACTICE_NO_DEPARTMENT');
   }
 
@@ -33,7 +35,10 @@ async function buildEligibleFilter(userId, topicIds, difficulty = 'all') {
     topicId: { $in: topicIds.map((id) => new mongoose.Types.ObjectId(id)) },
     $or: [
       { scope: QUESTION_SCOPE.COMMON },
-      { scope: QUESTION_SCOPE.DEPARTMENT_SPECIFIC, departmentId: employee.departmentId },
+      {
+        scope: QUESTION_SCOPE.DEPARTMENT_SPECIFIC,
+        departmentId: { $in: departmentIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      },
     ],
   };
 

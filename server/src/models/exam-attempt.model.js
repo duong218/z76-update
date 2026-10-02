@@ -14,6 +14,17 @@ const examAttemptSchema = new mongoose.Schema(
       enum: Object.values(ATTEMPT_TYPE),
       required: true,
     },
+    /**
+     * MỚI — Phòng ban (vai trò) mà thí sinh thi ở LƯỢT THI này, ghi lại lúc bắt đầu lượt thi.
+     * Báo cáo tính điểm theo phòng ban này (không theo phòng chính hiện tại của nhân viên) nên điểm luôn
+     * hiện đúng vai trò đã thi, kể cả khi Người duyệt đề đổi vai trò cho lượt thi lại sau đó.
+     * Lượt thi cũ (trước khi có trường này) để trống -> báo cáo dùng phòng chính của nhân viên như trước.
+     */
+    departmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Department',
+      index: true,
+    },
     startedAt: { type: Date, required: true, default: Date.now },
     submittedAt: { type: Date },
     status: {

@@ -17,7 +17,7 @@ export const list = asyncHandler(async (req, res) => {
 
 // Tạo tài khoản mới hoặc tự động tái sử dụng tài khoản đã khóa nếu trùng mã nhân viên
 export const create = asyncHandler(async (req, res) => {
-  const { username, roleId, fullname, departmentId, employeeCode } = req.body ?? {};
+  const { username, roleId, fullname, departmentId, employeeCode, extraDepartmentIds } = req.body ?? {};
   if (!username || !roleId) {
     throw new ApiError(400, 'Thiếu thông tin bắt buộc (username, roleId)', 'MISSING_FIELDS');
   }
@@ -27,7 +27,7 @@ export const create = asyncHandler(async (req, res) => {
     username,
     roleId,
     ipAddress: req.ip,
-    employeeInfo: { fullname, departmentId, employeeCode },
+    employeeInfo: { fullname, departmentId, employeeCode, extraDepartmentIds },
   });
 
   if (!reused) {
@@ -106,6 +106,37 @@ export const toggleLock = asyncHandler(async (req, res) => {
   res.json({ success: true, message: isActive ? 'Đã mở khóa tài khoản' : 'Đã khóa tài khoản', code: 'LOCK_TOGGLED', data });
 });
 
+// Sửa phòng ban chính / phòng kiêm nhiệm của 1 nhân viên (chỉ gửi field nào muốn đổi)
+export const updateDepartments = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { departmentId, extraDepartmentIds } = req.body ?? {};
+  if (departmentId === undefined && extraDepartmentIds === undefined) {
+    throw new ApiError(400, 'Thiếu departmentId hoặc extraDepartmentIds', 'MISSING_FIELDS');
+  }
+
+  const data = await userService.updateEmployeeDepartments({
+    adminId: req.auth.userId,
+    userId: id,
+    departmentId,
+    extraDepartmentIds,
+    ipAddress: req.ip,
+  });
+
+  const extraNames = data.extraDepartments.map((d) => d.name).join('; ');
+  await writeAudit({
+    actorUserId: req.auth.userId,
+    action: 'UPDATE_EMPLOYEE_DEPARTMENTS',
+    resourceType: 'User',
+    resourceId: id,
+    metadata: {
+      detail: `Cập nhật phòng ban của ${data.fullname || id}: chính "${data.departmentName}", kiêm nhiệm: ${extraNames || 'không có'}`,
+    },
+    ipAddress: req.ip,
+  });
+
+  res.json({ success: true, message: 'Cập nhật phòng ban thành công', code: 'EMPLOYEE_DEPARTMENTS_UPDATED', data });
+});
+
 // Đặt lại mật khẩu tạm thời cho người dùng (bắt buộc đổi mật khẩu ở lần đăng nhập kế tiếp)
 export const resetPassword = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -161,7 +192,7 @@ export const previewImportExcel = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    message: `Xem trước: ${data.toCreate} tạo mới, ${data.toReuse} sẽ tái sử dụng tài khoản đã khóa, ${data.toUpdate} cập nhật, ${data.conflicts} trùng tài khoản đang hoạt động, ${data.duplicatesInFile} trùng mã trong cùng file, ${data.errors} lỗi`,
+    message: `Xem trước: ${data.toCreate} tạo mới, ${data.toReuse} sẽ tái sử dụng tài khoản đã khóa, ${data.toUpdate} cập nhật, ${data.conflicts} trùng tài khoản đang hoạt động, ${data.duplicatesInFile} trùng mã trong cùng file, ${data.errors} lỗi; ${data.departmentsNeedingCode} phòng ban cần nhập mã, ${data.rowsWithWarnings} dòng có cảnh báo`,
     code: 'EMPLOYEE_IMPORT_PREVIEW_OK',
     data,
   });
@@ -169,12 +200,13 @@ export const previewImportExcel = asyncHandler(async (req, res) => {
 
 // Bước 2 Import Excel: Xác nhận thực hiện lưu các bản ghi đã duyệt vào CSDL
 export const confirmImportExcel = asyncHandler(async (req, res) => {
-  const { rows } = req.body ?? {};
+  const { rows, departmentCodes } = req.body ?? {};
   if (!Array.isArray(rows) || !rows.length) {
     throw new ApiError(400, 'Thiếu dữ liệu các dòng cần import (rows)', 'MISSING_FIELDS');
   }
 
-  const data = await userService.confirmEmployeeImportRows(rows, req.auth.userId, req.ip);
+  // departmentCodes: { [key phòng ban từ bước preview]: mã phòng ban admin đã nhập }
+  const data = await userService.confirmEmployeeImportRows(rows, req.auth.userId, req.ip, { departmentCodes });
 
   res.json({
     success: true,

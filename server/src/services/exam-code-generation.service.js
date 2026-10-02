@@ -1,6 +1,9 @@
 /**
  * Service Sinh Mã Đề & Gán Đề Thi cho Thí Sinh (Exam Code Generation Service).
  * Thuật toán sinh đề thi riêng biệt cho từng thí sinh (kết hợp câu hỏi chung và câu hỏi riêng theo phòng ban) và cơ chế bù trừ câu hỏi thông minh.
+ * MỚI — Hỗ trợ nhân viên KIÊM NHIỆM: lúc publish mỗi người nhận mã đề mặc định theo PHÒNG CHÍNH (nếu phòng chính không còn hoạt động
+ * thì tự chuyển sang phòng kiêm nhiệm đầu tiên còn hoạt động); khi thí sinh chọn vai trò khác (hoặc Người duyệt đề chọn lại khi cấp
+ * thêm lượt) thì đổi sang mã đề của phòng được chọn (assignCandidateRole).
  */
 
 import crypto from 'node:crypto';
@@ -17,6 +20,7 @@ import {
 } from '../models/index.js';
 import { QUESTION_USAGE } from '../models/constants.js';
 import { questionUsageFilter } from '../models/question.model.js';
+import { getEmployeeDepartmentIds } from '../models/employee.model.js';
 import { ApiError } from '../utils/api-error.js';
 import { notificationService } from './notification.service.js';
 
@@ -50,7 +54,8 @@ function buildExamCode(exam, department, employee) {
 }
 
 // Kiểm tra số lượng câu hỏi khả dụng và lập phương án rút câu (tự động bù từ câu chung nếu câu riêng phòng ban bị thiếu)
-async function validateQuestionAvailability(exam, department) {
+// extraOnly = true: phòng ban này chỉ xuất hiện ở nhân viên KIÊM NHIỆM (chưa ai lấy làm phòng chính) — chỉ để làm rõ thông báo lỗi.
+async function validateQuestionAvailability(exam, department, { extraOnly = false } = {}) {
   const commonQuestions = await Question.find({
     topicId: exam.topicId,
     scope: QUESTION_SCOPE.COMMON,
@@ -78,6 +83,9 @@ async function validateQuestionAvailability(exam, department) {
       400,
       `Phòng ban "${department.name}" không đủ câu hỏi để tạo đề (cần tổng ${totalNeeded} câu, ` +
         `hiện có ${commonQuestions.length} câu chung + ${deptQuestions.length} câu riêng = ${totalAvailable} câu). ` +
+        (extraOnly
+          ? 'Phòng ban này hiện chỉ có nhân viên KIÊM NHIỆM nhưng vẫn cần đủ câu hỏi để họ chọn vai trò này khi thi. '
+          : '') +
         `Vui lòng bổ sung thêm câu hỏi thi chính thức (chung hoặc riêng cho phòng ban này) thuộc chủ đề đã chọn. ` +
         `Lưu ý: câu hỏi thuộc ngân hàng Ôn tập không được tính vào đề thi.`,
       'INSUFFICIENT_QUESTIONS',
@@ -130,32 +138,53 @@ async function ensureExamCodeForEmployee(exam, department, employee, precomputed
 }
 
 // Sinh mã đề và gán đề cho TOÀN BỘ nhân viên khi công bố kỳ thi (Publish)
+// Mã đề mặc định của mỗi nhân viên theo PHÒNG CHÍNH (phòng chính ngừng hoạt động -> phòng kiêm nhiệm đầu tiên còn hoạt động).
+// Bước kiểm tra ngân hàng câu hỏi được làm cho cả các phòng KIÊM NHIỆM, để lúc thí sinh chọn vai trò kiêm nhiệm không bị báo
+// thiếu câu hỏi (lỗi phải bị chặn ngay từ lúc publish).
 export async function generateExamCodesAndAssignCandidates(exam) {
-  const employees = await Employee.find({ isActive: true }).select('_id employeeCode departmentId');
-  const employeesByDept = new Map();
-  for (const emp of employees) {
-    const key = emp.departmentId.toString();
-    if (!employeesByDept.has(key)) employeesByDept.set(key, []);
-    employeesByDept.get(key).push(emp);
+  const employees = await Employee.find({ isActive: true }).select(
+    '_id employeeCode departmentId extraDepartmentIds',
+  );
+
+  if (employees.length === 0) {
+    throw new ApiError(400, 'Không có nhân viên nào đang hoạt động để gán đề thi', 'NO_ACTIVE_EMPLOYEES');
   }
 
-  if (employeesByDept.size === 0) {
-    throw new ApiError(400, 'Không có nhân viên nào đang hoạt động để gán đề thi', 'NO_ACTIVE_EMPLOYEES');
+  // Tập mọi phòng ban có thể được chọn làm vai trò thi = phòng chính ∪ phòng kiêm nhiệm của các nhân viên đang hoạt động
+  const mainDeptKeys = new Set();
+  const allDeptKeys = new Set();
+  for (const emp of employees) {
+    mainDeptKeys.add(String(emp.departmentId));
+    for (const id of getEmployeeDepartmentIds(emp)) allDeptKeys.add(id);
   }
 
   const departments = await Department.find({
     isActive: true,
-    _id: { $in: [...employeesByDept.keys()] },
+    _id: { $in: [...allDeptKeys] },
   });
+  const activeDeptKeys = new Set(departments.map((d) => d._id.toString()));
 
-  // Kiểm tra tính sẵn sàng của ngân hàng câu hỏi cho từng phòng ban
-  const pools = new Map();
-  for (const dept of departments) {
-    const { commonQuestions, deptQuestions, plan } = await validateQuestionAvailability(exam, dept);
-    pools.set(dept._id.toString(), { commonQuestions, deptQuestions, plan });
+  // Gom nhân viên theo phòng ban MẶC ĐỊNH của họ: phòng chính, hoặc (nếu phòng chính đã ngừng hoạt động) phòng kiêm nhiệm
+  // đầu tiên còn hoạt động. Nhân viên không còn phòng ban nào hoạt động thì không được gán đề.
+  const employeesByDept = new Map();
+  for (const emp of employees) {
+    const defaultKey = getEmployeeDepartmentIds(emp).find((id) => activeDeptKeys.has(id));
+    if (!defaultKey) continue;
+    if (!employeesByDept.has(defaultKey)) employeesByDept.set(defaultKey, []);
+    employeesByDept.get(defaultKey).push(emp);
   }
 
-  // Tạo đề và gán thí sinh độc lập cho từng nhân viên
+  // Kiểm tra tính sẵn sàng của ngân hàng câu hỏi cho từng phòng ban (kể cả phòng chỉ có người kiêm nhiệm)
+  const pools = new Map();
+  for (const dept of departments) {
+    const deptKey = dept._id.toString();
+    const { commonQuestions, deptQuestions, plan } = await validateQuestionAvailability(exam, dept, {
+      extraOnly: !mainDeptKeys.has(deptKey),
+    });
+    pools.set(deptKey, { commonQuestions, deptQuestions, plan });
+  }
+
+  // Tạo đề và gán thí sinh độc lập cho từng nhân viên (theo phòng ban mặc định của họ)
   for (const dept of departments) {
     const deptKey = dept._id.toString();
     const deptEmployees = employeesByDept.get(deptKey) || [];
@@ -183,6 +212,78 @@ export async function generateExamCodesAndAssignCandidates(exam) {
   }
 }
 
+// MỚI — Danh sách vai trò (phòng ban đang hoạt động) mà nhân viên có thể chọn để thi: phòng chính đứng đầu, rồi các phòng kiêm nhiệm.
+// Trả về [{ departmentId, name, code, isMain, isDefault }]; isDefault = vai trò chọn sẵn (phòng chính; nếu phòng chính không còn
+// hoạt động thì là phòng kiêm nhiệm đầu tiên còn hoạt động). Phòng ban đã ngừng hoạt động (xóa mềm) bị loại.
+export async function getEmployeeRoleOptions(employee) {
+  const ids = getEmployeeDepartmentIds(employee);
+  if (ids.length === 0) return [];
+
+  const departments = await Department.find({ isActive: true, _id: { $in: ids } });
+  const byId = new Map(departments.map((d) => [d._id.toString(), d]));
+  const mainKey = employee.departmentId ? String(employee.departmentId?._id ?? employee.departmentId) : '';
+
+  return ids
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((d, index) => ({
+      departmentId: d._id,
+      name: d.name,
+      code: d.code ?? null,
+      isMain: d._id.toString() === mainKey,
+      isDefault: index === 0,
+    }));
+}
+
+// MỚI — Đổi vai trò (phòng ban) của 1 thí sinh trong kỳ thi: sinh mã đề mới theo phòng được chọn, gắn lại vào ExamCandidate
+// rồi dọn mã đề cũ. Hàm KHÔNG kiểm tra quyền/khóa vai trò (việc đó thuộc exam-attempt.service.js: thí sinh chỉ được chọn lần đầu,
+// Người duyệt đề mới được đổi lại) — nhưng luôn chặn phòng ban ngoài tập phòng chính ∪ kiêm nhiệm của nhân viên.
+// Nếu phòng được chọn trùng với phòng của mã đề hiện tại thì giữ nguyên mã đề (changed = false).
+export async function assignCandidateRole({ exam, examCandidate, employee, departmentId }) {
+  const targetKey = String(departmentId ?? '');
+  const allowed = getEmployeeDepartmentIds(employee);
+  if (!targetKey || !allowed.includes(targetKey)) {
+    throw new ApiError(
+      400,
+      'Vai trò (phòng ban) được chọn không thuộc phòng chính hoặc phòng kiêm nhiệm của nhân viên này',
+      'ROLE_INVALID',
+    );
+  }
+
+  const department = await Department.findById(departmentId);
+  if (!department || !department.isActive) {
+    throw new ApiError(400, 'Phòng ban được chọn không tồn tại hoặc đã ngừng hoạt động', 'ROLE_INVALID');
+  }
+
+  const currentCode = await ExamCode.findById(examCandidate.examCodeId);
+  if (currentCode && currentCode.departmentId.toString() === targetKey) {
+    return { examCandidate, examCode: currentCode, changed: false };
+  }
+
+  // Sinh mã đề mới TRƯỚC (có kiểm tra đủ câu hỏi), chỉ khi thành công mới đổi liên kết và dọn mã cũ
+  const newCode = await ensureExamCodeForEmployee(exam, department, employee);
+  const oldCodeId = examCandidate.examCodeId;
+
+  try {
+    examCandidate.examCodeId = newCode._id;
+    await examCandidate.save();
+  } catch (err) {
+    examCandidate.examCodeId = oldCodeId;
+    await ExamCodeQuestion.deleteMany({ examCodeId: newCode._id }).catch(() => {});
+    await ExamCode.deleteOne({ _id: newCode._id }).catch(() => {});
+    throw err;
+  }
+
+  try {
+    await ExamCodeQuestion.deleteMany({ examCodeId: oldCodeId });
+    await ExamCode.deleteOne({ _id: oldCodeId });
+  } catch (cleanupErr) {
+    console.error(`[exam-code-generation] Không dọn được mã đề cũ ${oldCodeId}: ${cleanupErr.message}`);
+  }
+
+  return { examCandidate, examCode: newCode, changed: true };
+}
+
 // Tự động gán đề cho nhân viên mới vào kỳ thi đang phát hành (nếu có)
 export async function assignEmployeeToActiveExamIfAny(employee) {
   let exam;
@@ -194,7 +295,10 @@ export async function assignEmployeeToActiveExamIfAny(employee) {
     const alreadyAssigned = await ExamCandidate.findOne({ examId: exam._id, employeeId: employee._id });
     if (alreadyAssigned) return alreadyAssigned;
 
-    department = await Department.findById(employee.departmentId);
+    // Phòng mặc định = phòng chính (hoặc phòng kiêm nhiệm đầu tiên còn hoạt động nếu phòng chính đã ngừng hoạt động)
+    const roleOptions = await getEmployeeRoleOptions(employee);
+    if (roleOptions.length === 0) return null;
+    department = await Department.findById(roleOptions[0].departmentId);
     if (!department || !department.isActive) return null;
 
     const examCode = await ensureExamCodeForEmployee(exam, department, employee);

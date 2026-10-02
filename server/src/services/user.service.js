@@ -8,11 +8,18 @@ import crypto from 'crypto';
 import fs from 'fs';
 import XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
-import { User, Role, Employee } from '../models/index.js';
+import mongoose from 'mongoose';
+import { User, Role, Employee, Department } from '../models/index.js';
+import { normalizeDeptName } from '../models/department.model.js';
 import { ApiError } from '../utils/api-error.js';
 import * as auditService from './audit.service.js';
 import { assignEmployeeToActiveExamIfAny } from './exam-code-generation.service.js';
-import { findOrCreateDepartmentByName, findOrCreateDepartmentByCode } from './department.service.js';
+import { ensureDepartmentsForImport } from './department.service.js';
+import {
+  formatDepartmentCell,
+  resolveRowDepartments,
+  summarizeImportDepartments,
+} from '../utils/import-departments.js';
 
 // Lấy danh sách toàn bộ người dùng kèm thông tin vai trò (Role) và hồ sơ nhân sự (Employee)
 export async function listUsers() {
@@ -20,6 +27,7 @@ export async function listUsers() {
 
   const employees = await Employee.find({ userId: { $in: users.map((u) => u._id) } })
     .populate('departmentId', 'name code')
+    .populate('extraDepartmentIds', 'name code')
     .lean();
   const employeeByUserId = new Map(employees.map((e) => [e.userId.toString(), e]));
 
@@ -31,6 +39,9 @@ export async function listUsers() {
       employeeCode: emp?.employeeCode ?? '',
       departmentId: emp?.departmentId?._id ?? emp?.departmentId ?? '',
       departmentName: emp?.departmentId?.name ?? '',
+      departmentCode: emp?.departmentId?.code ?? '',
+      // Phòng ban kiêm nhiệm: [{ _id, name, code }]
+      extraDepartments: (emp?.extraDepartmentIds ?? []).map((d) => ({ _id: d._id, name: d.name, code: d.code ?? '' })),
       dob: emp?.dob ?? '',
       gender: emp?.gender ?? '',
       phone: emp?.phone ?? '',
@@ -106,6 +117,7 @@ async function reactivateLockedAccount({
   if (employee) {
     employee.fullname = employeeData.fullname;
     employee.departmentId = employeeData.departmentId;
+    employee.extraDepartmentIds = employeeData.extraDepartmentIds ?? [];
     employee.employeeCode = employeeData.employeeCode || employee.employeeCode;
     employee.dob = employeeData.dob ?? '';
     employee.gender = employeeData.gender ?? '';
@@ -118,6 +130,7 @@ async function reactivateLockedAccount({
     employee = await Employee.create({
       fullname: employeeData.fullname,
       departmentId: employeeData.departmentId,
+      extraDepartmentIds: employeeData.extraDepartmentIds ?? [],
       userId: existingUser._id,
       employeeCode: employeeData.employeeCode || undefined,
       dob: employeeData.dob ?? '',
@@ -147,6 +160,43 @@ async function reactivateLockedAccount({
   return { user: userObj, tempPassword, employee };
 }
 
+// Kiểm tra và chuẩn hóa danh sách phòng ban kiêm nhiệm: không trùng phòng chính, không trùng nhau,
+// phải tồn tại + đang hoạt động + ĐÃ CÓ MÃ (mọi phòng tham gia thi theo vai trò đều phải có mã).
+async function normalizeExtraDepartmentIds(primaryId, rawIds) {
+  if (rawIds === undefined || rawIds === null) return [];
+  if (!Array.isArray(rawIds)) {
+    throw new ApiError(400, 'extraDepartmentIds phải là mảng', 'INVALID_FIELD');
+  }
+  const unique = [...new Set(rawIds.map(String))];
+  for (const id of unique) {
+    if (!mongoose.isValidObjectId(id)) {
+      throw new ApiError(400, 'extraDepartmentIds chứa ID không hợp lệ', 'INVALID_FIELD');
+    }
+  }
+  if (unique.includes(String(primaryId))) {
+    throw new ApiError(400, 'Phòng kiêm nhiệm không được trùng với phòng chính', 'EXTRA_DEPARTMENT_DUPLICATE');
+  }
+  if (!unique.length) return [];
+
+  const found = await Department.find({ _id: { $in: unique }, isActive: true }).select('_id name code').lean();
+  if (found.length !== unique.length) {
+    throw new ApiError(
+      400,
+      'Có phòng kiêm nhiệm không tồn tại hoặc đã ngừng hoạt động',
+      'EXTRA_DEPARTMENT_NOT_FOUND',
+    );
+  }
+  const withoutCode = found.filter((d) => !d.code);
+  if (withoutCode.length) {
+    throw new ApiError(
+      400,
+      `Phòng ban ${withoutCode.map((d) => `"${d.name}"`).join(', ')} chưa có mã phòng ban — hãy bổ sung mã ở tab Phòng ban trước khi dùng làm phòng kiêm nhiệm`,
+      'EXTRA_DEPARTMENT_NO_CODE',
+    );
+  }
+  return unique;
+}
+
 // Tạo tài khoản người dùng mới (tự động tạo kèm hồ sơ Employee nếu là Thí sinh)
 export async function createUser({ adminId, username, roleId, ipAddress, employeeInfo }) {
   const role = await Role.findById(roleId);
@@ -164,6 +214,11 @@ export async function createUser({ adminId, username, roleId, ipAddress, employe
       );
     }
   }
+
+  // Phòng kiêm nhiệm (nếu có) — chỉ áp dụng cho tài khoản thí sinh
+  const extraDepartmentIds = isCandidate
+    ? await normalizeExtraDepartmentIds(employeeInfo.departmentId, employeeInfo.extraDepartmentIds)
+    : [];
 
   // Kiểm tra trùng lặp và kích hoạt lại tài khoản cũ nếu đang bị khóa
   {
@@ -191,7 +246,7 @@ export async function createUser({ adminId, username, roleId, ipAddress, employe
         existingUser,
         existingEmployee,
         newUsername: username?.toLowerCase(),
-        employeeData: employeeInfo,
+        employeeData: { ...employeeInfo, extraDepartmentIds },
         ipAddress,
       });
       await assignEmployeeToActiveExamIfAny(employee).catch(() => {});
@@ -214,6 +269,7 @@ export async function createUser({ adminId, username, roleId, ipAddress, employe
       employee = await Employee.create({
         fullname: employeeInfo.fullname,
         departmentId: employeeInfo.departmentId,
+        extraDepartmentIds,
         userId: newUser._id,
         employeeCode: employeeInfo.employeeCode || undefined,
         isActive: true,
@@ -298,6 +354,7 @@ export async function exportCandidateCredentialsExcel({ adminId, ipAddress }) {
 
   const employees = await Employee.find({ userId: { $in: users.map((u) => u._id) } })
     .populate('departmentId', 'name')
+    .populate('extraDepartmentIds', 'name')
     .lean();
   const employeeByUserId = new Map(employees.map((e) => [e.userId.toString(), e]));
 
@@ -313,7 +370,11 @@ export async function exportCandidateCredentialsExcel({ adminId, ipAddress }) {
     rows.push({
       fullname: emp?.fullname ?? '',
       employeeCode: emp?.employeeCode ?? '',
-      departmentName: emp?.departmentId?.name ?? '',
+      // Dạng "Chính {kiêm nhiệm 1; kiêm nhiệm 2}" — khớp đúng khuôn import Excel
+      departmentName: formatDepartmentCell(
+        emp?.departmentId?.name ?? '',
+        (emp?.extraDepartmentIds ?? []).map((d) => d.name),
+      ),
       position: emp?.position ?? '',
       username: user.username,
       tempPassword,
@@ -441,12 +502,14 @@ function usernameFromEmployeeCode(code) {
     .replace(/[^a-z0-9]/g, '');
 }
 
-// Đọc và parse dữ liệu 1 dòng nhân viên từ Excel (tự động tìm/tạo phòng ban theo mã hoặc tên)
-async function buildEmployeeImportRow(row, rowIndex) {
+// Đọc và parse dữ liệu 1 dòng nhân viên từ Excel. KHÔNG ghi gì vào DB (kể cả phòng ban):
+// phòng ban chính + kiêm nhiệm chỉ được TRA CỨU trên bản chụp `departmentSnapshot`, việc tạo phòng/gán mã
+// diễn ra ở bước xác nhận (confirmEmployeeImportRows) sau khi admin đã nhập mã ở bước xem trước.
+function buildEmployeeImportRow(row, rowIndex, departmentSnapshot) {
   const r = mapRowKeys(row);
   const fullname = r.fullname ?? r.hoten ?? r.hovaten;
   const deptCodeRaw = r.maphongban ?? r.mabophan ?? r.maban ?? r.madepartment;
-  const deptName = r.department ?? r.phongban ?? r.bophan;
+  const deptCell = r.department ?? r.phongban ?? r.bophan;
   const employeeCodeRaw = r.employeecode ?? r.manhanvien ?? r.manv ?? r.ma ?? r.masonhanvien;
   const dob = r.ngaysinh ?? r.dob ?? '';
   const gender = r.gioitinh ?? r.gender ?? '';
@@ -456,13 +519,6 @@ async function buildEmployeeImportRow(row, rowIndex) {
 
   if (!String(fullname ?? '').trim()) {
     throw new ApiError(400, `Dòng ${rowIndex}: thiếu họ tên`, 'IMPORT_ROW_INVALID');
-  }
-  if (!String(deptCodeRaw ?? '').trim() && !String(deptName ?? '').trim()) {
-    throw new ApiError(
-      400,
-      `Dòng ${rowIndex}: thiếu phòng ban (cần Mã phòng ban hoặc Phòng ban)`,
-      'IMPORT_ROW_INVALID',
-    );
   }
 
   const employeeCode = String(employeeCodeRaw ?? '').trim() || `TMP${rowIndex}`;
@@ -475,11 +531,10 @@ async function buildEmployeeImportRow(row, rowIndex) {
     );
   }
 
-  const dept = String(deptCodeRaw ?? '').trim()
-    ? await findOrCreateDepartmentByCode({ code: deptCodeRaw, name: deptName })
-    : await findOrCreateDepartmentByName(String(deptName));
-  if (!dept) {
-    throw new ApiError(400, `Dòng ${rowIndex}: phòng ban không hợp lệ`, 'IMPORT_ROW_INVALID');
+  // Ô Phòng ban có dạng: Tên phòng chính {kiêm nhiệm 1; kiêm nhiệm 2}
+  const depts = resolveRowDepartments({ cellRaw: deptCell, codeRaw: deptCodeRaw }, departmentSnapshot);
+  if (depts.error) {
+    throw new ApiError(400, `Dòng ${rowIndex}: ${depts.error}`, 'IMPORT_ROW_INVALID');
   }
 
   return {
@@ -487,8 +542,13 @@ async function buildEmployeeImportRow(row, rowIndex) {
     fullname: String(fullname).trim(),
     employeeCode,
     username,
-    departmentId: dept._id,
-    departmentName: dept.name,
+    departmentName: depts.primary.name,
+    departmentCode: depts.primary.fileCode,
+    extraDepartments: depts.extras, // [{ name }]
+    // true khi ô Phòng ban thật sự liệt kê phòng kiêm nhiệm. Nếu false, dòng "cập nhật" KHÔNG đụng vào
+    // phòng kiêm nhiệm hiện có của nhân viên (tránh xóa mất phần admin đã gán thủ công).
+    extrasProvided: depts.extrasProvided,
+    warnings: depts.warnings,
     dob: String(dob ?? '').trim(),
     gender: String(gender ?? '').trim(),
     phone: String(phone ?? '').trim(),
@@ -575,12 +635,14 @@ async function classifyImportRow(parsed) {
 // Bước 1: Xem trước (Preview) kết quả Import Nhân sự (Phát hiện trùng lặp trong file và đối chiếu với CSDL)
 export async function previewEmployeesFromExcelFile(filePath) {
   const rows = readImportRows(filePath);
+  // Bản chụp danh sách phòng ban (cả đã xóa mềm) để tra cứu mà KHÔNG tạo gì trong lúc xem trước
+  const departmentSnapshot = await Department.find().lean();
 
   const parsedRows = [];
   const parseErrors = [];
   for (const { rowIndex, raw } of rows) {
     try {
-      const parsed = await buildEmployeeImportRow(raw, rowIndex);
+      const parsed = buildEmployeeImportRow(raw, rowIndex, departmentSnapshot);
       parsedRows.push(parsed);
     } catch (err) {
       parseErrors.push({
@@ -638,6 +700,17 @@ export async function previewEmployeesFromExcelFile(filePath) {
     /* ignore cleanup */
   }
 
+  // Gộp các phòng ban (chính + kiêm nhiệm) của những dòng SẼ được ghi, để admin điền mã ngay ở bước xem trước
+  const writable = merged.filter((r) => ['create', 'reuse', 'update'].includes(r.action));
+  const departments = summarizeImportDepartments(
+    writable.map((r) => ({
+      rowIndex: r.rowIndex,
+      primary: { name: r.departmentName, fileCode: r.departmentCode },
+      extras: r.extraDepartments,
+    })),
+    departmentSnapshot,
+  );
+
   return {
     total: rows.length,
     toCreate,
@@ -646,12 +719,15 @@ export async function previewEmployeesFromExcelFile(filePath) {
     conflicts,
     duplicatesInFile,
     errors,
+    rowsWithWarnings: merged.filter((r) => r.warnings?.length).length,
+    departments,
+    departmentsNeedingCode: departments.filter((d) => d.needsCode).length,
     rows: merged,
   };
 }
 
 // Bước 2: Xác nhận (Confirm) Import Nhân sự vào CSDL (Tạo mới, Cập nhật hoặc Tái kích hoạt tài khoản đã khóa)
-export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
+export async function confirmEmployeeImportRows(rows, adminId, ipAddress, { departmentCodes } = {}) {
   if (!Array.isArray(rows) || !rows.length) {
     throw new ApiError(400, 'Không có dòng nào để xác nhận import', 'IMPORT_EMPTY');
   }
@@ -660,6 +736,21 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
   if (!candidateRole) {
     throw new ApiError(500, 'Chưa cấu hình role candidate trong hệ thống', 'ROLE_NOT_FOUND');
   }
+
+  // Gom mọi phòng ban (chính + kiêm nhiệm) của các dòng sẽ ghi; tạo / khôi phục / gán mã TRƯỚC khi tạo nhân viên.
+  // Mọi phòng đều bắt buộc có mã; lỗi mã sẽ dừng cả lần import (chưa ghi nhân viên nào).
+  const deptItems = new Map();
+  for (const r of rows) {
+    if (!['create', 'reuse', 'update'].includes(r?.action)) continue;
+    for (const name of [r.departmentName, ...(r.extraDepartments ?? []).map((e) => e?.name)]) {
+      const trimmed = String(name ?? '').trim();
+      if (!trimmed) continue;
+      const key = normalizeDeptName(trimmed);
+      if (!deptItems.has(key)) deptItems.set(key, { key, name: trimmed });
+    }
+  }
+  const departmentIdByKey = await ensureDepartmentsForImport([...deptItems.values()], departmentCodes ?? {});
+  const deptIdOf = (name) => departmentIdByKey.get(normalizeDeptName(name));
 
   const results = [];
   let createdCount = 0;
@@ -674,6 +765,14 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
     }
 
     try {
+      const departmentId = deptIdOf(row.departmentName);
+      if (!departmentId) {
+        throw new ApiError(400, `Dòng ${rowIndex}: thiếu phòng ban`, 'IMPORT_ROW_INVALID');
+      }
+      const extraDepartmentIds = [
+        ...new Set((row.extraDepartments ?? []).map((e) => String(deptIdOf(e?.name) ?? '')).filter(Boolean)),
+      ].filter((id) => id !== String(departmentId));
+
       if (action === 'reuse' || action === 'update') {
         const targetUserId = row.reuseTarget?.userId ?? row.updateTarget?.userId;
         const existingUser = await User.findById(targetUserId).select('+passwordHash');
@@ -699,7 +798,7 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
             existingUser,
             existingEmployee,
             newUsername: row.username,
-            employeeData: row,
+            employeeData: { ...row, departmentId, extraDepartmentIds },
             ipAddress,
           });
           results.push({
@@ -718,7 +817,9 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
 
         if (existingEmployee) {
           existingEmployee.fullname = row.fullname;
-          existingEmployee.departmentId = row.departmentId;
+          existingEmployee.departmentId = departmentId;
+          // Chỉ ghi đè phòng kiêm nhiệm khi file thật sự liệt kê chúng; nếu không thì giữ nguyên như hiện có
+          if (row.extrasProvided) existingEmployee.extraDepartmentIds = extraDepartmentIds;
           existingEmployee.employeeCode = row.employeeCode || existingEmployee.employeeCode;
           existingEmployee.dob = row.dob;
           existingEmployee.gender = row.gender;
@@ -729,7 +830,8 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
         } else {
           await Employee.create({
             fullname: row.fullname,
-            departmentId: row.departmentId,
+            departmentId,
+            extraDepartmentIds,
             userId: existingUser._id,
             employeeCode: row.employeeCode,
             dob: row.dob,
@@ -775,7 +877,8 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
       try {
         employee = await Employee.create({
           fullname: row.fullname,
-          departmentId: row.departmentId,
+          departmentId,
+          extraDepartmentIds,
           userId: newUser._id,
           employeeCode: row.employeeCode,
           dob: row.dob,
@@ -839,5 +942,54 @@ export async function confirmEmployeeImportRows(rows, adminId, ipAddress) {
     reused: reusedCount,
     failed: failedCount,
     results,
+  };
+}
+
+// Sửa phòng ban chính / phòng kiêm nhiệm của 1 nhân viên (admin thao tác thủ công trong tab Tài khoản).
+// Truyền field nào thì đổi field đó; không truyền extraDepartmentIds thì giữ nguyên danh sách kiêm nhiệm
+// (chỉ tự bỏ phòng nào vừa trở thành phòng chính để không bị trùng).
+export async function updateEmployeeDepartments({ userId, departmentId, extraDepartmentIds }) {
+  const employee = await Employee.findOne({ userId });
+  if (!employee) {
+    throw new ApiError(
+      404,
+      'Tài khoản này không có hồ sơ nhân viên (chỉ tài khoản thí sinh mới có phòng ban)',
+      'EMPLOYEE_NOT_FOUND',
+    );
+  }
+
+  let primaryId = employee.departmentId;
+  if (departmentId !== undefined && departmentId !== null && String(departmentId) !== String(employee.departmentId)) {
+    if (!mongoose.isValidObjectId(departmentId)) {
+      throw new ApiError(400, 'departmentId không hợp lệ', 'INVALID_FIELD');
+    }
+    const dept = await Department.findOne({ _id: departmentId, isActive: true });
+    if (!dept) {
+      throw new ApiError(400, 'Phòng ban chính không tồn tại hoặc đã ngừng hoạt động', 'DEPARTMENT_NOT_FOUND');
+    }
+    primaryId = dept._id;
+  }
+
+  const nextExtra =
+    extraDepartmentIds === undefined
+      ? (employee.extraDepartmentIds ?? []).map(String).filter((id) => id !== String(primaryId))
+      : await normalizeExtraDepartmentIds(primaryId, extraDepartmentIds);
+
+  employee.departmentId = primaryId;
+  employee.extraDepartmentIds = nextExtra;
+  await employee.save();
+
+  const populated = await Employee.findById(employee._id)
+    .populate('departmentId', 'name code')
+    .populate('extraDepartmentIds', 'name code')
+    .lean();
+
+  return {
+    userId: String(userId),
+    fullname: populated.fullname,
+    departmentId: populated.departmentId?._id ?? primaryId,
+    departmentName: populated.departmentId?.name ?? '',
+    departmentCode: populated.departmentId?.code ?? '',
+    extraDepartments: (populated.extraDepartmentIds ?? []).map((d) => ({ _id: d._id, name: d.name, code: d.code ?? '' })),
   };
 }

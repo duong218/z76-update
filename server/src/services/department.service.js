@@ -6,6 +6,7 @@
 import { Department } from '../models/index.js';
 import { normalizeDeptName, normalizeDeptCode } from '../models/department.model.js';
 import { ApiError, assertFound } from '../utils/api-error.js';
+import { planImportDepartments } from '../utils/import-departments.js';
 
 // Lấy danh sách các đơn vị/phòng ban
 export async function listDepartments({ activeOnly = true } = {}) {
@@ -232,4 +233,39 @@ export async function getDepartmentById(id) {
   const dept = await Department.findById(id);
   assertFound(dept, 'Không tìm thấy bộ phận', 'DEPARTMENT_NOT_FOUND');
   return dept;
+}
+
+// Khối xử lý XÁC NHẬN Import nhân viên: tạo / khôi phục / gán mã cho các phòng ban (chính + kiêm nhiệm).
+// items: [{ key, name }]; providedCodes: { [key]: mã admin nhập ở bước preview }.
+// Kiểm tra TOÀN BỘ trước (mọi phòng đều phải có mã, mã không trùng) rồi mới ghi, để lỗi mã không làm import dở dang.
+// Trả về Map key -> _id phòng ban.
+export async function ensureDepartmentsForImport(items, providedCodes = {}) {
+  const snapshot = await Department.find().lean();
+  const plan = planImportDepartments(items, snapshot, providedCodes);
+  if (!plan.ok) {
+    throw new ApiError(400, plan.errors.join(' | '), 'IMPORT_DEPARTMENT_INVALID');
+  }
+
+  const idByKey = new Map();
+  for (const step of plan.steps) {
+    try {
+      if (step.op === 'create') {
+        const doc = await Department.create({ name: step.name, code: step.code });
+        idByKey.set(step.key, doc._id);
+        continue;
+      }
+      const doc = await Department.findById(step.deptId);
+      assertFound(doc, `Không tìm thấy phòng ban "${step.name}"`, 'DEPARTMENT_NOT_FOUND');
+      if (step.reactivate) doc.isActive = true;
+      if (step.setCode) doc.code = step.code;
+      if (step.reactivate || step.setCode) await doc.save();
+      idByKey.set(step.key, doc._id);
+    } catch (err) {
+      if (err.code === 11000) {
+        throw new ApiError(409, `Phòng ban "${step.name}" hoặc mã "${step.code}" đã tồn tại`, 'DEPARTMENT_DUPLICATE');
+      }
+      throw err;
+    }
+  }
+  return idByKey;
 }

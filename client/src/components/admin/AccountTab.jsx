@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Edit2, Lock, Unlock, KeyRound, Loader2, X, Eye, Copy, Check, Upload, FileSpreadsheet, AlertTriangle, AlertCircle, Columns3, ChevronDown, Info, Download } from 'lucide-react';
-import { fetchUsers, fetchRoles, createUser, updateUserRole, toggleUserLock, resetUserPassword, previewImportEmployeesExcel, confirmImportEmployeesExcel, downloadImportResultsCsv, downloadSingleAccountCredential, exportCandidateCredentialsExcel } from '../../services/admin.service';
+import { Search, Plus, Edit2, Lock, Unlock, KeyRound, Loader2, X, Eye, Copy, Check, Upload, FileSpreadsheet, AlertTriangle, AlertCircle, Columns3, ChevronDown, Info, Download, Building2 } from 'lucide-react';
+import { fetchUsers, fetchRoles, createUser, updateUserRole, toggleUserLock, resetUserPassword, previewImportEmployeesExcel, confirmImportEmployeesExcel, downloadImportResultsCsv, downloadSingleAccountCredential, exportCandidateCredentialsExcel, updateEmployeeDepartments } from '../../services/admin.service';
 // Dùng lại đúng fetchDepartments()/createDepartment() đã có sẵn ở tab "Phòng ban"
 // (examiner/DepartmentTab.jsx) — không viết API mới, không gọi apiRequest trực tiếp nữa.
 import { fetchDepartments, createDepartment } from '../../services/examiner.service';
@@ -16,6 +16,7 @@ const ACCOUNT_COLUMNS = [
   { key: 'fullname', label: 'Họ tên' },
   { key: 'employeeCode', label: 'Mã NV' },
   { key: 'departmentName', label: 'Phòng ban' },
+  { key: 'extraDepartmentNames', label: 'Phòng kiêm nhiệm' },
   { key: 'dob', label: 'Ngày sinh' },
   { key: 'gender', label: 'Giới tính' },
   { key: 'phone', label: 'SĐT' },
@@ -40,6 +41,7 @@ const IMPORT_EMPLOYEE_TEMPLATE_PATH = '/templates/Mau_Import_Nhan_Vien_Z176.xlsx
 const IMPORT_EMPLOYEE_COLUMNS_GUIDE = [
   { label: 'Họ tên', required: true, note: 'Bắt buộc.' },
   { label: 'Mã phòng ban / Phòng ban', required: true, note: 'Bắt buộc có ít nhất 1 trong 2 — nếu có Mã phòng ban, hệ thống ưu tiên dùng mã này.' },
+  { label: 'Phòng kiêm nhiệm (ghi trong cột Phòng ban)', required: false, note: 'Phòng chính ghi ngoài, phòng kiêm nhiệm ghi trong { } cách nhau bằng dấu ; — vd: Tài chính-kế toán {Kiểm kho; Chính trị}. Mọi phòng đều cần có mã (nhập ở bước xem trước).' },
   { label: 'Mã nhân viên', required: false, note: 'Không bắt buộc — để trống sẽ tự sinh mã tạm dạng TMP<số dòng>.' },
   { label: 'Ngày sinh / Giới tính / SĐT / Địa chỉ / Chức vụ', required: false, note: 'Không bắt buộc — chỉ lưu làm hồ sơ tham khảo.' },
 ];
@@ -115,6 +117,7 @@ export const AccountTab = ({ currentUser }) => {
   // Chỉ dùng khi role được chọn là 'candidate' (thí sinh) — Employee đi kèm User.
   const [newFullname, setNewFullname] = useState('');
   const [newDepartmentId, setNewDepartmentId] = useState('');
+  const [newExtraDepartmentIds, setNewExtraDepartmentIds] = useState([]); // phòng kiêm nhiệm khi tạo tài khoản thủ công
   const [newEmployeeCode, setNewEmployeeCode] = useState('');
 
   // MỚI — Modal con "+ Tạo phòng ban mới" ngay trong dropdown Phòng ban của
@@ -131,6 +134,11 @@ export const AccountTab = ({ currentUser }) => {
   const [deptFormError, setDeptFormError] = useState('');
 
   const [isEditRoleOpen, setIsEditRoleOpen] = useState(false);
+  // MỚI — Modal sửa phòng ban chính / phòng kiêm nhiệm của 1 nhân viên
+  const [isEditDeptOpen, setIsEditDeptOpen] = useState(false);
+  const [editDeptUser, setEditDeptUser] = useState(null);
+  const [editPrimaryDeptId, setEditPrimaryDeptId] = useState('');
+  const [editExtraDeptIds, setEditExtraDeptIds] = useState([]);
   const [editingUser, setEditingUser] = useState(null);
   const [editingRoleId, setEditingRoleId] = useState('');
 
@@ -149,9 +157,11 @@ export const AccountTab = ({ currentUser }) => {
   const [importPreview, setImportPreview] = useState(null); // { total, toCreate, toReuse, toUpdate, conflicts, errors, rows }
   const [importConfirming, setImportConfirming] = useState(false); // đang ghi thật (bước confirm)
   const [importResult, setImportResult] = useState(null); // { total, created, updated, reused, failed, results }
+  // Mã phòng ban admin nhập ở bước xem trước: { [key phòng ban]: mã } — chỉ cho các phòng có needsCode
+  const [importDeptCodes, setImportDeptCodes] = useState({});
   const fileInputRef = useRef(null);
 
-  useScrollLock(isCreateOpen || isCreateDeptOpen || isEditRoleOpen || tempPasswordModal.isOpen || Boolean(importPreview));
+  useScrollLock(isCreateOpen || isCreateDeptOpen || isEditRoleOpen || isEditDeptOpen || tempPasswordModal.isOpen || Boolean(importPreview));
 
   // useCallback: giữ nguyên tham chiếu hàm giữa các lần render (chỉ đổi khi
   // showToast đổi) — để useEffect bên dưới có thể khai báo loadData vào
@@ -165,7 +175,13 @@ export const AccountTab = ({ currentUser }) => {
         fetchRoles(),
         fetchDepartments().catch(() => []), // không chặn cả trang nếu API department lỗi
       ]);
-      setUsers(usersData);
+      setUsers(
+        (Array.isArray(usersData) ? usersData : []).map((u) => ({
+          ...u,
+          // Chuỗi hiển thị cho cột "Phòng kiêm nhiệm" (bảng dùng user[col.key] chung cho mọi cột)
+          extraDepartmentNames: (u.extraDepartments ?? []).map((d) => d.name).join('; '),
+        })),
+      );
       setRoles(rolesData);
       setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
     } catch (err) {
@@ -205,6 +221,7 @@ export const AccountTab = ({ currentUser }) => {
     setNewRoleId('');
     setNewFullname('');
     setNewDepartmentId('');
+    setNewExtraDepartmentIds([]);
     setNewEmployeeCode('');
     // Đóng và reset luôn modal con tạo phòng ban để tránh còn sót dữ liệu
     // nhập dở khi mở lại form tạo tài khoản lần sau.
@@ -225,6 +242,13 @@ export const AccountTab = ({ currentUser }) => {
       return;
     }
     setNewDepartmentId(value);
+    // Phòng vừa chọn làm phòng chính thì không thể đồng thời là phòng kiêm nhiệm
+    setNewExtraDepartmentIds((prev) => prev.filter((id) => id !== value));
+  };
+
+  // Tick / bỏ tick 1 phòng kiêm nhiệm trong form tạo tài khoản
+  const toggleNewExtraDepartment = (id) => {
+    setNewExtraDepartmentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   // MỚI — Tạo phòng ban mới ngay trong form Thêm tài khoản, dùng lại đúng
@@ -269,6 +293,7 @@ export const AccountTab = ({ currentUser }) => {
             fullname: newFullname.trim(),
             departmentId: newDepartmentId,
             employeeCode: newEmployeeCode.trim() || undefined,
+            extraDepartmentIds: newExtraDepartmentIds,
           }
         : undefined;
 
@@ -365,6 +390,10 @@ export const AccountTab = ({ currentUser }) => {
     try {
       const data = await previewImportEmployeesExcel(file);
       setImportPreview(data);
+      // Điền sẵn mã gợi ý (lấy từ cột Mã phòng ban của file nếu có) cho các phòng còn thiếu mã
+      setImportDeptCodes(
+        Object.fromEntries((data.departments ?? []).filter((d) => d.needsCode).map((d) => [d.key, d.suggestedCode || ''])),
+      );
     } catch (err) {
       showToast(err.message || 'Xem trước import thất bại', 'error');
     } finally {
@@ -377,10 +406,15 @@ export const AccountTab = ({ currentUser }) => {
   // dòng 'conflict'/'error' trong preview sẽ tự động bị server bỏ qua.
   const handleConfirmImport = async () => {
     if (!importPreview?.rows?.length) return;
+    if (Object.keys(importDeptProblems).length > 0) {
+      showToast('Còn phòng ban chưa có mã hợp lệ — hãy nhập đủ mã (không trùng nhau) trước khi xác nhận.', 'warning');
+      return;
+    }
     setImportConfirming(true);
     try {
-      const data = await confirmImportEmployeesExcel(importPreview.rows);
+      const data = await confirmImportEmployeesExcel(importPreview.rows, importDeptCodes);
       setImportPreview(null);
+      setImportDeptCodes({});
       setImportResult(data);
       await loadData();
     } catch (err) {
@@ -389,6 +423,56 @@ export const AccountTab = ({ currentUser }) => {
       setImportConfirming(false);
     }
   };
+
+  // MỚI — Mở / lưu modal sửa phòng ban chính + phòng kiêm nhiệm của 1 nhân viên
+  const openEditDepartments = (user) => {
+    setEditDeptUser(user);
+    setEditPrimaryDeptId(String(user.departmentId ?? ''));
+    setEditExtraDeptIds((user.extraDepartments ?? []).map((d) => String(d._id)));
+    setIsEditDeptOpen(true);
+  };
+
+  const toggleEditExtraDepartment = (id) => {
+    setEditExtraDeptIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const handleUpdateDepartments = async (e) => {
+    e.preventDefault();
+    if (!editDeptUser || !editPrimaryDeptId) return;
+    setActionLoading(true);
+    try {
+      await updateEmployeeDepartments(editDeptUser._id, {
+        departmentId: editPrimaryDeptId,
+        extraDepartmentIds: editExtraDeptIds,
+      });
+      setIsEditDeptOpen(false);
+      setEditDeptUser(null);
+      showToast('Đã cập nhật phòng ban', 'success');
+      await loadData();
+    } catch (err) {
+      showToast(err.message || 'Không thể cập nhật phòng ban', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Kiểm tra mã phòng ban admin nhập ở bước xem trước: phòng "cần mã" phải có mã và không trùng nhau.
+  // (Trùng với phòng ban khác NGOÀI file này sẽ do server chặn khi xác nhận và báo rõ phòng nào.)
+  const normalizeDeptCodeInput = (c) =>
+    String(c ?? '').toUpperCase().replace(/Đ/g, 'D').normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Z0-9]/g, '');
+  const importDeptProblems = (() => {
+    const problems = {};
+    const used = new Map();
+    for (const d of importPreview?.departments ?? []) {
+      const code = normalizeDeptCodeInput(d.needsCode ? importDeptCodes[d.key] : d.currentCode);
+      if (d.needsCode && !code) problems[d.key] = 'Chưa có mã';
+      if (code) {
+        if (used.has(code)) problems[d.key] = problems[d.key] ?? `Mã "${code}" trùng với phòng "${used.get(code)}"`;
+        else used.set(code, d.name);
+      }
+    }
+    return problems;
+  })();
 
   // Filter users based on search term
   const filteredUsers = users.filter(user => 
@@ -635,6 +719,16 @@ export const AccountTab = ({ currentUser }) => {
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
+                  {user.departmentId && (
+                    <button
+                      disabled={actionLoading}
+                      onClick={() => openEditDepartments(user)}
+                      className="p-2 text-slate-500 hover:text-[#008BC5] hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30"
+                      title="Sửa phòng ban / phòng kiêm nhiệm"
+                    >
+                      <Building2 className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     disabled={actionLoading}
                     onClick={() => handleResetPassword(user)}
@@ -720,6 +814,15 @@ export const AccountTab = ({ currentUser }) => {
               >
                 Sửa quyền
               </button>
+              {user.departmentId && (
+                <button
+                  disabled={actionLoading}
+                  onClick={() => openEditDepartments(user)}
+                  className="flex-1 min-h-[44px] text-sm font-medium text-[#008BC5] bg-blue-50 rounded-lg disabled:opacity-30"
+                >
+                  Phòng ban
+                </button>
+              )}
               <button
                 disabled={actionLoading}
                 onClick={() => handleResetPassword(user)}
@@ -811,6 +914,34 @@ export const AccountTab = ({ currentUser }) => {
                         Chưa có phòng ban nào trong hệ thống — chọn "+ Tạo phòng ban mới" ở trên để tạo ngay.
                       </p>
                     )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      Phòng kiêm nhiệm <span className="text-slate-400 font-normal">(không bắt buộc)</span>
+                    </label>
+                    <div className="border border-slate-300 rounded-lg p-2 max-h-36 overflow-y-auto space-y-0.5" data-lenis-prevent>
+                      {departments.filter((d) => d._id !== newDepartmentId).map((dept) => (
+                        <label
+                          key={dept._id}
+                          className={`flex items-center gap-2 text-sm px-1.5 py-1 rounded ${dept.code ? 'text-slate-700 cursor-pointer hover:bg-slate-50' : 'text-slate-400'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={!dept.code}
+                            checked={newExtraDepartmentIds.includes(dept._id)}
+                            onChange={() => toggleNewExtraDepartment(dept._id)}
+                          />
+                          <span>{dept.name}</span>
+                          {!dept.code && <span className="text-xs">(chưa có mã — bổ sung ở tab Phòng ban)</span>}
+                        </label>
+                      ))}
+                      {departments.filter((d) => d._id !== newDepartmentId).length === 0 && (
+                        <p className="text-xs text-slate-400 px-1">Chưa có phòng ban nào khác để chọn.</p>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Mỗi kỳ thi, nhân viên chọn 1 vai trò (phòng chính hoặc phòng kiêm nhiệm) để thi.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">
@@ -906,6 +1037,84 @@ export const AccountTab = ({ currentUser }) => {
                   className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
                 >
                   {deptActionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Lưu
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT DEPARTMENTS MODAL — sửa phòng ban chính + phòng kiêm nhiệm */}
+      {isEditDeptOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+              <h3 className="font-bold text-lg text-[#0F172A]">Sửa phòng ban</h3>
+              <button onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateDepartments} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+              <div>
+                <label className="block text-sm font-semibold text-slate-500">Nhân viên</label>
+                <p className="text-base font-bold text-[#0F172A] mt-0.5">
+                  {editDeptUser?.fullname || editDeptUser?.username}
+                  {editDeptUser?.employeeCode ? <span className="text-slate-400 font-normal"> ({editDeptUser.employeeCode})</span> : null}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Phòng ban chính</label>
+                <select
+                  required
+                  value={editPrimaryDeptId}
+                  onChange={(e) => {
+                    setEditPrimaryDeptId(e.target.value);
+                    setEditExtraDeptIds((prev) => prev.filter((id) => id !== e.target.value));
+                  }}
+                  className="w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
+                >
+                  {departments.map((dept) => (
+                    <option key={dept._id} value={dept._id}>{dept.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Phòng kiêm nhiệm <span className="text-slate-400 font-normal">(không bắt buộc)</span>
+                </label>
+                <div className="border border-slate-300 rounded-lg p-2 max-h-44 overflow-y-auto space-y-0.5" data-lenis-prevent>
+                  {departments.filter((d) => d._id !== editPrimaryDeptId).map((dept) => (
+                    <label
+                      key={dept._id}
+                      className={`flex items-center gap-2 text-sm px-1.5 py-1 rounded ${dept.code ? 'text-slate-700 cursor-pointer hover:bg-slate-50' : 'text-slate-400'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!dept.code}
+                        checked={editExtraDeptIds.includes(dept._id)}
+                        onChange={() => toggleEditExtraDepartment(dept._id)}
+                      />
+                      <span>{dept.name}</span>
+                      {!dept.code && <span className="text-xs">(chưa có mã — bổ sung ở tab Phòng ban)</span>}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="pt-2 flex gap-3 pb-1">
+                <button
+                  type="button"
+                  onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }}
+                  className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
+                >
+                  {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                   Lưu
                 </button>
               </div>
@@ -1086,6 +1295,56 @@ export const AccountTab = ({ currentUser }) => {
                 </div>
               )}
 
+              {importPreview.departments?.length > 0 && (
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-50 text-sm font-semibold text-slate-700 flex items-center justify-between gap-2">
+                    <span>Phòng ban trong file ({importPreview.departments.length})</span>
+                    {importPreview.departmentsNeedingCode > 0 && (
+                      <span className="text-xs font-medium text-amber-600">{importPreview.departmentsNeedingCode} phòng cần nhập mã</span>
+                    )}
+                  </div>
+                  {importPreview.departments.some((d) => d.isNew) && (
+                    <div className="px-3 py-2 bg-[#FFF7ED] border-b border-[#F6AD37]/30 text-xs text-[#92400E] flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>Có phòng ban <b>MỚI</b> sẽ được tạo khi xác nhận — hãy kiểm tra tên không bị gõ sai chính tả (tên sai sẽ thành một phòng ban riêng).</span>
+                    </div>
+                  )}
+                  <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto" data-lenis-prevent>
+                    {importPreview.departments.map((d) => (
+                      <div key={d.key} className="p-3 text-sm flex flex-col sm:flex-row sm:items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-slate-800 truncate">{d.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {d.isNew ? 'Phòng ban MỚI — sẽ được tạo' : d.willReactivate ? 'Đã ngừng hoạt động — sẽ được khôi phục' : 'Đã có trong hệ thống'}
+                            {' · '}
+                            {[d.primaryCount > 0 && `phòng chính: ${d.primaryCount} dòng`, d.extraCount > 0 && `kiêm nhiệm: ${d.extraCount} dòng`].filter(Boolean).join(', ')}
+                          </div>
+                          {importDeptProblems[d.key] && (
+                            <div className="text-xs text-[#E53E3E] mt-0.5">{importDeptProblems[d.key]}</div>
+                          )}
+                          {!importDeptProblems[d.key] && d.needsCode && importDeptCodes[d.key] === d.suggestedCode && d.issues?.map((msg) => (
+                            <div key={msg} className="text-xs text-[#E53E3E] mt-0.5">{msg}</div>
+                          ))}
+                        </div>
+                        <div className="sm:w-44 shrink-0">
+                          {d.needsCode ? (
+                            <input
+                              type="text"
+                              value={importDeptCodes[d.key] ?? ''}
+                              onChange={(e) => setImportDeptCodes((prev) => ({ ...prev, [d.key]: e.target.value.toUpperCase() }))}
+                              placeholder="Nhập mã phòng ban"
+                              className={`w-full px-3 py-1.5 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#008BC5] ${importDeptProblems[d.key] ? 'border-[#E53E3E]' : 'border-slate-300'}`}
+                            />
+                          ) : (
+                            <span className="inline-block px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">Mã: {d.currentCode}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-72 overflow-y-auto" data-lenis-prevent>
                 {importPreview.rows.map((r) => (
                   <div key={r.rowIndex} className="p-3 text-sm flex items-start gap-2">
@@ -1117,6 +1376,20 @@ export const AccountTab = ({ currentUser }) => {
                       {r.action === 'error' && (
                         <span className="text-[#E53E3E] font-medium">Lỗi — {r.message}</span>
                       )}
+                      {['create', 'reuse', 'update'].includes(r.action) && (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Phòng chính: <b>{r.departmentName}</b>
+                          {r.extraDepartments?.length > 0 && (
+                            <> · Kiêm nhiệm: <b>{r.extraDepartments.map((e) => e.name).join('; ')}</b></>
+                          )}
+                          {r.action === 'update' && !r.extrasProvided && ' · (giữ nguyên phòng kiêm nhiệm hiện có)'}
+                        </p>
+                      )}
+                      {r.warnings?.map((w) => (
+                        <p key={w} className="text-xs text-amber-600 mt-0.5 flex items-start gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {w}
+                        </p>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -1134,7 +1407,7 @@ export const AccountTab = ({ currentUser }) => {
                 <button
                   type="button"
                   onClick={handleConfirmImport}
-                  disabled={importConfirming || (importPreview.toCreate + importPreview.toReuse + importPreview.toUpdate === 0)}
+                  disabled={importConfirming || (importPreview.toCreate + importPreview.toReuse + importPreview.toUpdate === 0) || Object.keys(importDeptProblems).length > 0}
                   className="flex-1 py-2.5 bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {importConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

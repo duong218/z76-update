@@ -407,6 +407,19 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                         <div className="font-semibold text-[#0F172A]">
                           {employee.departmentName || '—'}
                         </div>
+                        {employee.extraDepartments?.length > 0 && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs text-slate-500">Kiêm nhiệm:</span>
+                            {employee.extraDepartments.map((d) => (
+                              <span
+                                key={d._id}
+                                className="px-2 py-0.5 rounded-full bg-[#EAF6FF] text-[#008BC5] text-xs font-medium"
+                              >
+                                {d.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -10,6 +10,8 @@ import { Result } from '../models/result.model.js';
 import { Employee } from '../models/employee.model.js';
 
 // Pipeline kết nối cơ sở (Base Pipeline): Result -> ExamAttempt -> ExamCandidate -> Employee -> Department -> Exam -> Topic
+// Phòng ban của 1 kết quả = phòng ban (vai trò) thí sinh đã thi ở lượt thi đó (ExamAttempt.departmentId); lượt thi cũ chưa có
+// trường này thì dùng phòng chính của nhân viên (hành vi trước đây).
 const getBasePipeline = () => [
   {
     $lookup: {
@@ -39,9 +41,14 @@ const getBasePipeline = () => [
   },
   { $unwind: '$employee' },
   {
+    $addFields: {
+      reportDepartmentId: { $ifNull: ['$attempt.departmentId', '$employee.departmentId'] },
+    },
+  },
+  {
     $lookup: {
       from: 'departments',
-      localField: 'employee.departmentId',
+      localField: 'reportDepartmentId',
       foreignField: '_id',
       as: 'department',
     },
@@ -356,6 +363,8 @@ export const reportService = {
       _id: item._id,
       examCandidateId: item.candidate._id,
       employeeName: item.employee.fullname,
+      // Vai trò (phòng ban) đã thi ở lượt thi này — departmentId giúp màn hình cấp thêm lượt biết thí sinh đang ở vai trò nào
+      departmentId: item.department._id,
       departmentName: item.department.name,
       examTitle: item.exam.title,
       score: item.score,
@@ -500,7 +509,10 @@ export const reportService = {
 
   // Xem lịch sử kết quả thi của chính thí sinh đang đăng nhập
   async getMyResults(userId) {
-    const employee = await Employee.findOne({ userId }).populate('departmentId').lean();
+    const employee = await Employee.findOne({ userId })
+      .populate('departmentId')
+      .populate('extraDepartmentIds', 'name code')
+      .lean();
 
     if (!employee) {
       return { employee: null, results: [] };
@@ -524,6 +536,8 @@ export const reportService = {
       passed: item.passed,
       submittedAt: item.attempt.submittedAt,
       startedAt: item.attempt.startedAt,
+      // Vai trò (phòng ban) đã thi ở lượt thi này
+      departmentName: item.department?.name ?? null,
     }));
 
     return {
@@ -531,6 +545,8 @@ export const reportService = {
         fullname: employee.fullname,
         employeeCode: employee.employeeCode || null,
         departmentName: employee.departmentId?.name || null,
+        // Phòng ban kiêm nhiệm: [{ _id, name }] — rỗng nếu nhân viên không kiêm nhiệm
+        extraDepartments: (employee.extraDepartmentIds ?? []).map((d) => ({ _id: d._id, name: d.name })),
       },
       results,
     };

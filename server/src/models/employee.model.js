@@ -9,6 +9,14 @@ const employeeSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    // Các phòng ban KIÊM NHIỆM (ngoài phòng ban chính `departmentId`). Ở mỗi kỳ thi, thí sinh
+    // chọn 1 vai trò trong tập {phòng chính} ∪ {phòng kiêm nhiệm} để thi (xem exam-attempt.service.js).
+    extraDepartmentIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Department',
+      },
+    ],
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -34,4 +42,15 @@ const employeeSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+employeeSchema.index({ extraDepartmentIds: 1 });
+
 export const Employee = mongoose.model('Employee', employeeSchema);
+
+// Tập ID phòng ban "hiệu lực" của nhân viên = phòng chính + các phòng kiêm nhiệm (không trùng, dạng chuỗi).
+// Chấp nhận cả document chưa populate lẫn đã populate.
+export function getEmployeeDepartmentIds(employee) {
+  const ids = [employee?.departmentId, ...(employee?.extraDepartmentIds ?? [])]
+    .filter(Boolean)
+    .map((d) => String(d?._id ?? d));
+  return [...new Set(ids)];
+}

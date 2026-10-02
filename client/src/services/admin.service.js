@@ -43,7 +43,7 @@ export async function fetchRoles() {
 /**
  * @param {string} username
  * @param {string} roleId
- * @param {{ fullname: string, departmentId: string, employeeCode?: string }} [employeeInfo]
+ * @param {{ fullname: string, departmentId: string, employeeCode?: string, extraDepartmentIds?: string[] }} [employeeInfo]
  *   Chỉ cần truyền khi roleId ứng với role 'candidate' (thí sinh) — backend sẽ tự
  *   tạo Employee gắn với User mới tạo. Với các role khác, để undefined/bỏ qua.
  */
@@ -53,6 +53,7 @@ export async function createUser(username, roleId, employeeInfo) {
     body.fullname = employeeInfo.fullname;
     body.departmentId = employeeInfo.departmentId;
     body.employeeCode = employeeInfo.employeeCode;
+    body.extraDepartmentIds = employeeInfo.extraDepartmentIds; // phòng kiêm nhiệm (không bắt buộc)
   }
 
   const res = await apiRequest('/users', {
@@ -259,7 +260,9 @@ export function restoreBackupFile(file, { onUploadProgress, onPhaseChange } = {}
 /**
  * BƯỚC 1/2 — Xem trước import Excel: gửi file lên, nhận về danh sách từng
  * dòng đã phân loại (create/reuse/update/conflict/error), CHƯA ghi gì vào DB.
- * Trả về { total, toCreate, toReuse, toUpdate, conflicts, errors, rows }.
+ * Trả về { total, toCreate, toReuse, toUpdate, conflicts, errors, rowsWithWarnings,
+ * departments, departmentsNeedingCode, rows }. `departments` là danh sách phòng ban (chính + kiêm nhiệm)
+ * được nhắc tới trong file, kèm cờ needsCode / isNew để admin điền mã trước khi xác nhận.
  * Xem server/src/services/user.service.js#previewEmployeesFromExcelFile để
  * biết đầy đủ ý nghĩa từng field trong mỗi phần tử của `rows`.
  */
@@ -282,13 +285,29 @@ export async function previewImportEmployeesExcel(file) {
  * BƯỚC 2/2 — Xác nhận import: gửi lại đúng mảng `rows` nhận được từ bước
  * preview (đã phân loại action cho từng dòng) để ghi thật vào DB. Các dòng
  * action 'conflict'/'error' sẽ bị server bỏ qua.
+ * departmentCodes: { [key]: mã } — mã phòng ban admin nhập ở bước preview cho các phòng
+ * có `needsCode` (key lấy từ `departments[].key` của kết quả preview). Phòng đã có mã thì bỏ qua.
  * Trả về { total, created, updated, reused, failed, results: [...] }.
  */
-export async function confirmImportEmployeesExcel(rows) {
+export async function confirmImportEmployeesExcel(rows, departmentCodes = {}) {
   const res = await apiRequest('/users/import/confirm', {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, departmentCodes }),
+  });
+  return res.data;
+}
+
+/**
+ * Sửa phòng ban chính / phòng kiêm nhiệm của 1 nhân viên (chỉ gửi field muốn đổi).
+ * payload: { departmentId?: string, extraDepartmentIds?: string[] }
+ * Trả về { userId, fullname, departmentId, departmentName, departmentCode, extraDepartments: [{ _id, name, code }] }.
+ */
+export async function updateEmployeeDepartments(userId, payload) {
+  const res = await apiRequest(`/users/${userId}/departments`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
   });
   return res.data;
 }

@@ -32,14 +32,20 @@ export const examAttemptController = {
 
   // Bắt đầu làm bài thi chính thức hoặc tiếp tục lượt thi đang dang dở (Resume)
   start: asyncHandler(async (req, res) => {
-    const data = await examAttemptService.startAttempt(req.auth.userId);
+    // departmentId (tùy chọn): vai trò (phòng ban) thí sinh xác nhận ở popup; chỉ có tác dụng khi vai trò chưa bị khóa
+    const { departmentId } = req.body ?? {};
+    const data = await examAttemptService.startAttempt(req.auth.userId, { departmentId });
 
     await writeAudit({
       actorUserId: req.auth.userId,
       action: data.resumed ? 'RESUME_EXAM_ATTEMPT' : 'START_EXAM_ATTEMPT',
       resourceType: 'ExamAttempt',
       resourceId: data.attemptId,
-      metadata: { detail: data.resumed ? 'Tiếp tục lượt thi đang dở' : 'Bắt đầu lượt thi chính thức' },
+      metadata: {
+        detail: data.resumed
+          ? 'Tiếp tục lượt thi đang dở'
+          : `Bắt đầu lượt thi chính thức${data.roleName ? ` — thi với tư cách phòng ban: ${data.roleName}` : ''}`,
+      },
       ipAddress: clientIp(req),
     });
 
@@ -95,7 +101,11 @@ export const examAttemptController = {
 
   // Ban Giám khảo / Leader cấp thêm lượt thi cho thí sinh gặp sự cố bất khả kháng
   grantExtraAttempt: asyncHandler(async (req, res) => {
-    const data = await examAttemptService.grantExtraAttempt(req.params.examCandidateId, req.auth.userId);
+    // departmentId (tùy chọn): Người duyệt đề chọn lại vai trò (phòng ban) cho thí sinh lỡ chọn nhầm
+    const { departmentId } = req.body ?? {};
+    const data = await examAttemptService.grantExtraAttempt(req.params.examCandidateId, req.auth.userId, {
+      departmentId,
+    });
 
     await writeAudit({
       actorUserId: req.auth.userId,
@@ -103,11 +113,13 @@ export const examAttemptController = {
       resourceType: 'ExamCandidate',
       resourceId: data.examCandidateId,
       metadata: {
-        detail: `Cấp thêm lượt thi cho ${data.employeeName ?? 'thí sinh'} — kỳ thi: ${data.examTitle} (tổng lượt được cấp thêm: ${data.extraAttemptsGranted})`,
+        detail:
+          `Cấp thêm lượt thi cho ${data.employeeName ?? 'thí sinh'} — kỳ thi: ${data.examTitle} (tổng lượt được cấp thêm: ${data.extraAttemptsGranted})` +
+          (data.roleChanged ? ` — đổi vai trò sang phòng ban: ${data.roleName}` : ''),
       },
       ipAddress: clientIp(req),
     });
 
     res.json({ success: true, message: 'Đã cấp thêm lượt thi cho thí sinh', data });
   }),
-};
+};

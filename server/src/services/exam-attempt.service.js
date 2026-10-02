@@ -20,6 +20,8 @@ import {
   EXAM_STATUS,
 } from '../models/index.js';
 import { ApiError } from '../utils/api-error.js';
+import { ROLE_CHOSEN_BY } from '../models/exam-candidate.model.js';
+import { getEmployeeRoleOptions, assignCandidateRole } from './exam-code-generation.service.js';
 
 const MAX_OFFICIAL_ATTEMPTS = 1; // Số lượt thi chính thức mặc định
 const INACTIVITY_TIMEOUT_MS = 60_000; // Tự động nộp nếu rời ca thi > 1 phút (không heartbeat/thao tác)
@@ -152,10 +154,48 @@ async function checkAndAutoSubmitIfInactive(attempt, userId) {
   return ExamAttempt.findById(attempt._id);
 }
 
+// MỚI — Tổng hợp thông tin VAI TRÒ (phòng ban thi) của thí sinh trong kỳ thi để client hiển thị nổi bật.
+// - departmentId/name/isMain: phòng ban của mã đề hiện tại (chính là phòng sẽ được dùng để rút câu hỏi riêng)
+// - locked: đã khóa (thí sinh đã xác nhận / hệ thống khóa / Người duyệt đề chọn) -> thí sinh không tự đổi được nữa
+// - hasDepartmentQuestions: false nếu đề của phòng này chỉ gồm câu chung (phòng không có câu riêng trong ngân hàng thi)
+// - options: các vai trò thí sinh có thể chọn (phòng chính + kiêm nhiệm đang hoạt động)
+async function buildRoleInfo(employee, examCandidate, examCode) {
+  const options = await getEmployeeRoleOptions(employee);
+  const currentKey = examCode?.departmentId ? String(examCode.departmentId) : null;
+  const current = options.find((o) => String(o.departmentId) === currentKey) ?? options[0] ?? null;
+
+  let hasDepartmentQuestions = true;
+  if (current && examCode) {
+    const deptQuestionCount = await ExamCodeQuestion.find({ examCodeId: examCode._id })
+      .populate({ path: 'questionId', select: 'scope departmentId' })
+      .then((rows) =>
+        rows.filter(
+          (r) => r.questionId?.departmentId && String(r.questionId.departmentId) === String(current.departmentId),
+        ).length,
+      );
+    hasDepartmentQuestions = deptQuestionCount > 0;
+  }
+
+  return {
+    departmentId: current?.departmentId ?? null,
+    name: current?.name ?? null,
+    isMain: current?.isMain ?? false,
+    locked: Boolean(examCandidate.roleConfirmedAt) || options.length <= 1,
+    chosenBy: examCandidate.roleChosenBy ?? (options.length <= 1 ? ROLE_CHOSEN_BY.SYSTEM : null),
+    hasDepartmentQuestions,
+    options: options.map((o) => ({
+      departmentId: o.departmentId,
+      name: o.name,
+      code: o.code,
+      isMain: o.isMain,
+    })),
+  };
+}
+
 export const examAttemptService = {
   // Lấy thông tin đề thi và khôi phục trạng thái làm bài của thí sinh
   async getMyExam(userId) {
-    const { exam, examCandidate } = await resolveCandidateContext(userId);
+    const { employee, exam, examCandidate } = await resolveCandidateContext(userId);
     const maxAttempts = resolveMaxAttempts(examCandidate);
 
     let attempts = await getOfficialAttempts(examCandidate._id);
@@ -180,7 +220,8 @@ export const examAttemptService = {
       await inProgress.save();
     }
 
-    const examCode = await ExamCode.findById(examCandidate.examCodeId).select('code');
+    const examCode = await ExamCode.findById(examCandidate.examCodeId).select('code departmentId');
+    const role = await buildRoleInfo(employee, examCandidate, examCode);
 
     const finishedCount = attempts.filter((a) => a.status !== ATTEMPT_STATUS.IN_PROGRESS).length;
     const canTake = Boolean(inProgress) || finishedCount < maxAttempts;
@@ -249,6 +290,7 @@ export const examAttemptService = {
       attemptsUsed: finishedCount,
       maxAttempts,
       canTake,
+      role,
       questions,
       savedAnswers,
       autoSubmitted,
@@ -256,8 +298,10 @@ export const examAttemptService = {
   },
 
   // Bắt đầu một ca thi mới hoặc tiếp tục ca thi đang dở dang (Resume)
-  async startAttempt(userId) {
-    const { exam, examCandidate } = await resolveCandidateContext(userId);
+  // departmentId (tùy chọn): vai trò thí sinh xác nhận ở popup. Chỉ có tác dụng khi vai trò CHƯA bị khóa; sau khi bắt đầu
+  // lượt thi đầu tiên vai trò bị khóa, thí sinh không tự đổi được nữa (Người duyệt đề đổi khi cấp thêm lượt).
+  async startAttempt(userId, { departmentId } = {}) {
+    const { employee, exam, examCandidate } = await resolveCandidateContext(userId);
     const maxAttempts = resolveMaxAttempts(examCandidate);
 
     const attempts = await getOfficialAttempts(examCandidate._id);
@@ -286,12 +330,50 @@ export const examAttemptService = {
       );
     }
 
+    // MỚI — Xác nhận & khóa vai trò (phòng ban) trước khi sinh lượt thi
+    const roleOptions = await getEmployeeRoleOptions(employee);
+    if (roleOptions.length === 0) {
+      throw new ApiError(
+        400,
+        'Nhân viên không còn phòng ban nào đang hoạt động để thi. Vui lòng liên hệ quản trị viên.',
+        'ROLE_INVALID',
+      );
+    }
+
+    if (!examCandidate.roleConfirmedAt) {
+      if (roleOptions.length === 1) {
+        // Chỉ có 1 phòng ban: không có gì để chọn -> hệ thống tự khóa theo phòng đó
+        await assignCandidateRole({ exam, examCandidate, employee, departmentId: roleOptions[0].departmentId });
+        examCandidate.roleChosenBy = ROLE_CHOSEN_BY.SYSTEM;
+      } else {
+        const currentCode = await ExamCode.findById(examCandidate.examCodeId).select('departmentId');
+        const target = departmentId ?? currentCode?.departmentId ?? roleOptions[0].departmentId;
+        await assignCandidateRole({ exam, examCandidate, employee, departmentId: target });
+        examCandidate.roleChosenBy = ROLE_CHOSEN_BY.CANDIDATE;
+      }
+      examCandidate.roleConfirmedAt = new Date();
+      await examCandidate.save();
+    } else if (departmentId) {
+      const lockedCode = await ExamCode.findById(examCandidate.examCodeId).select('departmentId');
+      if (lockedCode && String(lockedCode.departmentId) !== String(departmentId)) {
+        throw new ApiError(
+          409,
+          'Vai trò thi đã được khóa cho kỳ thi này. Nếu chọn nhầm, vui lòng liên hệ Người duyệt đề để được đổi.',
+          'ROLE_LOCKED',
+        );
+      }
+    }
+
+    const finalCode = await ExamCode.findById(examCandidate.examCodeId).select('departmentId');
+    const finalRole = roleOptions.find((o) => String(o.departmentId) === String(finalCode?.departmentId));
+
     const startedAt = new Date();
     const expiresAt = new Date(startedAt.getTime() + exam.durationMinutes * 60_000);
 
     const attempt = await ExamAttempt.create({
       examCandidateId: examCandidate._id,
       attemptType: ATTEMPT_TYPE.OFFICIAL,
+      departmentId: finalCode?.departmentId,
       startedAt,
       expiresAt,
       status: ATTEMPT_STATUS.IN_PROGRESS,
@@ -305,6 +387,7 @@ export const examAttemptService = {
       startedAt: attempt.startedAt,
       expiresAt: attempt.expiresAt,
       resumed: false,
+      roleName: finalRole?.name ?? null,
     };
   },
 
@@ -480,7 +563,8 @@ export const examAttemptService = {
   },
 
   // Leader cấp quyền thêm lượt thi cho một thí sinh cụ thể
-  async grantExtraAttempt(examCandidateId, leaderUserId) {
+  // departmentId (tùy chọn): đổi vai trò (phòng ban) thi của thí sinh — dành cho trường hợp thí sinh lỡ chọn nhầm
+  async grantExtraAttempt(examCandidateId, leaderUserId, { departmentId } = {}) {
     const examCandidate = await ExamCandidate.findById(examCandidateId).populate('employeeId', 'fullname');
     if (!examCandidate) {
       throw new ApiError(404, 'Không tìm thấy thí sinh trong kỳ thi này', 'CANDIDATE_NOT_FOUND');
@@ -498,6 +582,33 @@ export const examAttemptService = {
       );
     }
 
+    // MỚI — Người duyệt đề đổi vai trò (chỉ khi thí sinh không có lượt thi đang dở)
+    let roleChanged = false;
+    let roleName = null;
+    if (departmentId) {
+      const employee = await Employee.findById(examCandidate.employeeId?._id ?? examCandidate.employeeId);
+      if (!employee) {
+        throw new ApiError(404, 'Không tìm thấy hồ sơ nhân viên của thí sinh', 'EMPLOYEE_NOT_FOUND');
+      }
+      const inProgress = await ExamAttempt.findOne({
+        examCandidateId: examCandidate._id,
+        status: ATTEMPT_STATUS.IN_PROGRESS,
+      });
+      if (inProgress) {
+        throw new ApiError(
+          400,
+          'Thí sinh đang có lượt thi dở dang, không thể đổi vai trò lúc này.',
+          'ROLE_CHANGE_BLOCKED',
+        );
+      }
+      const result = await assignCandidateRole({ exam, examCandidate, employee, departmentId });
+      roleChanged = result.changed;
+      examCandidate.roleChosenBy = ROLE_CHOSEN_BY.LEADER;
+      examCandidate.roleConfirmedAt = new Date();
+      const options = await getEmployeeRoleOptions(employee);
+      roleName = options.find((o) => String(o.departmentId) === String(departmentId))?.name ?? null;
+    }
+
     examCandidate.extraAttemptsGranted = (examCandidate.extraAttemptsGranted ?? 0) + 1;
     await examCandidate.save();
 
@@ -508,7 +619,9 @@ export const examAttemptService = {
       examTitle: exam.title,
       extraAttemptsGranted: examCandidate.extraAttemptsGranted,
       maxAttempts: resolveMaxAttempts(examCandidate),
+      roleChanged,
+      roleName,
       grantedBy: leaderUserId,
     };
   },
-};
+};

@@ -23,20 +23,20 @@ server/
     │   ├── backup.controller.js                    # Xử lý request sao lưu: danh sách bản lưu trên Drive, tạo sao lưu mới, tải về máy, khôi phục từ file .gz
     │   ├── department.controller.js                # Xử lý request CRUD phòng ban, mã đơn vị, ngừng sử dụng (xóa mềm) và khôi phục
     │   ├── exam.controller.js                      # Xử lý request kỳ thi: tạo dự thảo, chỉnh sửa đề xuất, nộp duyệt, phê duyệt, từ chối, phát hành, lưu trữ, lấy kỳ thi active
-    │   ├── exam-attempt.controller.js              # Xử lý request lượt thi: lấy đề thi, bắt đầu/resume, nộp bài, autosave đáp án, heartbeat 15s, cấp thêm lượt
+    │   ├── exam-attempt.controller.js              # Xử lý request lượt thi: lấy đề thi, bắt đầu/resume (chọn vai trò/phòng ban), nộp bài, autosave đáp án, heartbeat 15s, cấp thêm lượt kèm đổi vai trò
     │   ├── notification.controller.js              # Xử lý request thông báo: danh sách, đếm chưa đọc, đánh dấu đã đọc / đọc tất cả
-    │   ├── practice.controller.js                  # Xử lý request luyện tập cá nhân: lấy chủ đề khả dụng, xem tiến độ, bắt đầu phiên, kiểm tra tức thì, nộp bài, bỏ bài
-    │   ├── question.controller.js                  # Xử lý request ngân hàng câu hỏi: CRUD, import Excel 2 bước, upload ảnh Cloudinary, chuyển ngân hàng hàng loạt (thi/ôn tập), thống kê theo chủ đề, xóa hàng loạt
+    │   ├── practice.controller.js                  # Xử lý request luyện tập cá nhân: lấy chủ đề khả dụng, xem tiến độ, chuỗi ngày & huy hiệu (achievements), bắt đầu phiên, kiểm tra tức thì, nộp bài, bỏ bài
+    │   ├── question.controller.js                  # Xử lý request ngân hàng câu hỏi: CRUD, import Excel/Word 2 bước (preview -> confirm), upload ảnh Cloudinary, chuyển ngân hàng hàng loạt (thi/ôn tập), thống kê theo chủ đề, xóa hàng loạt
     │   ├── report.controller.js                    # Xử lý request báo cáo: tổng quan, theo phòng ban, theo kỳ thi, chi tiết bảng điểm, xuất Excel, tra cứu kết quả công khai, lịch sử thí sinh
     │   ├── role.controller.js                      # Xử lý request lấy danh mục vai trò người dùng (roles)
     │   ├── study-document.controller.js            # Xử lý request tài liệu ôn tập: CRUD, xem/tải file (inline/download), phân quyền tài liệu cho thí sinh
     │   ├── topic.controller.js                     # Xử lý request CRUD chủ đề thi (kèm cascade ẩn câu hỏi khi xóa mềm và tự động khôi phục)
-    │   └── user.controller.js                      # Xử lý request quản lý tài khoản: CRUD user, import Excel 2 bước, xuất Excel credentials, phân role, khóa/mở, reset password
+    │   └── user.controller.js                      # Xử lý request quản lý tài khoản: CRUD user, import Excel 2 bước (xử lý phòng ban kiêm nhiệm & tạo phòng thiếu kèm mã), xuất Excel credentials, phân role, khóa/mở, reset password
     ├── middlewares/
     │   ├── auth.middleware.js                       # Xác thực JWT (authenticate), kiểm tra tokenVersion phát hiện đăng nhập nơi khác, phân quyền role (requireRoleCodes)
     │   ├── rate-limit.middleware.js                 # Giới hạn tần suất: loginRateLimiter (chống brute force), examAttemptRateLimiter (theo userId, chống spam phòng thi lớn)
     │   ├── require-password-changed.middleware.js   # Chặn truy cập API nghiệp vụ nếu tài khoản chưa đổi mật khẩu mặc định (mustChangePassword = true)
-    │   └── upload.middleware.js                     # Multer middleware: uploadExcel (file .xlsx/.xls), uploadQuestionImage (ảnh câu hỏi), uploadStudyDocument (tài liệu ôn tập)
+    │   └── upload.middleware.js                     # Multer middleware: uploadExcel (file .xlsx/.xls), uploadWord (file .docx), uploadQuestionImage (ảnh câu hỏi), uploadStudyDocument (tài liệu ôn tập)
     ├── models/
     │   ├── index.js                                # Re-export tất cả Schema Models và hằng số constants
     │   ├── constants.js                            # Enum constants: QUESTION_SCOPE, QUESTION_KIND, QUESTION_USAGE, ANSWER_TYPE, DIFFICULTY, EXAM_STATUS, ATTEMPT_TYPE, ATTEMPT_STATUS, DOCUMENT_SCOPE
@@ -44,11 +44,11 @@ server/
     │   ├── attempt-question.model.js               # Schema câu hỏi trong lượt thi: snapshot thứ tự câu hỏi và danh sách đáp án xáo riêng cho từng lượt
     │   ├── audit-log.model.js                      # Schema nhật ký hệ thống: hành động (action), người thực hiện, thời gian, metadata chi tiết
     │   ├── candidate-answer.model.js               # Schema đáp án thí sinh đã chọn khi nộp bài: attemptId, questionId, selectedAnswerIds
-    │   ├── department.model.js                     # Schema phòng ban: tên, mã, mô tả, slug, trạng thái active
-    │   ├── employee.model.js                       # Schema hồ sơ nhân sự: họ tên, mã nhân viên, phòng ban ref, chức vụ, liên kết tài khoản userId
+    │   ├── department.model.js                     # Schema phòng ban: tên, mã (code), mô tả, slug chuẩn hóa, trạng thái active
+    │   ├── employee.model.js                       # Schema hồ sơ nhân sự: họ tên, mã nhân viên, phòng ban chính (departmentId), danh sách phòng ban kiêm nhiệm (extraDepartmentIds), chức vụ, liên kết tài khoản userId
     │   ├── exam.model.js                           # Schema kỳ thi: tiêu đề, chủ đề ref, cấu hình số câu theo độ khó/phạm vi, thời gian làm bài, điểm đạt, trạng thái workflow
     │   ├── exam-attempt.model.js                   # Schema lượt thi: thí sinh, kỳ thi, trạng thái (in_progress/submitted/expired), loại (practice/official), thời gian, lastHeartbeat
-    │   ├── exam-candidate.model.js                 # Schema thí sinh được phân bổ vào kỳ thi: examId, userId, mã đề examCodeId, số lượt thi đã dùng, extraAttemptsGranted
+    │   ├── exam-candidate.model.js                 # Schema thí sinh được phân bổ vào kỳ thi: examId, employeeId, mã đề examCodeId, extraAttemptsGranted, roleConfirmedAt, roleChosenBy
     │   ├── exam-code.model.js                      # Schema mã đề thi: examId, departmentId, code, fingerprint (hash bộ câu hỏi)
     │   ├── exam-code-question.model.js             # Schema câu hỏi trong mã đề: examCodeId, questionId, thứ tự index
     │   ├── notification.model.js                   # Schema thông báo hệ thống: recipientUserId, title, message, type, examId, isRead
@@ -69,8 +69,8 @@ server/
     │   ├── exam.routes.js                          # Tuyến API kỳ thi: /active (Public), CRUD (tạo/sửa đề xuất) và workflow phê duyệt (Examiner, Leader)
     │   ├── exam-attempt.routes.js                  # Tuyến API làm bài thi thí sinh (Candidate) và cấp thêm lượt thi (Leader)
     │   ├── notification.routes.js                  # Tuyến API thông báo (Tất cả người dùng đã đăng nhập)
-    │   ├── practice.routes.js                      # Tuyến API luyện tập cá nhân theo chủ đề (Candidate)
-    │   ├── question.routes.js                      # Tuyến API ngân hàng câu hỏi: CRUD, import Excel, upload ảnh, chuyển ngân hàng, thống kê, xóa hàng loạt (Admin, Examiner)
+    │   ├── practice.routes.js                      # Tuyến API luyện tập cá nhân theo chủ đề, tiến độ, thành tựu (Candidate)
+    │   ├── question.routes.js                      # Tuyến API ngân hàng câu hỏi: CRUD, import Excel/Word, upload ảnh, chuyển ngân hàng, thống kê, xóa hàng loạt (Admin, Examiner)
     │   ├── report.routes.js                        # Tuyến API báo cáo, xuất Excel, tra cứu kết quả công khai và lịch sử cá nhân
     │   ├── role.routes.js                          # Tuyến API lấy danh sách roles (Admin)
     │   ├── study-document.routes.js                # Tuyến API tài liệu ôn tập: quản lý upload/xóa và phân quyền xem/tải
@@ -89,22 +89,23 @@ server/
     │   ├── backup.service.js                       # Logic sao lưu: mongodump nén .gz, kết nối Google Drive API v3, upload, xoay vòng lưu trữ tối đa 5 bản, khôi phục mongorestore --drop
     │   ├── backup.scheduler.js                     # Cron scheduler: Tự động sao lưu dữ liệu lúc 03:00 hàng ngày (Asia/Ho_Chi_Minh)
     │   ├── upload-cleanup.scheduler.js             # Cron scheduler: Tự động dọn dẹp tệp tin tạm quá 6 giờ trong thư mục upload (chạy mỗi giờ)
-    │   ├── department.service.js                   # Logic phòng ban: CRUD, xóa mềm, tự động khôi phục khi tạo trùng, slugify chuẩn hóa tiếng Việt, đếm nhân viên
+    │   ├── department.service.js                   # Logic phòng ban: CRUD, xóa mềm, tự động khôi phục khi tạo trùng, slugify chuẩn hóa tiếng Việt, đảm bảo mã khi import Excel (ensureDepartmentsForImport)
     │   ├── exam.service.js                         # Logic kỳ thi: tạo dự thảo, chỉnh sửa đề xuất (draft/rejected → draft), đệ trình duyệt, approve/reject kèm lý do, publish, archive, truy vấn kỳ thi active
-    │   ├── exam-attempt.service.js                 # Logic làm bài thi chính thức: sinh snapshot câu hỏi xáo trộn, start/resume, autosave, heartbeat giữ phiên, tự nộp khi vắng mặt >1 phút, chấm điểm tự động, cấp thêm lượt thi
+    │   ├── exam-attempt.service.js                 # Logic làm bài thi chính thức: xác nhận vai trò/phòng ban thi (chính hoặc kiêm nhiệm), sinh snapshot câu hỏi xáo trộn, start/resume, autosave, heartbeat giữ phiên, tự nộp khi vắng mặt >1 phút, chấm điểm tự động, cấp thêm lượt thi kèm đổi vai trò
     │   ├── exam-code-generation.service.js         # Logic sinh mã đề thi: thuật toán phân bổ câu hỏi chung/riêng theo phòng ban, lọc chỉ lấy câu hỏi thi chính thức (usage=exam), xáo Fisher-Yates, sinh mã đề và gán thí sinh tự động
     │   ├── notification.service.js                 # Logic thông báo: tạo thông báo tự động theo sự kiện kỳ thi (nộp duyệt, phê duyệt, từ chối, phát hành), đánh dấu đã đọc
-    │   ├── practice.service.js                     # Logic luyện tập cá nhân: lọc câu hỏi ôn tập (usage=practice), sinh bài luyện ngẫu nhiên theo chủ đề/độ khó, kiểm tra từng câu (chế độ instant), nộp bài, tính điểm và thống kê tiến độ
-    │   ├── question.service.js                     # Logic ngân hàng câu hỏi: CRUD, upload ảnh Cloudinary, import Excel 2 bước (preview phát hiện phòng ban thiếu/trùng -> confirm ghi DB), chuyển đổi mục đích sử dụng (exam/practice), xóa hàng loạt
+    │   ├── practice.service.js                     # Logic luyện tập cá nhân: lọc câu hỏi ôn tập (usage=practice), sinh bài luyện ngẫu nhiên theo chủ đề/độ khó, kiểm tra từng câu (chế độ instant), nộp bài, tính điểm, thống kê tiến độ, tính streak & thành tựu
+    │   ├── question.service.js                     # Logic ngân hàng câu hỏi: CRUD, upload ảnh Cloudinary, import Excel/Word 2 bước (preview phân tích cú pháp/đáp án -> confirm ghi DB), chuyển đổi mục đích sử dụng (exam/practice), xóa hàng loạt
     │   ├── report.service.js                       # Logic báo cáo: tổng quan thống kê, báo cáo phòng ban, báo cáo kỳ thi, bảng điểm chi tiết, xuất Excel chuẩn bằng ExcelJS, tra cứu công khai
     │   ├── role.service.js                         # Logic vai trò: truy vấn danh mục Role từ database
     │   ├── seed.service.js                         # Logic seed: tạo 4 role (admin/examiner/leader/candidate) và tài khoản Admin mặc định khi hệ thống khởi động
     │   ├── study-document.service.js               # Logic tài liệu ôn tập: lưu trữ trực tiếp trên đĩa server nội bộ (uploadDir), phân quyền xem theo phòng ban, stream tải/xem tài liệu an toàn
     │   ├── topic.service.js                        # Logic chủ đề: CRUD, xóa mềm (cascade ẩn câu hỏi thuộc chủ đề), tự động khôi phục khi tạo trùng tên
-    │   └── user.service.js                         # Logic người dùng: CRUD, import Excel 2 bước (preview phân loại -> confirm ghi DB), xuất Excel tài khoản kèm mật khẩu tạm ngẫu nhiên, khóa/mở (cập nhật lockedAt), reset mật khẩu
+    │   └── user.service.js                         # Logic người dùng: CRUD, import Excel 2 bước (parse phòng ban chính + kiêm nhiệm `{PB1; PB2}`, preview phân loại -> confirm ghi DB), xuất Excel tài khoản kèm mật khẩu tạm ngẫu nhiên, khóa/mở (cập nhật lockedAt), reset mật khẩu
     └── utils/
         ├── api-error.js                            # Class ApiError tùy biến chuẩn hóa HTTP statusCode và mã lỗi hệ thống (code), helper assertFound
-        └── async-handler.js                        # Wrapper bọc các async controller functions, tự động bắt exception đẩy vào next(err)
+        ├── async-handler.js                        # Wrapper bọc các async controller functions, tự động bắt exception đẩy vào next(err)
+        └── import-departments.js                   # Tiện ích phòng ban cho import Excel: parse cú pháp ô "Phòng chính {Kiêm nhiệm 1; Kiêm nhiệm 2}", tra cứu snapshot và lập kế hoạch tạo/gán mã phòng ban
 ```
 
 ## Chi tiết các Thành phần Nghiệp vụ & Kiến trúc
@@ -123,7 +124,8 @@ server/
 - **Tài khoản & Nhân sự**:
   - `User` (1) ↔ (1) `Role`: Quản lý định danh và quyền hạn truy cập.
   - `User` (1) ↔ (1) `Employee`: Liên kết tài khoản thí sinh với hồ sơ nhân sự (họ tên, mã nhân viên, ngày sinh, giới tính, số điện thoại, chức vụ).
-  - `Department` (1) ↔ (N) `Employee`: Tổ chức cây cơ cấu phòng ban trực thuộc.
+  - `Employee` liên kết với phòng ban chính `departmentId` và mảng phòng ban kiêm nhiệm `extraDepartmentIds: [ObjectId]`.
+  - Cú pháp ô Excel: `Tên phòng chính {Kiêm nhiệm 1; Kiêm nhiệm 2}` được tự động bóc tách và phân bổ.
 - **Ngân hàng đề thi & Phân loại mục đích sử dụng**:
   - `Topic` (1) ↔ (N) `Question`: Mỗi câu hỏi thuộc về một chủ đề chuyên môn.
   - `Department` (1) ↔ (N) `Question` (khi `scope = 'DepartmentSpecific'`).
@@ -132,26 +134,30 @@ server/
 - **Quy trình Kỳ thi & Mã đề**:
   - `Exam` (1) ↔ (N) `ExamCode`: Khi phát hành kỳ thi (`publish`), hệ thống sinh các mã đề tương ứng cho từng phòng ban tham gia (chỉ rút các câu hỏi có `usage = 'exam'`).
   - `ExamCode` (1) ↔ (N) `ExamCodeQuestion` ↔ (1) `Question`: Tập hợp các câu hỏi được trộn ngẫu nhiên gán vào từng mã đề.
-  - `Exam` (1) ↔ (N) `ExamCandidate` ↔ (1) `User`: Danh sách thí sinh được chỉ định tham gia kỳ thi kèm mã đề được gán.
+  - `Exam` (1) ↔ (N) `ExamCandidate` ↔ (1) `Employee`: Danh sách thí sinh tham gia kỳ thi kèm mã đề, quyền bổ sung lượt thi (`extraAttemptsGranted`), thời điểm và nguồn xác nhận vai trò (`roleConfirmedAt`, `roleChosenBy`).
 - **Lượt thi Chính thức & Chấm điểm**:
   - `ExamCandidate` (1) ↔ (N) `ExamAttempt`: Mỗi thí sinh có số lượt thi nhất định (mặc định 1 lượt chính thức, có thể được Leader cấp thêm).
+  - Thí sinh có phòng kiêm nhiệm được chọn vai trò thi (phòng chính hoặc một trong các phòng kiêm nhiệm) trước khi bắt đầu; sau khi bắt đầu, vai trò bị khóa chặt chẽ.
   - `ExamAttempt` (1) ↔ (N) `AttemptQuestion`: Lưu snapshot câu hỏi và thứ tự đáp án xáo riêng cho từng lượt thi để đảm bảo tính công bằng.
   - `ExamAttempt` (1) ↔ (N) `CandidateAnswer`: Lưu vết các phương án thí sinh đã chọn.
   - `ExamAttempt` (1) ↔ (1) `Result`: Kết quả tổng kết lượt thi (Điểm số, Đạt/Không đạt, thời gian làm bài).
 - **Phân hệ Luyện tập Cá nhân (Practice)**:
   - `User` (1) ↔ (N) `PracticeSession`: Lưu phiên luyện tập tự do theo chủ đề do thí sinh tự chọn (chỉ rút từ câu hỏi có `usage = 'practice'`). Snapshot đáp án đúng và thứ tự xáo trộn được lưu tại session, kết quả độc lập hoàn toàn không ảnh hưởng tới kết quả thi chính thức.
+  - Hỗ trợ theo dõi chuỗi ngày luyện tập (streak) và huy hiệu tích lũy qua endpoint `/api/practice/achievements`.
 
 ### 3. Quy trình Trộn đề và Phát hành Kỳ thi (`exam-code-generation.service.js`)
 - Khi Leader bấm "Đăng chính thức" (`publish`):
-  1. Hệ thống duyệt qua tất cả phòng ban có nhân viên active tham gia kỳ thi.
+  1. Hệ thống duyệt qua tất cả phòng ban có nhân viên active tham gia kỳ thi (bao gồm cả phòng chính và các phòng kiêm nhiệm).
   2. Tính toán phương án lấy câu hỏi: Rút số câu Chung (`Common`) và số câu Riêng (`DepartmentSpecific`) theo cấu hình đề xuất (chỉ lọc câu hỏi có `usage = 'exam'` đang `isActive = true`).
   3. Cơ chế bù đắp thông minh (Smart Fallback): Nếu một phòng ban không đủ số câu riêng, hệ thống tự động bù số câu thiếu từ ngân hàng câu hỏi chung của chủ đề đó.
   4. Rút ngẫu nhiên câu hỏi độc lập (thuật toán Fisher–Yates) và tạo bản ghi `ExamCode` riêng biệt cho **từng cá nhân nhân viên** (`D3F9A1-PB-NV-RandomHex`), tránh nhìn bài chéo.
-  5. Tự động gán từng thí sinh vào mã đề tương ứng của người đó trong `ExamCandidate` (idempotent theo từng nhân viên).
+  5. Tự động gán từng thí sinh vào mã đề mặc định ban đầu (theo phòng chính) trong `ExamCandidate` (idempotent theo từng nhân viên).
   6. Gửi thông báo hệ thống tự động tới toàn bộ thí sinh.
 
 ### 4. Quy trình Phòng thi và Giám sát phiên thi (`exam-attempt.service.js`)
-- **Khởi tạo / Tiếp tục (`start`)**: Sinh snapshot thứ tự câu hỏi và thứ tự phương án trả lời xáo riêng biệt cho từng lượt thi của thí sinh (`AttemptQuestion`), ẩn hoàn toàn cờ `isCorrect` của đáp án trước khi trả về client.
+- **Chọn vai trò & Khởi tạo / Tiếp tục (`start`)**: 
+  - Nếu thí sinh thuộc nhiều phòng ban (có kiêm nhiệm) và chưa khóa vai trò (`roleConfirmedAt` rỗng), popup yêu cầu chọn phòng ban dự thi. Sau khi chọn, hệ thống cập nhật mã đề tương ứng của phòng ban đó và khóa vai trò (`roleChosenBy: 'candidate'`).
+  - Sinh snapshot thứ tự câu hỏi và thứ tự phương án trả lời xáo riêng biệt cho từng lượt thi của thí sinh (`AttemptQuestion`), ẩn hoàn toàn cờ `isCorrect` của đáp án trước khi trả về client.
 - **Tự động lưu câu trả lời (`answer`)**: Lưu tức thì phương án thí sinh đã chọn vào bảng `CandidateAnswer` theo thời gian thực (autosave).
 - **Heartbeat & Tự động nộp bài (`heartbeat`)**: Client gửi tín hiệu heartbeat mỗi 15 giây. Nếu thí sinh tắt trình duyệt hoặc gián đoạn kết nối quá 1 phút (`INACTIVITY_TIMEOUT_MS`), hệ thống sẽ tự động đóng phiên và chấm điểm dựa trên các đáp án đã autosave.
 - **Chấm điểm tự động (`submit`)**:
@@ -183,8 +189,8 @@ server/
 | `GET` | `/api/users` | Admin | Lấy danh sách tài khoản (phân trang, lọc theo vai trò, phòng ban, từ khóa). |
 | `POST` | `/api/users` | Admin | Tạo tài khoản người dùng đơn lẻ (tự động gắn hồ sơ nhân viên nếu là candidate). |
 | `POST` | `/api/users/export-credentials` | Admin | Xuất file Excel danh sách tài khoản thí sinh kèm mật khẩu tạm ngẫu nhiên. |
-| `POST` | `/api/users/import/preview` | Admin | Đọc file Excel danh sách nhân viên, phân loại dòng mới/cập nhật/lỗi (chưa ghi DB). |
-| `POST` | `/api/users/import/confirm` | Admin | Xác nhận ghi dữ liệu nhân viên vào CSDL dựa trên kết quả preview. |
+| `POST` | `/api/users/import/preview` | Admin | Đọc file Excel nhân sự, bóc tách phòng chính + kiêm nhiệm `{PB1; PB2}`, phân loại dòng mới/cập nhật/lỗi và tổng hợp phòng ban thiếu cần nhập mã. |
+| `POST` | `/api/users/import/confirm` | Admin | Xác nhận ghi dữ liệu nhân viên, tự động tạo/khôi phục/gán mã phòng ban theo kế hoạch. |
 | `PATCH` | `/api/users/:id/role` | Admin | Thay đổi vai trò (Role) của người dùng. |
 | `PATCH` | `/api/users/:id/lock` | Admin | Khóa hoặc mở khóa tài khoản người dùng. |
 | `POST` | `/api/users/:id/reset-password` | Admin | Reset mật khẩu người dùng về mật khẩu tạm ngẫu nhiên. |
@@ -219,7 +225,9 @@ server/
 | `PATCH` | `/api/questions/:id` | Admin, Examiner | Cập nhật nội dung câu hỏi, ảnh đính kèm, đáp án và mục đích sử dụng. |
 | `DELETE` | `/api/questions/:id` | Admin, Examiner | Xóa câu hỏi (xóa mềm `isActive = false`). |
 | `POST` | `/api/questions/import/preview` | Admin, Examiner | Tải file Excel câu hỏi lên để phân tích cú pháp, chỉ định mục đích sử dụng, phát hiện phòng ban thiếu và dòng lỗi. |
-| `POST` | `/api/questions/import/confirm` | Admin, Examiner | Xác nhận ghi dữ liệu câu hỏi vào ngân hàng đề và tự động tạo các phòng ban thiếu. |
+| `POST` | `/api/questions/import/confirm` | Admin, Examiner | Xác nhận ghi dữ liệu câu hỏi từ Excel vào ngân hàng đề và tự động tạo các phòng ban thiếu. |
+| `POST` | `/api/questions/import/word/preview` | Admin, Examiner | Tải file Word (.docx) câu hỏi lên để phân tích định dạng, bóc tách câu hỏi, đáp án đúng/gợi ý và danh sách cần xem lại. |
+| `POST` | `/api/questions/import/word/confirm` | Admin, Examiner | Xác nhận ghi dữ liệu câu hỏi từ Word vào ngân hàng đề (hỗ trợ ghi đè đáp án đúng từ form kiểm duyệt). |
 | `POST` | `/api/questions/upload-image` | Admin, Examiner | Tải ảnh minh họa câu hỏi lên máy chủ Cloudinary. |
 | `GET` | `/api/questions/stats/by-topic/:topicId` | Admin, Examiner | Thống kê số lượng câu hỏi theo chủ đề (phân bổ theo độ khó). |
 | `POST` | `/api/questions/bulk-delete` | Admin, Examiner | Xóa hàng loạt câu hỏi theo danh sách ID hoặc theo tiêu chí lọc (bảo vệ câu hỏi thuộc kỳ thi đang diễn ra). |
@@ -230,6 +238,7 @@ server/
 |---|---|---|---|
 | `GET` | `/api/practice/topics` | Candidate | Lấy danh sách các chủ đề có câu hỏi ôn tập phù hợp với phòng ban của thí sinh. |
 | `GET` | `/api/practice/progress` | Candidate | Lấy thống kê tiến độ luyện tập cá nhân (tổng số lượt, tỷ lệ đúng, phân tích theo chủ đề, lịch sử gần nhất). |
+| `GET` | `/api/practice/achievements` | Candidate | Lấy chuỗi ngày luyện tập liên tiếp (streak), huy hiệu tích lũy và thông điệp động viên. |
 | `GET` | `/api/practice/active` | Candidate | Lấy thông tin bài luyện đang làm dở (để tiếp tục khi tải lại trang / đổi thiết bị). |
 | `POST` | `/api/practice/start` | Candidate | Bắt đầu bài luyện mới theo cấu hình (chủ đề, số câu, thời gian, độ khó, chế độ instant/exam). |
 | `POST` | `/api/practice/:id/check` | Candidate | Kiểm tra ngay đúng/sai cho 1 câu hỏi trong chế độ làm bài tức thì (`instant`). |
@@ -252,12 +261,12 @@ server/
 ### 10. `/api/exam-attempts` — Làm bài thi Thí sinh
 | Method | Endpoint | Quyền hạn | Chức năng |
 |---|---|---|---|
-| `GET` | `/api/exam-attempts/my-exam` | Candidate | Lấy thông tin đề thi của thí sinh (ẩn đáp án đúng), trạng thái lượt thi và đáp án đã lưu dở. |
-| `POST` | `/api/exam-attempts/start` | Candidate (Rate Limited) | Bắt đầu lượt thi mới hoặc tiếp tục (resume) lượt thi đang dở. |
+| `GET` | `/api/exam-attempts/my-exam` | Candidate | Lấy thông tin đề thi của thí sinh (ẩn đáp án đúng), trạng thái lượt thi, danh sách phòng ban chọn thi và đáp án đã lưu dở. |
+| `POST` | `/api/exam-attempts/start` | Candidate (Rate Limited) | Bắt đầu lượt thi mới (xác nhận `departmentId` nếu có nhiều phòng) hoặc tiếp tục (resume) lượt thi đang dở. |
 | `POST` | `/api/exam-attempts/:id/submit` | Candidate (Rate Limited) | Nộp bài thi, hệ thống khóa bài và tự động chấm điểm. |
 | `PATCH` | `/api/exam-attempts/:id/answer` | Candidate (Rate Limited) | Autosave phương án trả lời cho 1 câu hỏi cụ thể. |
 | `POST` | `/api/exam-attempts/:id/heartbeat` | Candidate (Rate Limited) | Gửi tín hiệu duy trì phòng thi định kỳ (tự nộp nếu ngắt kết nối >1 phút). |
-| `POST` | `/api/exam-attempts/candidates/:examCandidateId/grant-attempt` | Leader | Cấp thêm lượt thi chính thức cho một thí sinh cụ thể. |
+| `POST` | `/api/exam-attempts/candidates/:examCandidateId/grant-attempt` | Leader | Cấp thêm lượt thi chính thức cho một thí sinh cụ thể (hỗ trợ đổi lại phòng ban thi `departmentId` nếu chọn nhầm). |
 
 ### 11. `/api/notifications` — Thông báo Hệ thống
 | Method | Endpoint | Quyền hạn | Chức năng |
@@ -321,10 +330,10 @@ server/
 | Role | Quyền hạn |
 |---|---|
 | **Public** | Xem kỳ thi, tra cứu kết quả công khai (theo phòng ban, theo mã nhân viên), health check. |
-| **Candidate** (Thí sinh) | Xem kỳ thi, tài liệu ôn tập (theo phòng ban), vào thi (start/autosave/heartbeat/submit), xem lịch sử kết quả, thông báo cá nhân. |
-| **Examiner** (Người ra đề) | CRUD câu hỏi/chủ đề/phòng ban, import Excel câu hỏi 2 bước, upload ảnh câu hỏi, tạo + chỉnh sửa + đệ trình đề xuất kỳ thi, quản lý tài liệu ôn tập, thông báo. |
-| **Leader** (Người duyệt đề) | Xem tất cả đề xuất, duyệt/từ chối/phát hành/lưu trữ kỳ thi, xem báo cáo tổng hợp, xuất Excel, cấp thêm lượt thi, thông báo. |
-| **Admin** (Quản trị viên) | Toàn quyền quản lý user (CRUD, import/export Excel, phân role, khóa/mở, reset password), audit log, sao lưu & phục hồi dữ liệu (Backup/Restore), quản lý câu hỏi/chủ đề/phòng ban, xem báo cáo, thông báo. |
+| **Candidate** (Thí sinh) | Xem kỳ thi, tài liệu ôn tập (theo phòng ban), chọn vai trò phòng ban thi (nếu kiêm nhiệm), vào thi (start/autosave/heartbeat/submit), luyện tập cá nhân & theo dõi thành tựu, xem lịch sử kết quả, thông báo cá nhân. |
+| **Examiner** (Người ra đề) | CRUD câu hỏi/chủ đề/phòng ban, import Excel/Word câu hỏi 2 bước, upload ảnh câu hỏi, tạo + chỉnh sửa + đệ trình đề xuất kỳ thi, quản lý tài liệu ôn tập, thông báo. |
+| **Leader** (Người duyệt đề) | Xem tất cả đề xuất, duyệt/từ chối/phát hành/lưu trữ kỳ thi, xem báo cáo tổng hợp, xuất Excel, cấp thêm lượt thi (hỗ trợ chọn lại vai trò phòng ban thi), thông báo. |
+| **Admin** (Quản trị viên) | Toàn quyền quản lý user (CRUD, import Excel bóc tách kiêm nhiệm/export Excel credentials, phân role, khóa/mở, reset password), audit log, sao lưu & phục hồi dữ liệu (Backup/Restore), quản lý câu hỏi/chủ đề/phòng ban, xem báo cáo, thông báo. |
 
 ---
 
@@ -342,11 +351,11 @@ Kiến trúc tuân thủ mô hình **Controller-Service-Repository** (Mongoose �
 
 Dữ liệu được tổ chức theo tính toàn vẹn thông qua tham chiếu (Ref):
 
-- **Tổ chức nhân sự**: `Department` (1) ↔ (N) `Employee` (1) ↔ (1) `User` ↔ (1) `Role`.
+- **Tổ chức nhân sự**: `Department` (1) ↔ (N) `Employee` (departmentId + extraDepartmentIds) (1) ↔ (1) `User` ↔ (1) `Role`.
   - Một user gắn với một role cụ thể. User liên kết tới thông tin nhân sự (Employee) qua mã nhân viên. `User.lockedAt` lưu mốc thời gian lần khóa gần nhất.
 - **Kỳ thi và Đề thi**: `Exam` (1) ↔ (N) `ExamCode` (1) ↔ (N) `ExamCodeQuestion` ↔ (1) `Question`.
   - `Exam` (Kỳ thi) là container. Khi duyệt và phát hành, `ExamCode` (Mã đề thi) được sinh ra từ việc trộn ngẫu nhiên `Question`.
-- **Lượt thi và Kết quả**: `User (Candidate)` ↔ `ExamCandidate` ↔ `ExamAttempt` ↔ `AttemptQuestion` ↔ `Answer`.
+- **Lượt thi và Kết quả**: `Employee (Candidate)` ↔ `ExamCandidate` ↔ `ExamAttempt` ↔ `AttemptQuestion` ↔ `Answer`.
   - Một `ExamAttempt` lưu trạng thái (in_progress/submitted/expired), thời gian kết thúc, log heartbeat. `AttemptQuestion` lưu lại đáp án đang chọn dở. Kết thúc tạo ra `Result`.
 
 ## Quản lý Lỗi (Error Handling Strategy)
@@ -366,3 +375,4 @@ Dữ liệu được tổ chức theo tính toàn vẹn thông qua tham chiếu 
 - **JWT**: Sử dụng chiến lược *Access Token (ngắn hạn, trong Header)* và *Refresh Token (dài hạn, HTTP-Only Cookie)* để chống XSS đánh cắp token.
 - **Mật khẩu**: Băm bằng `bcryptjs` (hash + salt), bắt buộc đổi mật khẩu khi cấp tài khoản mới (`mustChangePassword`).
 - **Ngăn chặn phiên (Session Revocation)**: Sử dụng trường `tokenVersion` trên model `User`. Đăng nhập mới sẽ tăng phiên bản, làm access token cũ lập tức trở nên bất hợp lệ.
+

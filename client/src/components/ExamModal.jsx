@@ -16,6 +16,8 @@ import {
   List,
   ChevronLeft,
   ShieldAlert,
+  Lock,
+  Building2,
 } from 'lucide-react';
 import { Z176_COMPANY_INFO } from '../data';
 import { fetchMyResults } from '../services/report.service';
@@ -103,6 +105,10 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
   // Dữ liệu đề thi + trạng thái lượt thi lấy từ GET /exam-attempts/my-exam
   const [examData, setExamData] = useState(null);
 
+  // MỚI — Vai trò (phòng ban) thí sinh đang chọn để thi. Mặc định = vai trò backend gán sẵn (phòng chính);
+  // chỉ đổi được khi role.locked = false và thí sinh có phòng kiêm nhiệm.
+  const [selectedRoleId, setSelectedRoleId] = useState(null);
+
   // Lượt thi đang làm (sau khi bấm bắt đầu / resume)
   const [attemptId, setAttemptId] = useState(null);
   const [expiresAt, setExpiresAt] = useState(null);
@@ -168,6 +174,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     setExpiresAt(null);
     setSelectedAnswers({});
     setCurrentQuestionIndex(0);
+    setSelectedRoleId(null);
     finishingRef.current = false;
 
     Promise.all([fetchMyResults(), fetchMyExam()])
@@ -175,6 +182,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
         if (cancelled) return;
         setEmployee(resultsData?.employee ?? null);
         setExamData(exam);
+        setSelectedRoleId(exam?.role?.departmentId ? String(exam.role.departmentId) : null);
 
         // Nếu đang có lượt thi dở (resume, kể cả từ thiết bị/trình duyệt khác),
         // khôi phục ngay đáp án đã autosave trên server — đây là nguồn sự thật,
@@ -206,7 +214,9 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     }
     try {
       setSubmitError(null);
-      const data = await startExamAttempt();
+      // Vai trò đã khóa thì không gửi lại; chưa khóa thì gửi vai trò thí sinh đang chọn để backend xác nhận & khóa.
+      const roleToSend = examData?.role && !examData.role.locked ? selectedRoleId : undefined;
+      const data = await startExamAttempt(roleToSend || undefined);
       setAttemptId(data.attemptId);
       setExpiresAt(new Date(data.expiresAt));
 
@@ -217,6 +227,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
       // khác) thì đây chính là chỗ khôi phục đúng các lựa chọn đã chọn trước đó.
       const freshExamData = await fetchMyExam();
       setExamData(freshExamData);
+      if (freshExamData?.role?.departmentId) setSelectedRoleId(String(freshExamData.role.departmentId));
       setSelectedAnswers(savedAnswersToMap(freshExamData?.savedAnswers));
 
       setStep('testing');
@@ -589,6 +600,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
 
               {currentUser ? (
                 employee ? (
+                  <>
                   <div className="space-y-1.5 text-base text-[#334155] bg-white p-3 rounded-lg border border-slate-200">
                     <div>
                       Họ và tên: <strong className="text-[#0F172A]">{employee.fullname}</strong>
@@ -596,10 +608,106 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                     <div>
                       Mã nhân viên: <strong className="text-[#008BC5] font-mono">{employee.employeeCode || '—'}</strong>
                     </div>
-                    <div>
-                      Xưởng / Phòng: <strong className="text-[#0F172A]">{employee.departmentName || '—'}</strong>
-                    </div>
+                    {!examData?.role && (
+                      <div>
+                        Xưởng / Phòng: <strong className="text-[#0F172A]">{employee.departmentName || '—'}</strong>
+                      </div>
+                    )}
                   </div>
+
+                  {/* MỚI — Khối NỔI BẬT: thí sinh đang thi với tư cách phòng ban nào */}
+                  {examData?.role && (() => {
+                    const role = examData.role;
+                    const canPick = !role.locked && !examData.attempt && role.options.length > 1;
+                    const activeId = canPick ? selectedRoleId : String(role.departmentId ?? '');
+                    const activeOption =
+                      role.options.find((o) => String(o.departmentId) === activeId) ?? role.options[0] ?? null;
+                    const isCurrentRole = activeId === String(role.departmentId ?? '');
+                    return (
+                      <div className="rounded-xl border-2 border-[#008BC5] bg-[#EAF6FF] p-3 sm:p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#008BC5]">
+                          {canPick ? <Building2 className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                          <span>Bạn sẽ thi với tư cách phòng ban</span>
+                        </div>
+
+                        {canPick ? (
+                          <div className="space-y-2" role="radiogroup" aria-label="Chọn phòng ban thi">
+                            {role.options.map((o) => {
+                              const id = String(o.departmentId);
+                              const active = id === activeId;
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={active}
+                                  onClick={() => setSelectedRoleId(id)}
+                                  className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-colors min-touch-target ${
+                                    active
+                                      ? 'bg-white border-[#008BC5] shadow-sm'
+                                      : 'bg-white/60 border-transparent hover:border-[#008BC5]/40'
+                                  }`}
+                                >
+                                  {active ? (
+                                    <CheckCircle2 className="w-5 h-5 text-[#008BC5] shrink-0" />
+                                  ) : (
+                                    <Circle className="w-5 h-5 text-slate-300 shrink-0" />
+                                  )}
+                                  <span className="flex-1 font-bold text-base text-[#0F172A]">{o.name}</span>
+                                  <span
+                                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                                      o.isMain ? 'bg-[#0F172A] text-white' : 'bg-[#008BC5]/15 text-[#008BC5]'
+                                    }`}
+                                  >
+                                    {o.isMain ? 'Phòng chính' : 'Kiêm nhiệm'}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xl sm:text-2xl font-extrabold text-[#0F172A] leading-tight">
+                              {activeOption?.name ?? role.name ?? '—'}
+                            </span>
+                            {activeOption && (
+                              <span
+                                className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                  activeOption.isMain ? 'bg-[#0F172A] text-white' : 'bg-[#008BC5]/15 text-[#008BC5]'
+                                }`}
+                              >
+                                {activeOption.isMain ? 'Phòng chính' : 'Kiêm nhiệm'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {canPick ? (
+                          <p className="text-sm text-[#334155] flex items-start gap-1.5">
+                            <AlertCircle className="w-4 h-4 text-[#F6AD37] shrink-0 mt-0.5" />
+                            <span>
+                              Bạn có phòng kiêm nhiệm nên cần chọn <strong>1 phòng ban</strong> để thi. Sau khi bấm
+                              “Xác nhận &amp; bắt đầu”, lựa chọn sẽ <strong>bị khóa</strong> cho kỳ thi này — muốn đổi
+                              phải nhờ Người duyệt đề.
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-sm text-[#334155]">
+                            Đề thi và điểm của bạn trong kỳ này được tính theo phòng ban trên
+                            {role.options.length > 1 ? ' (vai trò đã được khóa).' : '.'}
+                          </p>
+                        )}
+
+                        {isCurrentRole && role.hasDepartmentQuestions === false && (
+                          <p className="text-sm text-[#334155] bg-white/70 border border-[#008BC5]/20 rounded-lg px-3 py-2">
+                            Phòng ban này chưa có câu hỏi riêng trong kỳ thi, nên đề của bạn gồm{' '}
+                            <strong>toàn bộ câu hỏi chung</strong>. Bạn vẫn được thi bình thường.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  </>
                 ) : (
                   <div className="p-3 bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg text-[#0F172A] text-sm">
                     Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên. Vui lòng liên hệ quản trị viên.
@@ -639,7 +747,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
             ) : (
               <button
                 onClick={handleStartExam}
-                disabled={!employee}
+                disabled={!employee || (examData?.role && !examData.role.departmentId)}
                 className="w-full min-h-[52px] bg-[#008BC5] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-lg rounded-full hover:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 shadow-z176 min-touch-target"
               >
                 <CheckCircle2 className="w-6 h-6" />
@@ -711,11 +819,21 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                 </div>
               </div>
 
-              {examData?.exam?.code && (
-                <div className="flex items-center justify-end">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#008BC5]/10 text-[#008BC5] font-bold font-mono text-xs border border-[#008BC5]/30">
-                    Mã đề: {examData.exam.code}
-                  </span>
+              {(examData?.exam?.code || examData?.role?.name) && (
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  {examData?.role?.name ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#0F172A] text-white font-semibold text-xs">
+                      <Building2 className="w-3 h-3" />
+                      Thi với tư cách: {examData.role.name}
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  {examData?.exam?.code && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#008BC5]/10 text-[#008BC5] font-bold font-mono text-xs border border-[#008BC5]/30">
+                      Mã đề: {examData.exam.code}
+                    </span>
+                  )}
                 </div>
               )}
 

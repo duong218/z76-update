@@ -7,6 +7,10 @@ import { getAuthHeaders } from './auth.service.js';
  * `savedAnswers` (đáp án đã autosave — dùng để khôi phục khi đổi thiết bị)
  * và `autoSubmitted` (khác null nếu backend vừa phát hiện + tự nộp bài do
  * rời khỏi ca thi quá 1 phút ngay trong lần gọi này).
+ *
+ * MỚI — kèm `role`: vai trò (phòng ban) thí sinh sẽ thi trong kỳ này
+ * { departmentId, name, isMain, locked, chosenBy, hasDepartmentQuestions,
+ *   options: [{ departmentId, name, code, isMain }] }.
  */
 export async function fetchMyExam() {
   const result = await apiRequest('/exam-attempts/my-exam', {
@@ -19,11 +23,15 @@ export async function fetchMyExam() {
 /**
  * Bắt đầu lượt thi chính thức. Nếu đang có lượt dở (in_progress) thì backend
  * tự trả về đúng lượt đó (resume) thay vì tạo lượt mới.
+ *
+ * MỚI — departmentId (tùy chọn): vai trò (phòng ban) thí sinh xác nhận ở popup.
+ * Chỉ có tác dụng khi vai trò chưa bị khóa; backend khóa vai trò ngay lúc bắt đầu.
  */
-export async function startExamAttempt() {
+export async function startExamAttempt(departmentId) {
   const result = await apiRequest('/exam-attempts/start', {
     method: 'POST',
     headers: getAuthHeaders(),
+    body: JSON.stringify(departmentId ? { departmentId } : {}),
   });
   return result.data;
 }

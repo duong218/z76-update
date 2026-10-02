@@ -19,6 +19,7 @@ import {
   Calendar,
   Info,
   Target,
+  Lock,
 } from 'lucide-react';
 import {
   BarChart,
@@ -203,6 +204,7 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
           maxAttempts: data?.maxAttempts ?? 1,
           canTake: Boolean(data?.canTake),
           attempt: data?.attempt ?? null,
+          role: data?.role ?? null,
         });
       })
       .catch((err) => {
@@ -300,6 +302,16 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
   const attemptsForActiveExam = examStatus?.attemptsUsed ?? 0;
   const attemptsLeft = examStatus ? Math.max(0, maxAttempts - attemptsForActiveExam) : 0;
   const canStartExam = Boolean(activeExam) && Boolean(examStatus?.canTake);
+
+  // MỚI — Vai trò (phòng ban) sẽ dùng để thi trong kỳ thi đang mở (từ backend). null nếu chưa tải được.
+  const examRole = examStatus?.role ?? null;
+  const examRoleHint = examRole
+    ? examRole.locked
+      ? 'Vai trò đã được khóa cho kỳ thi này.'
+      : examRole.options?.length > 1
+        ? 'Bạn có phòng kiêm nhiệm — sẽ chọn vai trò khi bấm vào thi.'
+        : ''
+    : '';
 
   const handleStartExam = () => {
     if (typeof onOpenExam === 'function') {
@@ -486,8 +498,19 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                     </div>
 
                     <div className="relative mt-6 pt-5 border-t border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="text-sm text-slate-300">
-                        Bạn còn {attemptsLeft} lượt thi cho kỳ thi này.
+                      <div className="text-sm text-slate-300 space-y-1">
+                        <div>Bạn còn {attemptsLeft} lượt thi cho kỳ thi này.</div>
+                        {examRole?.name && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Building2 className="w-4 h-4 text-sky-300 shrink-0" />
+                            <span>Thi với tư cách:</span>
+                            <strong className="px-2 py-0.5 rounded-md bg-white/15 text-white font-bold">
+                              {examRole.name}
+                            </strong>
+                            {examRole.locked && <Lock className="w-3.5 h-3.5 text-sky-300" aria-label="Đã khóa" />}
+                          </div>
+                        )}
+                        {examRoleHint && <div className="text-xs text-slate-400">{examRoleHint}</div>}
                       </div>
                       <button
                         onClick={() => setActiveSection('exam')}
@@ -708,6 +731,22 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                         gian và không thể tạm dừng giữa chừng. Không thoát trình duyệt trong khi đang làm
                         bài.
                       </span>
+                    </div>
+                  )}
+
+                  {activeExam && examRole?.name && (
+                    <div className="rounded-xl border-2 border-[#008BC5] bg-[#EAF6FF] p-4 flex flex-col gap-1">
+                      <div className="text-xs font-bold uppercase tracking-wide text-[#008BC5] flex items-center gap-1.5">
+                        {examRole.locked ? <Lock className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
+                        Bạn sẽ thi với tư cách phòng ban
+                      </div>
+                      <div className="text-xl font-extrabold text-[#0F172A]">{examRole.name}</div>
+                      {examRoleHint && <div className="text-sm text-slate-600">{examRoleHint}</div>}
+                      {examRole.hasDepartmentQuestions === false && (
+                        <div className="text-sm text-slate-600">
+                          Phòng ban này chưa có câu hỏi riêng nên đề gồm toàn câu hỏi chung.
+                        </div>
+                      )}
                     </div>
                   )}
 

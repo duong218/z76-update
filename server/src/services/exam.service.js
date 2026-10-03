@@ -30,7 +30,7 @@ export const examService = {
 
   // Examiner tạo bản thảo đề xuất kỳ thi mới (DRAFT)
   async createExamProposal(payload, userId) {
-    const { title, topicId, durationMinutes, totalQuestions, commonQuestionCount, departmentQuestionCount, passThresholdPercent } = payload;
+    const { title, topicId, durationMinutes, totalQuestions, commonQuestionCount, departmentQuestionCount, passThresholdPercent, allowCommonCompensation } = payload;
 
     const topic = await Topic.findById(topicId);
     if (!topic) throw new ApiError(404, 'Không tìm thấy chủ đề', 'TOPIC_NOT_FOUND');
@@ -43,6 +43,8 @@ export const examService = {
       commonQuestionCount,
       departmentQuestionCount,
       passThresholdPercent,
+      // MỚI — Công tắc bù câu chung: luôn ghi giá trị rõ ràng; client không gửi thì mặc định TẮT (công bằng)
+      allowCommonCompensation: allowCommonCompensation === true,
       createdBy: userId,
       status: EXAM_STATUS.DRAFT,
     });
@@ -65,7 +67,7 @@ export const examService = {
       throw new ApiError(400, 'Kỳ thi không ở trạng thái hợp lệ để chỉnh sửa', 'EXAM_INVALID_STATUS');
     }
 
-    const { title, topicId, durationMinutes, totalQuestions, commonQuestionCount, departmentQuestionCount, passThresholdPercent } = payload;
+    const { title, topicId, durationMinutes, totalQuestions, commonQuestionCount, departmentQuestionCount, passThresholdPercent, allowCommonCompensation } = payload;
 
     if (topicId && String(topicId) !== String(exam.topicId)) {
       const topic = await Topic.findById(topicId);
@@ -79,6 +81,11 @@ export const examService = {
     exam.commonQuestionCount = commonQuestionCount;
     exam.departmentQuestionCount = departmentQuestionCount;
     exam.passThresholdPercent = passThresholdPercent;
+    // MỚI — Chỉ cập nhật công tắc khi client có gửi (kỳ thi cũ chưa có field sẽ giữ nguyên hành vi bù nếu không gửi).
+    // Không cần chặn riêng trạng thái PUBLISHED: hàm này chỉ cho sửa đề ở trạng thái draft/rejected (kiểm tra ở đầu hàm).
+    if (typeof allowCommonCompensation === 'boolean') {
+      exam.allowCommonCompensation = allowCommonCompensation;
+    }
     exam.status = EXAM_STATUS.DRAFT;
     exam.rejectionReason = undefined;
 

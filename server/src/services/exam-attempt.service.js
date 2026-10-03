@@ -21,7 +21,11 @@ import {
 } from '../models/index.js';
 import { ApiError } from '../utils/api-error.js';
 import { ROLE_CHOSEN_BY } from '../models/exam-candidate.model.js';
-import { getEmployeeRoleOptions, assignCandidateRole } from './exam-code-generation.service.js';
+import {
+  getEmployeeRoleOptions,
+  assignCandidateRole,
+  isCommonCompensationEnabled,
+} from './exam-code-generation.service.js';
 
 const MAX_OFFICIAL_ATTEMPTS = 1; // Số lượt thi chính thức mặc định
 const INACTIVITY_TIMEOUT_MS = 60_000; // Tự động nộp nếu rời ca thi > 1 phút (không heartbeat/thao tác)
@@ -156,13 +160,18 @@ async function checkAndAutoSubmitIfInactive(attempt, userId) {
 
 // MỚI — Tổng hợp thông tin VAI TRÒ (phòng ban thi) của thí sinh trong kỳ thi để client hiển thị nổi bật.
 // - departmentId/name/isMain: phòng ban của mã đề hiện tại (chính là phòng sẽ được dùng để rút câu hỏi riêng)
-// - locked: đã khóa (thí sinh đã xác nhận / hệ thống khóa / Người duyệt đề chọn) -> thí sinh không tự đổi được nữa
+// - locked: đã khóa (thí sinh đã xác nhận / hệ thống khóa / Người duyệt đề chọn) hoặc chỉ có 1 vai trò duy nhất (không có gì để chọn).
+//   Còn >= 2 vai trò mà chưa khóa thì client hiện danh sách, vai trò chưa đủ điều kiện (eligible = false) bị làm mờ, không chọn được.
 // - hasDepartmentQuestions: false nếu đề của phòng này chỉ gồm câu chung (phòng không có câu riêng trong ngân hàng thi)
-// - options: các vai trò thí sinh có thể chọn (phòng chính + kiêm nhiệm đang hoạt động)
-async function buildRoleInfo(employee, examCandidate, examCode) {
-  const options = await getEmployeeRoleOptions(employee);
+// - allowCommonCompensation: kỳ thi có bật bù câu chung không (tắt -> phòng thiếu câu riêng bị khóa không cho chọn)
+// - hasEligibleRole: còn ít nhất 1 vai trò đủ điều kiện để thi
+// - options: các vai trò (phòng chính + kiêm nhiệm đang hoạt động), kèm eligible / deptQuestionCount / requiredDeptQuestions
+async function buildRoleInfo(employee, exam, examCandidate, examCode) {
+  const options = await getEmployeeRoleOptions(employee, exam);
+  const eligibleOptions = options.filter((o) => o.eligible);
   const currentKey = examCode?.departmentId ? String(examCode.departmentId) : null;
-  const current = options.find((o) => String(o.departmentId) === currentKey) ?? options[0] ?? null;
+  const current =
+    options.find((o) => String(o.departmentId) === currentKey) ?? eligibleOptions[0] ?? options[0] ?? null;
 
   let hasDepartmentQuestions = true;
   if (current && examCode) {
@@ -183,11 +192,16 @@ async function buildRoleInfo(employee, examCandidate, examCode) {
     locked: Boolean(examCandidate.roleConfirmedAt) || options.length <= 1,
     chosenBy: examCandidate.roleChosenBy ?? (options.length <= 1 ? ROLE_CHOSEN_BY.SYSTEM : null),
     hasDepartmentQuestions,
+    allowCommonCompensation: isCommonCompensationEnabled(exam),
+    hasEligibleRole: eligibleOptions.length > 0,
     options: options.map((o) => ({
       departmentId: o.departmentId,
       name: o.name,
       code: o.code,
       isMain: o.isMain,
+      eligible: o.eligible,
+      deptQuestionCount: o.deptQuestionCount ?? 0,
+      requiredDeptQuestions: o.requiredDeptQuestions ?? 0,
     })),
   };
 }
@@ -221,7 +235,7 @@ export const examAttemptService = {
     }
 
     const examCode = await ExamCode.findById(examCandidate.examCodeId).select('code departmentId');
-    const role = await buildRoleInfo(employee, examCandidate, examCode);
+    const role = await buildRoleInfo(employee, exam, examCandidate, examCode);
 
     const finishedCount = attempts.filter((a) => a.status !== ATTEMPT_STATUS.IN_PROGRESS).length;
     const canTake = Boolean(inProgress) || finishedCount < maxAttempts;
@@ -331,7 +345,8 @@ export const examAttemptService = {
     }
 
     // MỚI — Xác nhận & khóa vai trò (phòng ban) trước khi sinh lượt thi
-    const roleOptions = await getEmployeeRoleOptions(employee);
+    // Chỉ các vai trò ĐỦ ĐIỀU KIỆN (đủ câu riêng, hoặc kỳ thi bật bù) mới được chọn
+    const roleOptions = await getEmployeeRoleOptions(employee, exam);
     if (roleOptions.length === 0) {
       throw new ApiError(
         400,
@@ -339,15 +354,24 @@ export const examAttemptService = {
         'ROLE_INVALID',
       );
     }
+    const eligibleOptions = roleOptions.filter((o) => o.eligible);
+    if (eligibleOptions.length === 0) {
+      throw new ApiError(
+        400,
+        'Không có phòng ban nào của bạn đủ câu hỏi riêng để thi kỳ này. Vui lòng liên hệ Người duyệt đề / quản trị viên.',
+        'ROLE_NOT_ELIGIBLE',
+      );
+    }
 
     if (!examCandidate.roleConfirmedAt) {
-      if (roleOptions.length === 1) {
-        // Chỉ có 1 phòng ban: không có gì để chọn -> hệ thống tự khóa theo phòng đó
-        await assignCandidateRole({ exam, examCandidate, employee, departmentId: roleOptions[0].departmentId });
+      if (eligibleOptions.length === 1) {
+        // Chỉ có 1 vai trò đủ điều kiện: không có gì để chọn -> hệ thống tự khóa theo phòng đó
+        await assignCandidateRole({ exam, examCandidate, employee, departmentId: eligibleOptions[0].departmentId });
         examCandidate.roleChosenBy = ROLE_CHOSEN_BY.SYSTEM;
       } else {
         const currentCode = await ExamCode.findById(examCandidate.examCodeId).select('departmentId');
-        const target = departmentId ?? currentCode?.departmentId ?? roleOptions[0].departmentId;
+        const target = departmentId ?? currentCode?.departmentId ?? eligibleOptions[0].departmentId;
+        // assignCandidateRole ném ROLE_INVALID (phòng ngoài tập vai trò) hoặc ROLE_NOT_ELIGIBLE (phòng chưa đủ câu riêng)
         await assignCandidateRole({ exam, examCandidate, employee, departmentId: target });
         examCandidate.roleChosenBy = ROLE_CHOSEN_BY.CANDIDATE;
       }
@@ -562,6 +586,45 @@ export const examAttemptService = {
     };
   },
 
+  // MỚI — Người duyệt đề xem các vai trò (phòng ban) của 1 thí sinh để chọn khi cấp thêm lượt thi.
+  // Trả về vai trò hiện tại, các option (kèm eligible / số câu riêng) và có đang có lượt thi dở dang không.
+  async getCandidateRoleOptions(examCandidateId) {
+    const examCandidate = await ExamCandidate.findById(examCandidateId);
+    if (!examCandidate) {
+      throw new ApiError(404, 'Không tìm thấy thí sinh trong kỳ thi này', 'CANDIDATE_NOT_FOUND');
+    }
+    const exam = await Exam.findById(examCandidate.examId);
+    if (!exam) {
+      throw new ApiError(404, 'Không tìm thấy kỳ thi', 'EXAM_NOT_FOUND');
+    }
+    const employee = await Employee.findById(examCandidate.employeeId);
+    if (!employee) {
+      throw new ApiError(404, 'Không tìm thấy hồ sơ nhân viên của thí sinh', 'EMPLOYEE_NOT_FOUND');
+    }
+
+    const examCode = await ExamCode.findById(examCandidate.examCodeId).select('departmentId');
+    const options = await getEmployeeRoleOptions(employee, exam);
+    const hasInProgress = Boolean(
+      await ExamAttempt.exists({ examCandidateId: examCandidate._id, status: ATTEMPT_STATUS.IN_PROGRESS }),
+    );
+
+    return {
+      examCandidateId: examCandidate._id,
+      currentDepartmentId: examCode?.departmentId ?? null,
+      allowCommonCompensation: isCommonCompensationEnabled(exam),
+      hasInProgress,
+      options: options.map((o) => ({
+        departmentId: o.departmentId,
+        name: o.name,
+        code: o.code,
+        isMain: o.isMain,
+        eligible: o.eligible,
+        deptQuestionCount: o.deptQuestionCount ?? 0,
+        requiredDeptQuestions: o.requiredDeptQuestions ?? 0,
+      })),
+    };
+  },
+
   // Leader cấp quyền thêm lượt thi cho một thí sinh cụ thể
   // departmentId (tùy chọn): đổi vai trò (phòng ban) thi của thí sinh — dành cho trường hợp thí sinh lỡ chọn nhầm
   async grantExtraAttempt(examCandidateId, leaderUserId, { departmentId } = {}) {
@@ -605,7 +668,7 @@ export const examAttemptService = {
       roleChanged = result.changed;
       examCandidate.roleChosenBy = ROLE_CHOSEN_BY.LEADER;
       examCandidate.roleConfirmedAt = new Date();
-      const options = await getEmployeeRoleOptions(employee);
+      const options = await getEmployeeRoleOptions(employee, exam);
       roleName = options.find((o) => String(o.departmentId) === String(departmentId))?.name ?? null;
     }
 

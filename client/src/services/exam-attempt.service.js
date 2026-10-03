@@ -10,7 +10,9 @@ import { getAuthHeaders } from './auth.service.js';
  *
  * MỚI — kèm `role`: vai trò (phòng ban) thí sinh sẽ thi trong kỳ này
  * { departmentId, name, isMain, locked, chosenBy, hasDepartmentQuestions,
- *   options: [{ departmentId, name, code, isMain }] }.
+ *   allowCommonCompensation, hasEligibleRole,
+ *   options: [{ departmentId, name, code, isMain, eligible, deptQuestionCount, requiredDeptQuestions }] }.
+ * Kỳ thi TẮT bù câu chung: option có eligible = false (chưa đủ câu riêng) bị làm mờ, không chọn được.
  */
 export async function fetchMyExam() {
   const result = await apiRequest('/exam-attempts/my-exam', {

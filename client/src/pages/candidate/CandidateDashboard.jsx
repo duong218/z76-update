@@ -301,16 +301,24 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
   const maxAttempts = examStatus?.maxAttempts ?? 1;
   const attemptsForActiveExam = examStatus?.attemptsUsed ?? 0;
   const attemptsLeft = examStatus ? Math.max(0, maxAttempts - attemptsForActiveExam) : 0;
-  const canStartExam = Boolean(activeExam) && Boolean(examStatus?.canTake);
+  // MỚI — Kỳ thi TẮT bù câu chung mà không phòng ban nào của thí sinh đủ câu riêng thì không cho vào thi
+  const canStartExam =
+    Boolean(activeExam) && Boolean(examStatus?.canTake) && examStatus?.role?.hasEligibleRole !== false;
 
   // MỚI — Vai trò (phòng ban) sẽ dùng để thi trong kỳ thi đang mở (từ backend). null nếu chưa tải được.
   const examRole = examStatus?.role ?? null;
+  const examRoleNoEligible = examRole?.hasEligibleRole === false;
+  const examRoleEligibleCount = examRole?.options?.filter((o) => o.eligible !== false).length ?? 0;
   const examRoleHint = examRole
-    ? examRole.locked
-      ? 'Vai trò đã được khóa cho kỳ thi này.'
-      : examRole.options?.length > 1
-        ? 'Bạn có phòng kiêm nhiệm — sẽ chọn vai trò khi bấm vào thi.'
-        : ''
+    ? examRoleNoEligible
+      ? 'Hiện chưa có phòng ban nào của bạn đủ câu hỏi riêng để thi kỳ này. Vui lòng liên hệ Người duyệt đề.'
+      : examRole.locked
+        ? 'Vai trò đã được khóa cho kỳ thi này.'
+        : examRoleEligibleCount > 1
+          ? 'Bạn có phòng kiêm nhiệm — sẽ chọn vai trò khi bấm vào thi.'
+          : examRole.options?.length > 1
+            ? 'Một số phòng kiêm nhiệm chưa đủ câu hỏi riêng nên không thể chọn cho kỳ thi này.'
+            : ''
     : '';
 
   const handleStartExam = () => {
@@ -740,9 +748,15 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                         {examRole.locked ? <Lock className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
                         Bạn sẽ thi với tư cách phòng ban
                       </div>
-                      <div className="text-xl font-extrabold text-[#0F172A]">{examRole.name}</div>
-                      {examRoleHint && <div className="text-sm text-slate-600">{examRoleHint}</div>}
-                      {examRole.hasDepartmentQuestions === false && (
+                      {!examRoleNoEligible && (
+                        <div className="text-xl font-extrabold text-[#0F172A]">{examRole.name}</div>
+                      )}
+                      {examRoleHint && (
+                        <div className={`text-sm ${examRoleNoEligible ? 'text-[#C53030]' : 'text-slate-600'}`}>
+                          {examRoleHint}
+                        </div>
+                      )}
+                      {!examRoleNoEligible && examRole.allowCommonCompensation !== false && examRole.hasDepartmentQuestions === false && (
                         <div className="text-sm text-slate-600">
                           Phòng ban này chưa có câu hỏi riêng nên đề gồm toàn câu hỏi chung.
                         </div>

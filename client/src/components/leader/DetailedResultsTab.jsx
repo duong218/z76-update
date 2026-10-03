@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { FileText, Search, Filter, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { FileText, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Lock, CheckCircle2, Circle, X } from 'lucide-react';
 import { fetchDetailedResults, exportReport } from '../../services/report.service';
-import { grantExtraAttempt } from '../../services/exam-review.service';
+import { grantExtraAttempt, fetchCandidateRoleOptions } from '../../services/exam-review.service';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
+import { useScrollLock } from '../../hooks/useScrollLock';
 
 export const DetailedResultsTab = () => {
   const { showToast } = useToast();
@@ -13,6 +14,10 @@ export const DetailedResultsTab = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [grantingId, setGrantingId] = useState(null);
+  // MỚI — Hộp thoại chọn vai trò (phòng ban) khi cấp thêm lượt cho thí sinh kiêm nhiệm:
+  // { item, options, currentDepartmentId, hasInProgress, selectedId } hoặc null khi đóng.
+  const [grantDialog, setGrantDialog] = useState(null);
+  useScrollLock(Boolean(grantDialog));
 
   const [filters, setFilters] = useState({
     search: '',
@@ -68,29 +73,71 @@ export const DetailedResultsTab = () => {
     }
   };
 
+  // Gọi API cấp lượt (kèm departmentId nếu Người duyệt đề đổi vai trò) rồi báo kết quả
+  const performGrant = async (item, departmentId) => {
+    setGrantingId(item._id);
+    try {
+      const result = await grantExtraAttempt(item.examCandidateId, departmentId);
+      showToast(
+        result?.roleChanged
+          ? `Đã cấp thêm lượt thi cho ${item.employeeName} và đổi vai trò sang "${result.roleName}".`
+          : `Đã cấp thêm lượt thi cho ${item.employeeName}.`,
+        'success',
+      );
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Lỗi khi cấp lại lượt thi', 'error');
+      return false;
+    } finally {
+      setGrantingId(null);
+    }
+  };
+
   // MỚI — Cấp thêm 1 lượt thi chính thức cho thí sinh đã thi (mở lại lượt thi
   // để họ thi lại). Không xóa/reset kết quả cũ, chỉ cấp thêm quyền làm 1 lượt
   // mới; thí sinh tự đăng nhập và bấm "Bắt đầu thi" như bình thường.
+  // Thí sinh có phòng kiêm nhiệm (>= 2 vai trò): mở hộp thoại để Người duyệt đề chọn lại vai trò nếu cần
+  // (phòng chưa đủ câu riêng bị mờ khi kỳ thi tắt bù). Thí sinh chỉ có 1 vai trò: xác nhận như cũ.
   const handleGrantExtraAttempt = async (item) => {
     if (!item.examCandidateId) {
       showToast('Thiếu thông tin thí sinh, không thể cấp lại lượt thi.', 'error');
       return;
     }
+
+    let roleInfo = null;
+    try {
+      roleInfo = await fetchCandidateRoleOptions(item.examCandidateId);
+    } catch {
+      // Không tải được danh sách vai trò -> vẫn cho cấp lượt như cũ (giữ nguyên vai trò hiện tại)
+      roleInfo = null;
+    }
+
+    if (roleInfo?.options?.length > 1) {
+      setGrantDialog({
+        item,
+        options: roleInfo.options,
+        currentDepartmentId: roleInfo.currentDepartmentId ? String(roleInfo.currentDepartmentId) : null,
+        hasInProgress: Boolean(roleInfo.hasInProgress),
+        selectedId: roleInfo.currentDepartmentId ? String(roleInfo.currentDepartmentId) : null,
+      });
+      return;
+    }
+
     const ok = await confirmAction(
       `Cấp thêm 1 lượt thi chính thức cho "${item.employeeName}" (bài thi: ${item.examTitle})? Thí sinh sẽ có thể đăng nhập và làm lại bài thi này.`,
       { title: 'Cấp lại lượt thi', confirmLabel: 'Cấp lượt thi', danger: false }
     );
     if (!ok) return;
+    await performGrant(item, undefined);
+  };
 
-    setGrantingId(item._id);
-    try {
-      await grantExtraAttempt(item.examCandidateId);
-      showToast(`Đã cấp thêm lượt thi cho ${item.employeeName}.`, 'success');
-    } catch (err) {
-      showToast(err.message || 'Lỗi khi cấp lại lượt thi', 'error');
-    } finally {
-      setGrantingId(null);
-    }
+  const handleConfirmGrantDialog = async () => {
+    if (!grantDialog) return;
+    const { item, currentDepartmentId, selectedId, hasInProgress } = grantDialog;
+    // Chỉ gửi departmentId khi thật sự đổi vai trò (và không có lượt thi đang dở)
+    const departmentId = !hasInProgress && selectedId && selectedId !== currentDepartmentId ? selectedId : undefined;
+    const ok = await performGrant(item, departmentId);
+    if (ok) setGrantDialog(null);
   };
 
   return (
@@ -300,6 +347,113 @@ export const DetailedResultsTab = () => {
             </div>
           )}
         </>
+      )}
+
+      {/* MỚI — Hộp thoại cấp lại lượt thi + chọn vai trò (phòng ban) cho thí sinh kiêm nhiệm */}
+      {grantDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+            <div className="flex items-start justify-between gap-3 p-4 border-b border-[#E2E8F0]">
+              <div>
+                <h3 className="text-lg font-bold text-[#0F172A]">Cấp lại lượt thi</h3>
+                <p className="text-sm text-[#334155]">
+                  {grantDialog.item.employeeName} — {grantDialog.item.examTitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGrantDialog(null)}
+                className="w-10 h-10 flex items-center justify-center rounded-lg text-[#64748B] hover:bg-[#F6F8FA] min-touch-target"
+                aria-label="Đóng"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto">
+              <p className="text-sm font-semibold text-[#0F172A]">Vai trò (phòng ban) thi của thí sinh</p>
+              {grantDialog.hasInProgress && (
+                <p className="text-sm text-[#B45309] bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg px-3 py-2">
+                  Thí sinh đang có lượt thi dở dang nên chưa thể đổi vai trò lúc này.
+                </p>
+              )}
+              <div className="space-y-2" role="radiogroup" aria-label="Chọn phòng ban thi">
+                {grantDialog.options.map((o) => {
+                  const id = String(o.departmentId);
+                  const active = id === grantDialog.selectedId;
+                  const ineligible = o.eligible === false;
+                  const disabled = ineligible || grantDialog.hasInProgress;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      disabled={disabled}
+                      onClick={() => setGrantDialog((prev) => ({ ...prev, selectedId: id }))}
+                      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-colors min-touch-target ${
+                        disabled
+                          ? `bg-slate-100 border-transparent cursor-not-allowed ${ineligible ? 'opacity-60' : active ? '' : 'opacity-60'}`
+                          : active
+                            ? 'bg-[#EAF6FF] border-[#008BC5]'
+                            : 'bg-white border-[#E2E8F0] hover:border-[#008BC5]/50'
+                      }`}
+                    >
+                      {ineligible ? (
+                        <Lock className="w-5 h-5 text-slate-400 shrink-0" />
+                      ) : active ? (
+                        <CheckCircle2 className="w-5 h-5 text-[#008BC5] shrink-0" />
+                      ) : (
+                        <Circle className="w-5 h-5 text-slate-300 shrink-0" />
+                      )}
+                      <span className="flex-1 min-w-0">
+                        <span className={`block font-bold text-base ${ineligible ? 'text-slate-500' : 'text-[#0F172A]'}`}>
+                          {o.name}
+                        </span>
+                        {ineligible && (
+                          <span className="block text-xs text-slate-500">
+                            Chưa đủ câu hỏi riêng ({o.deptQuestionCount ?? 0}/{o.requiredDeptQuestions ?? 0})
+                          </span>
+                        )}
+                        {id === grantDialog.currentDepartmentId && (
+                          <span className="block text-xs text-[#008BC5]">Vai trò hiện tại</span>
+                        )}
+                      </span>
+                      <span
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                          o.isMain ? 'bg-[#0F172A] text-white' : 'bg-[#008BC5]/15 text-[#008BC5]'
+                        }`}
+                      >
+                        {o.isMain ? 'Phòng chính' : 'Kiêm nhiệm'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-[#64748B]">
+                Chọn lại phòng ban nếu thí sinh lỡ chọn nhầm. Để nguyên vai trò hiện tại nếu chỉ cần cấp thêm lượt.
+              </p>
+            </div>
+
+            <div className="p-4 border-t border-[#E2E8F0] bg-[#F6F8FA] flex flex-col-reverse sm:flex-row justify-end gap-3 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => setGrantDialog(null)}
+                className="px-4 py-3 min-h-[46px] bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmGrantDialog}
+                disabled={grantingId === grantDialog.item._id}
+                className="px-4 py-3 min-h-[46px] bg-[#008BC5] hover:bg-[#0693E3] text-white rounded-lg font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {grantingId === grantDialog.item._id ? 'Đang cấp...' : 'Cấp lượt thi'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

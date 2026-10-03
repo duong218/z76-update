@@ -16,6 +16,15 @@ const examSchema = new mongoose.Schema(
     totalQuestions: { type: Number, required: true, min: 1 },
     commonQuestionCount: { type: Number, required: true, min: 0 },
     departmentQuestionCount: { type: Number, required: true, min: 0 },
+    /**
+     * MỚI — Công tắc BÙ CÂU CHUNG theo từng kỳ thi (Người tạo đề đặt khi tạo/sửa đề xuất).
+     * - true : phòng ban thiếu câu riêng thì bù bằng câu chung (hành vi cũ); mọi vai trò đều chọn được.
+     * - false: KHÔNG bù; phòng ban chưa đủ departmentQuestionCount câu riêng bị khóa, không được chọn làm vai trò thi.
+     * CỐ TÌNH KHÔNG đặt default: kỳ thi cũ (chưa có field) được code coi là đang BẬT bù để giữ nguyên hành vi trước đây
+     * (xem isCommonCompensationEnabled trong exam-code-generation.service.js) -> không cần migrate dữ liệu cũ.
+     * Kỳ thi tạo mới luôn được service ghi giá trị rõ ràng (mặc định false). Không đổi được sau khi kỳ thi đã công bố.
+     */
+    allowCommonCompensation: { type: Boolean },
     status: {
       type: String,
       enum: Object.values(EXAM_STATUS),

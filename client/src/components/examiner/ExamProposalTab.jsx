@@ -120,6 +120,8 @@ const DEFAULT_FORM_DATA = {
   commonQuestionCount: 10,
   departmentQuestionCount: 10,
   passThresholdPercent: 70,
+  // MỚI — Công tắc BÙ CÂU CHUNG: mặc định TẮT (công bằng). Bật = phòng thiếu câu riêng được bù bằng câu chung (hành vi cũ).
+  allowCommonCompensation: false,
 };
 
 export const ExamProposalTab = () => {
@@ -195,11 +197,20 @@ export const ExamProposalTab = () => {
   const commonExceedsPool = common > commonCount;
   const sumMismatch = formData.topicId && common + perDept !== total;
 
+  // Công tắc bù câu chung (MỚI): BẬT -> thiếu câu riêng thì bù từ pool chung (chỉ chặn khi pool chung không đủ bù).
+  // TẮT -> KHÔNG bù: phòng thiếu câu riêng không bị chặn lưu đề, nhưng sẽ bị KHÓA khỏi danh sách vai trò thi (chỉ cảnh báo).
+  const allowCompensation = Boolean(formData.allowCommonCompensation);
+
   const infeasibleDepartments = (topicStats?.departments ?? [])
     .map((d) => {
       const shortfall = Math.max(0, perDept - d.count);
       const neededCommon = common + shortfall;
-      return { ...d, shortfall, neededCommon, infeasible: neededCommon > commonCount };
+      return {
+        ...d,
+        shortfall,
+        neededCommon,
+        infeasible: allowCompensation && neededCommon > commonCount,
+      };
     })
     .filter((d) => d.shortfall > 0);
 
@@ -230,6 +241,8 @@ export const ExamProposalTab = () => {
       commonQuestionCount: exam.commonQuestionCount,
       departmentQuestionCount: exam.departmentQuestionCount,
       passThresholdPercent: exam.passThresholdPercent,
+      // Kỳ thi cũ chưa có field này được hệ thống coi là đang BẬT bù -> hiển thị đúng như vậy khi sửa
+      allowCommonCompensation: exam.allowCommonCompensation !== false,
     });
     setIsModalOpen(true);
   };
@@ -259,6 +272,7 @@ export const ExamProposalTab = () => {
       commonQuestionCount: Number(formData.commonQuestionCount),
       departmentQuestionCount: Number(formData.departmentQuestionCount),
       passThresholdPercent: Number(formData.passThresholdPercent),
+      allowCommonCompensation: Boolean(formData.allowCommonCompensation),
     };
     try {
       if (editingExamId) {
@@ -454,6 +468,7 @@ export const ExamProposalTab = () => {
                         <div>Thời gian: {exam.durationMinutes}p</div>
                         <div>Tổng câu: {exam.totalQuestions}</div>
                         <div>Chung: {exam.commonQuestionCount} / Riêng: {exam.departmentQuestionCount}</div>
+                        <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt' : 'Bật'}</div>
                       </td>
                       <td className="p-4">{getStatusBadge(exam.status)}</td>
                       <td className="p-4 text-slate-600">
@@ -569,7 +584,9 @@ export const ExamProposalTab = () => {
                           ))}
                         </div>
                         <p className="text-slate-400 italic">
-                          Nếu bộ phận nào thiếu câu riêng, hệ thống sẽ tự động bù thêm từ pool câu chung khi phát hành đề — miễn pool chung còn đủ dư.
+                          {allowCompensation
+                            ? 'Nếu bộ phận nào thiếu câu riêng, hệ thống sẽ tự động bù thêm từ pool câu chung khi phát hành đề — miễn pool chung còn đủ dư.'
+                            : 'Đang TẮT bù câu chung: bộ phận nào thiếu câu riêng sẽ bị khóa, nhân viên không chọn được phòng đó để thi.'}
                         </p>
                       </>
                     ) : (
@@ -624,9 +641,11 @@ export const ExamProposalTab = () => {
                           <p key={d.departmentId} className={`text-xs flex items-center gap-1 ${d.infeasible ? 'text-[#C53030]' : 'text-[#B45309]'}`}>
                             {d.infeasible ? <AlertCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
                             {d.name}: chỉ có {d.count}/{perDept} câu riêng
-                            {d.infeasible
-                              ? ` — kể cả bù từ pool chung cũng không đủ (cần bù ${d.shortfall} câu nhưng pool chung chỉ có ${commonCount} câu, cần ${d.neededCommon} câu).`
-                              : ` — sẽ tự bù ${d.shortfall} câu từ pool chung (đủ khả thi).`}
+                            {!allowCompensation
+                              ? ' — phòng này sẽ bị KHÓA (không chọn được làm vai trò thi) vì kỳ thi không bù câu chung.'
+                              : d.infeasible
+                                ? ` — kể cả bù từ pool chung cũng không đủ (cần bù ${d.shortfall} câu nhưng pool chung chỉ có ${commonCount} câu, cần ${d.neededCommon} câu).`
+                                : ` — sẽ tự bù ${d.shortfall} câu từ pool chung (đủ khả thi).`}
                           </p>
                         ))}
                       </div>
@@ -639,6 +658,24 @@ export const ExamProposalTab = () => {
                   <input required type="number" min="0" max="100" inputMode="numeric" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
                     value={formData.passThresholdPercent} onChange={e => setFormData({ ...formData, passThresholdPercent: e.target.value })} />
                 </div>
+
+                {/* MỚI — Công tắc bù câu chung: chỉ sửa được khi đề còn ở trạng thái nháp/bị từ chối (form này không mở cho kỳ thi đã công bố) */}
+                <label className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 w-5 h-5 shrink-0 accent-[#008BC5]"
+                    checked={Boolean(formData.allowCommonCompensation)}
+                    onChange={e => setFormData({ ...formData, allowCommonCompensation: e.target.checked })}
+                  />
+                  <span className="text-sm text-slate-700">
+                    <span className="block font-medium text-slate-800">Cho phép bù câu hỏi chung khi phòng ban thiếu câu riêng</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      <strong>Bật:</strong> phòng thiếu câu riêng vẫn thi được, phần thiếu bù bằng câu chung; nhân viên kiêm nhiệm
+                      chọn phòng nào cũng được. <strong>Tắt (khuyến nghị cho công bằng):</strong> phòng chưa đủ câu riêng bị khóa,
+                      nhân viên kiêm nhiệm không thể chọn phòng đó để thi đề toàn câu chung. Không đổi được sau khi kỳ thi đã công bố.
+                    </span>
+                  </span>
+                </label>
               </form>
             </div>
 

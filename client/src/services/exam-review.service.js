@@ -89,9 +89,24 @@ export async function archiveExam(id) {
 // fetchDetailedResults() (report.service.js) — KHÔNG dùng employeeId hay
 // examId riêng lẻ vì 1 employee có thể có nhiều ExamCandidate ở các kỳ thi
 // khác nhau.
-export async function grantExtraAttempt(examCandidateId) {
+//
+// MỚI — departmentId (tùy chọn): đổi vai trò (phòng ban) thi của thí sinh khi cấp lượt (dành cho thí sinh
+// kiêm nhiệm lỡ chọn nhầm). Không truyền thì giữ nguyên vai trò hiện tại.
+export async function grantExtraAttempt(examCandidateId, departmentId) {
   const res = await apiRequest(`/exam-attempts/candidates/${examCandidateId}/grant-attempt`, {
     method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(departmentId ? { departmentId } : {}),
+  });
+  return res.data;
+}
+
+// MỚI — Lấy các vai trò (phòng ban) của 1 thí sinh để Người duyệt đề chọn khi cấp thêm lượt thi:
+// { examCandidateId, currentDepartmentId, allowCommonCompensation, hasInProgress,
+//   options: [{ departmentId, name, code, isMain, eligible, deptQuestionCount, requiredDeptQuestions }] }
+export async function fetchCandidateRoleOptions(examCandidateId) {
+  const res = await apiRequest(`/exam-attempts/candidates/${examCandidateId}/role-options`, {
+    method: 'GET',
     headers: getAuthHeaders(),
   });
   return res.data;

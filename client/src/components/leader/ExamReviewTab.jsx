@@ -254,6 +254,7 @@ export const ExamReviewTab = () => {
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Tgian: {exam.durationMinutes}p | Qua: {exam.passThresholdPercent}%</div>
                           <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
+                          <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt (phòng thiếu câu riêng bị khóa)' : 'Bật (thiếu câu riêng thì bù câu chung)'}</div>
                         </td>
                         <td className="p-4">
                           <div className="flex gap-2 justify-end">
@@ -283,6 +284,7 @@ export const ExamReviewTab = () => {
                   <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5">
                     <div>Thời gian: {exam.durationMinutes} phút · Qua: {exam.passThresholdPercent}%</div>
                     <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
+                    <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt (phòng thiếu câu riêng bị khóa)' : 'Bật (thiếu câu riêng thì bù câu chung)'}</div>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => openReject(exam._id)} className="flex-1 h-11 bg-[#FEECEC] hover:bg-[#FDD8D8] text-[#C53030] font-semibold rounded-lg transition-colors text-base min-touch-target">

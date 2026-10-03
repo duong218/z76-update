@@ -618,11 +618,20 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                   {/* MỚI — Khối NỔI BẬT: thí sinh đang thi với tư cách phòng ban nào */}
                   {examData?.role && (() => {
                     const role = examData.role;
+                    // canPick: chưa khóa vai trò và có >= 2 phòng -> hiện danh sách chọn. Phòng chưa đủ câu hỏi riêng
+                    // (eligible = false, khi kỳ thi TẮT bù câu chung) bị làm mờ và không chọn được.
                     const canPick = !role.locked && !examData.attempt && role.options.length > 1;
+                    const eligibleCount = role.options.filter((o) => o.eligible !== false).length;
+                    const noEligibleRole = role.hasEligibleRole === false;
                     const activeId = canPick ? selectedRoleId : String(role.departmentId ?? '');
                     const activeOption =
                       role.options.find((o) => String(o.departmentId) === activeId) ?? role.options[0] ?? null;
-                    const isCurrentRole = activeId === String(role.departmentId ?? '');
+                    // Kỳ thi BẬT bù: phòng đang xét có số câu riêng ít hơn yêu cầu -> phần thiếu được bù bằng câu chung
+                    const compensated =
+                      role.allowCommonCompensation !== false &&
+                      activeOption &&
+                      (activeOption.requiredDeptQuestions ?? 0) > 0 &&
+                      (activeOption.deptQuestionCount ?? 0) < activeOption.requiredDeptQuestions;
                     return (
                       <div className="rounded-xl border-2 border-[#008BC5] bg-[#EAF6FF] p-3 sm:p-4 space-y-3">
                         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#008BC5]">
@@ -635,28 +644,54 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                             {role.options.map((o) => {
                               const id = String(o.departmentId);
                               const active = id === activeId;
+                              const disabled = o.eligible === false;
                               return (
                                 <button
                                   key={id}
                                   type="button"
                                   role="radio"
                                   aria-checked={active}
-                                  onClick={() => setSelectedRoleId(id)}
+                                  aria-disabled={disabled}
+                                  disabled={disabled}
+                                  onClick={() => {
+                                    if (!disabled) setSelectedRoleId(id);
+                                  }}
                                   className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-colors min-touch-target ${
-                                    active
-                                      ? 'bg-white border-[#008BC5] shadow-sm'
-                                      : 'bg-white/60 border-transparent hover:border-[#008BC5]/40'
+                                    disabled
+                                      ? 'bg-slate-200/70 border-transparent opacity-60 cursor-not-allowed'
+                                      : active
+                                        ? 'bg-white border-[#008BC5] shadow-sm'
+                                        : 'bg-white/60 border-transparent hover:border-[#008BC5]/40'
                                   }`}
                                 >
-                                  {active ? (
+                                  {disabled ? (
+                                    <Lock className="w-5 h-5 text-slate-400 shrink-0" />
+                                  ) : active ? (
                                     <CheckCircle2 className="w-5 h-5 text-[#008BC5] shrink-0" />
                                   ) : (
                                     <Circle className="w-5 h-5 text-slate-300 shrink-0" />
                                   )}
-                                  <span className="flex-1 font-bold text-base text-[#0F172A]">{o.name}</span>
+                                  <span className="flex-1 min-w-0">
+                                    <span
+                                      className={`block font-bold text-base ${
+                                        disabled ? 'text-slate-500' : 'text-[#0F172A]'
+                                      }`}
+                                    >
+                                      {o.name}
+                                    </span>
+                                    {disabled && (
+                                      <span className="block text-xs text-slate-500">
+                                        Chưa đủ câu hỏi riêng ({o.deptQuestionCount ?? 0}/{o.requiredDeptQuestions ?? 0})
+                                      </span>
+                                    )}
+                                  </span>
                                   <span
                                     className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                                      o.isMain ? 'bg-[#0F172A] text-white' : 'bg-[#008BC5]/15 text-[#008BC5]'
+                                      disabled
+                                        ? 'bg-slate-300 text-slate-600'
+                                        : o.isMain
+                                          ? 'bg-[#0F172A] text-white'
+                                          : 'bg-[#008BC5]/15 text-[#008BC5]'
                                     }`}
                                   >
                                     {o.isMain ? 'Phòng chính' : 'Kiêm nhiệm'}
@@ -682,13 +717,29 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                           </div>
                         )}
 
-                        {canPick ? (
+                        {noEligibleRole ? (
+                          <p className="text-sm text-[#C53030] bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg px-3 py-2 flex items-start gap-1.5">
+                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                            <span>
+                              Hiện chưa có phòng ban nào của bạn <strong>đủ câu hỏi riêng</strong> để thi kỳ này. Vui lòng
+                              liên hệ Người duyệt đề hoặc quản trị viên.
+                            </span>
+                          </p>
+                        ) : canPick && eligibleCount > 1 ? (
                           <p className="text-sm text-[#334155] flex items-start gap-1.5">
                             <AlertCircle className="w-4 h-4 text-[#F6AD37] shrink-0 mt-0.5" />
                             <span>
                               Bạn có phòng kiêm nhiệm nên cần chọn <strong>1 phòng ban</strong> để thi. Sau khi bấm
                               “Xác nhận &amp; bắt đầu”, lựa chọn sẽ <strong>bị khóa</strong> cho kỳ thi này — muốn đổi
                               phải nhờ Người duyệt đề.
+                            </span>
+                          </p>
+                        ) : canPick ? (
+                          <p className="text-sm text-[#334155] flex items-start gap-1.5">
+                            <AlertCircle className="w-4 h-4 text-[#F6AD37] shrink-0 mt-0.5" />
+                            <span>
+                              Chỉ có <strong>1 phòng ban</strong> đủ câu hỏi riêng nên bạn sẽ thi với phòng này. Các phòng bị
+                              mờ không thể chọn trong kỳ thi này.
                             </span>
                           </p>
                         ) : (
@@ -698,10 +749,11 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                           </p>
                         )}
 
-                        {isCurrentRole && role.hasDepartmentQuestions === false && (
+                        {!noEligibleRole && compensated && (
                           <p className="text-sm text-[#334155] bg-white/70 border border-[#008BC5]/20 rounded-lg px-3 py-2">
-                            Phòng ban này chưa có câu hỏi riêng trong kỳ thi, nên đề của bạn gồm{' '}
-                            <strong>toàn bộ câu hỏi chung</strong>. Bạn vẫn được thi bình thường.
+                            Phòng ban này chỉ có {activeOption.deptQuestionCount ?? 0}/{activeOption.requiredDeptQuestions} câu
+                            hỏi riêng trong kỳ thi, nên đề của bạn có <strong>câu hỏi chung bù vào</strong> phần còn thiếu.
+                            Bạn vẫn được thi bình thường.
                           </p>
                         )}
                       </div>
@@ -747,7 +799,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
             ) : (
               <button
                 onClick={handleStartExam}
-                disabled={!employee || (examData?.role && !examData.role.departmentId)}
+                disabled={!employee || (examData?.role && (!examData.role.departmentId || examData.role.hasEligibleRole === false))}
                 className="w-full min-h-[52px] bg-[#008BC5] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-lg rounded-full hover:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 shadow-z176 min-touch-target"
               >
                 <CheckCircle2 className="w-6 h-6" />

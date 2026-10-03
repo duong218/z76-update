@@ -22,6 +22,13 @@ router.post('/:id/heartbeat', requireRoleCodes('candidate'), examAttemptRateLimi
 // MỚI — Người duyệt đề (leader) cấp thêm 1 lượt thi chính thức cho 1 thí sinh
 // cụ thể trong 1 kỳ thi cụ thể, xác định qua examCandidateId (lấy từ
 // GET /api/reports/results, field `examCandidateId`).
+// MỚI — Lấy các vai trò (phòng ban) của thí sinh để Người duyệt đề chọn khi cấp thêm lượt thi.
+router.get(
+  '/candidates/:examCandidateId/role-options',
+  requireRoleCodes('leader'),
+  examAttemptController.getCandidateRoleOptions,
+);
+
 router.post(
   '/candidates/:examCandidateId/grant-attempt',
   requireRoleCodes('leader'),

@@ -99,6 +99,12 @@ export const examAttemptController = {
     res.json({ success: true, message: 'OK', data });
   }),
 
+  // MỚI — Người duyệt đề lấy danh sách vai trò (phòng ban) của 1 thí sinh để chọn khi cấp thêm lượt thi
+  getCandidateRoleOptions: asyncHandler(async (req, res) => {
+    const data = await examAttemptService.getCandidateRoleOptions(req.params.examCandidateId);
+    res.json({ success: true, message: 'OK', data });
+  }),
+
   // Ban Giám khảo / Leader cấp thêm lượt thi cho thí sinh gặp sự cố bất khả kháng
   grantExtraAttempt: asyncHandler(async (req, res) => {
     // departmentId (tùy chọn): Người duyệt đề chọn lại vai trò (phòng ban) cho thí sinh lỡ chọn nhầm

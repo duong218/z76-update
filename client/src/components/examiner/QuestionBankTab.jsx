@@ -1151,243 +1151,301 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
 
       {/* QUESTION FORM MODAL */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-2xl sm:my-8 max-h-[95vh] sm:max-h-[90vh] overflow-hidden border border-slate-100 flex flex-col">
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A]">
-                {editingQuestion ? 'Chỉnh sửa câu hỏi' : 'Thêm câu hỏi mới'}
-              </h3>
-              <button
-                onClick={() => setIsFormOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleFormSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto" data-lenis-prevent>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-2 sm:p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col max-h-[94vh]">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Nội dung câu hỏi</label>
-                <textarea
-                  required
-                  placeholder="Nhập nội dung câu hỏi..."
-                  rows="3"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Câu hỏi này dùng cho</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { value: 'exam', label: 'Thi chính thức', Icon: ClipboardCheck },
-                    { value: 'practice', label: 'Ôn tập', Icon: BookOpen },
-                  ].map(({ value, label, Icon }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setUsage(value)}
-                      aria-pressed={usage === value}
-                      className={`flex items-center justify-center gap-2 px-3 py-2.5 min-h-[46px] rounded-lg border font-semibold touch-manipulation transition-colors ${
-                        usage === value
-                          ? value === 'practice'
-                            ? 'border-[#F6AD37] bg-[#FFFBEB] text-[#B45309]'
-                            : 'border-[#008BC5] bg-[#EAF6FF] text-[#008BC5]'
-                          : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-slate-500 mt-1.5">
-                  {usage === 'practice'
-                    ? 'Thí sinh sẽ thấy đáp án đúng khi ôn tập. Câu này không được dùng cho thi chính thức.'
-                    : 'Bí mật: chỉ dùng để tạo mã đề thi, thí sinh không xem được.'}
+                <h3 className="font-bold text-xl sm:text-2xl text-[#0F172A]">
+                  {editingQuestion ? 'Chỉnh sửa câu hỏi' : 'Thêm câu hỏi mới'}
+                </h3>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Soạn thảo nội dung câu hỏi, thiết lập thuộc tính và các phương án trả lời
                 </p>
               </div>
+              <button
+                onClick={() => setIsFormOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-2 rounded-xl hover:bg-slate-200/60 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label="Đóng cửa sổ"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Loại nội dung</label>
-                  <Select
-                    value={questionKind}
-                    onChange={setQuestionKind}
-                    options={[
-                      { value: 'theory', label: 'Lý thuyết' },
-                      { value: 'practice', label: 'Bài tập thực hành' },
-                    ]}
-                    triggerClassName="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Độ khó</label>
-                  <Select
-                    value={difficulty}
-                    onChange={setDifficulty}
-                    options={[
-                      { value: 'easy', label: 'Dễ' },
-                      { value: 'medium', label: 'Trung bình' },
-                      { value: 'hard', label: 'Khó' },
-                    ]}
-                    triggerClassName="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Hình thức đáp án</label>
-                  <Select
-                    value={answerType}
-                    onChange={(val) => {
-                      setAnswerType(val);
-                      // Reset correct checks if switching to single
-                      if (val === 'single') {
-                        setAnswers(prev => prev.map((ans, idx) => ({ ...ans, isCorrect: idx === 0 })));
-                      }
-                    }}
-                    options={[
-                      { value: 'single', label: 'Một đáp án đúng (Single Choice)' },
-                      { value: 'multiple', label: 'Nhiều đáp án đúng (Multiple Choice)' },
-                    ]}
-                    triggerClassName="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Chủ đề liên kết</label>
-                  <Select
-                    value={topicId}
-                    onChange={setTopicId}
-                    placeholder="-- Chọn chủ đề --"
-                    options={topics.map(t => ({ value: t._id, label: t.name }))}
-                    triggerClassName="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Phạm vi câu hỏi</label>
-                  <Select
-                    value={scope}
-                    onChange={setScope}
-                    options={[
-                      { value: 'Common', label: 'Chung (Toàn nhà máy)' },
-                      { value: 'DepartmentSpecific', label: 'Riêng bộ phận' },
-                    ]}
-                    triggerClassName="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Bộ phận liên kết</label>
-                  <Select
-                    disabled={scope !== 'DepartmentSpecific'}
-                    value={departmentId}
-                    onChange={setDepartmentId}
-                    placeholder="-- Chọn bộ phận --"
-                    options={departments.map(d => ({ value: d._id, label: d.name }))}
-                    triggerClassName="w-full px-3.5 py-2.5 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Ảnh minh hoạ đề bài (không bắt buộc)</label>
-                <div className="flex items-start gap-3">
-                  {imagePreviewUrl && (
-                    <div className="relative shrink-0">
-                      <img src={imagePreviewUrl} alt="Xem trước ảnh câu hỏi" className="w-24 h-24 object-cover rounded-lg border border-slate-200" />
-                      <button
-                        type="button"
-                        onClick={handleRemoveImage}
-                        className="absolute -top-2 -right-2 bg-white border border-slate-300 rounded-full p-1 text-slate-500 hover:text-red-500"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/jpg"
-                      onChange={handleImageFileChange}
-                      disabled={imageUploading}
-                      className="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 file:text-sm file:font-medium hover:file:bg-slate-200"
+            {/* Form Body */}
+            <form onSubmit={handleFormSubmit} className="p-6 overflow-y-auto space-y-6" data-lenis-prevent>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* CỘT TRÁI (6 cột): Nội dung câu hỏi, Mục đích & Ảnh minh họa */}
+                <div className="lg:col-span-6 space-y-5">
+                  {/* Nội dung câu hỏi */}
+                  <div>
+                    <label className="block text-base font-semibold text-slate-800 mb-1.5">
+                      Nội dung câu hỏi <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      required
+                      placeholder="Nhập nội dung chi tiết của câu hỏi..."
+                      rows="4"
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      className="w-full px-4 py-3 text-base font-medium border-2 border-slate-300 rounded-xl focus:outline-none focus:border-[#008BC5] focus:bg-white bg-slate-50/50 leading-relaxed text-slate-900 placeholder:text-slate-400 transition-all"
                     />
-                    <p className="text-xs text-slate-400 mt-1">JPG hoặc PNG, tối đa 10MB. Ảnh chỉ gắn ở đề bài, không gắn theo từng lựa chọn.</p>
-                    {imageUploading && (
-                      <p className="text-xs text-[#008BC5] mt-1 flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Đang tải ảnh lên...
-                      </p>
-                    )}
+                  </div>
+
+                  {/* Mục đích sử dụng */}
+                  <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-xl space-y-2.5">
+                    <label className="block text-sm font-bold text-slate-800 uppercase tracking-wide">
+                      Mục đích sử dụng câu hỏi
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { value: 'exam', label: 'Thi chính thức', Icon: ClipboardCheck },
+                        { value: 'practice', label: 'Ôn tập tự do', Icon: BookOpen },
+                      ].map(({ value, label, Icon }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setUsage(value)}
+                          aria-pressed={usage === value}
+                          className={`flex items-center justify-center gap-2 px-3 py-3 rounded-xl border-2 font-bold text-sm transition-all shadow-xs ${
+                            usage === value
+                              ? value === 'practice'
+                                ? 'border-[#F6AD37] bg-[#FFFBEB] text-[#B45309]'
+                                : 'border-[#008BC5] bg-[#EAF6FF] text-[#008BC5]'
+                              : 'border-slate-300 text-slate-600 bg-white hover:bg-slate-100'
+                          }`}
+                        >
+                          <Icon className="w-5 h-5 shrink-0" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {usage === 'practice'
+                        ? '• Ôn tập: Thí sinh sẽ thấy đáp án đúng và lời giải khi tự luyện. Không rút vào đề thi chính thức.'
+                        : '• Thi chính thức: Bảo mật cao, chỉ dùng để sinh đề thi khi kỳ thi mở, thí sinh không thể xem trước.'}
+                    </p>
+                  </div>
+
+                  {/* Ảnh minh hoạ */}
+                  <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-xl space-y-2.5">
+                    <label className="block text-sm font-bold text-slate-800">
+                      Ảnh minh hoạ đề bài (không bắt buộc)
+                    </label>
+                    <div className="flex items-start gap-3.5">
+                      {imagePreviewUrl && (
+                        <div className="relative shrink-0">
+                          <img
+                            src={imagePreviewUrl}
+                            alt="Xem trước ảnh câu hỏi"
+                            className="w-24 h-24 object-cover rounded-xl border-2 border-slate-300 shadow-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleRemoveImage}
+                            className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-1 hover:bg-red-700 shadow-md transition-colors"
+                            title="Xóa ảnh này"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/jpg"
+                          onChange={handleImageFileChange}
+                          disabled={imageUploading}
+                          className="block w-full text-sm text-slate-600 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:bg-white file:border-slate-300 file:border file:text-slate-700 file:text-sm file:font-semibold hover:file:bg-slate-100 cursor-pointer"
+                        />
+                        <p className="text-xs text-slate-400 mt-1.5 leading-normal">
+                          JPG hoặc PNG, tối đa 10MB. Ảnh hiển thị cùng đề bài câu hỏi.
+                        </p>
+                        {imageUploading && (
+                          <p className="text-xs text-[#008BC5] mt-1.5 flex items-center gap-1 font-semibold">
+                            <Loader2 className="w-4 h-4 animate-spin" /> Đang tải ảnh lên hệ thống...
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CỘT PHẢI (6 cột): Thuộc tính câu hỏi & Các phương án trả lời */}
+                <div className="lg:col-span-6 space-y-5">
+                  {/* Khối thuộc tính phân loại */}
+                  <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-xl space-y-3.5">
+                    <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                      Phân loại & Thuộc tính
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Chủ đề liên kết *</label>
+                        <Select
+                          value={topicId}
+                          onChange={setTopicId}
+                          placeholder="-- Chọn chủ đề --"
+                          options={topics.map(t => ({ value: t._id, label: t.name }))}
+                          triggerClassName="w-full px-3 py-2 text-sm font-medium border-2 border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Độ khó</label>
+                        <Select
+                          value={difficulty}
+                          onChange={setDifficulty}
+                          options={[
+                            { value: 'easy', label: 'Dễ' },
+                            { value: 'medium', label: 'Trung bình' },
+                            { value: 'hard', label: 'Khó' },
+                          ]}
+                          triggerClassName="w-full px-3 py-2 text-sm font-medium border-2 border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Phạm vi câu hỏi</label>
+                        <Select
+                          value={scope}
+                          onChange={setScope}
+                          options={[
+                            { value: 'Common', label: 'Chung (Toàn nhà máy)' },
+                            { value: 'DepartmentSpecific', label: 'Riêng bộ phận' },
+                          ]}
+                          triggerClassName="w-full px-3 py-2 text-sm font-medium border-2 border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Bộ phận liên kết</label>
+                        <Select
+                          disabled={scope !== 'DepartmentSpecific'}
+                          value={departmentId}
+                          onChange={setDepartmentId}
+                          placeholder="-- Chọn bộ phận --"
+                          options={departments.map(d => ({ value: d._id, label: d.name }))}
+                          triggerClassName="w-full px-3 py-2 text-sm font-medium border-2 border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Loại nội dung</label>
+                        <Select
+                          value={questionKind}
+                          onChange={setQuestionKind}
+                          options={[
+                            { value: 'theory', label: 'Lý thuyết' },
+                            { value: 'practice', label: 'Bài tập thực hành' },
+                          ]}
+                          triggerClassName="w-full px-3 py-2 text-sm font-medium border-2 border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Hình thức đáp án</label>
+                        <Select
+                          value={answerType}
+                          onChange={(val) => {
+                            setAnswerType(val);
+                            if (val === 'single') {
+                              setAnswers(prev => prev.map((ans, idx) => ({ ...ans, isCorrect: idx === 0 })));
+                            }
+                          }}
+                          options={[
+                            { value: 'single', label: 'Một đáp án đúng (Single)' },
+                            { value: 'multiple', label: 'Nhiều đáp án đúng (Multi)' },
+                          ]}
+                          triggerClassName="w-full px-3 py-2 text-sm font-medium border-2 border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Answers Area */}
+                  <div className="p-4 bg-sky-50/40 border-2 border-sky-200 rounded-xl space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-800">
+                          Các phương án trả lời (Từ A đến H)
+                        </label>
+                        <p className="text-xs text-slate-500">
+                          {answerType === 'single'
+                            ? 'Chọn ô tròn ở phương án đúng duy nhất'
+                            : 'Tích chọn vào các ô vuông ở những phương án đúng'}
+                        </p>
+                      </div>
+                      {answers.length < 8 && (
+                        <button
+                          type="button"
+                          onClick={addAnswerField}
+                          className="text-xs font-bold text-[#008BC5] bg-white border border-[#008BC5] px-2.5 py-1 rounded-lg hover:bg-sky-50 transition-colors shadow-2xs"
+                        >
+                          + Thêm phương án
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                      {answers.map((ans, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex gap-2.5 items-center p-2 rounded-xl border-2 transition-all ${
+                            ans.isCorrect ? 'bg-white border-[#008BC5] shadow-xs' : 'bg-white/80 border-slate-200'
+                          }`}
+                        >
+                          <input
+                            type={answerType === 'single' ? 'radio' : 'checkbox'}
+                            name="correct_answer"
+                            checked={ans.isCorrect}
+                            onChange={(e) => handleAnswerChange(idx, 'isCorrect', e.target.checked)}
+                            title="Tích để chọn đây là đáp án đúng"
+                            className="w-5 h-5 shrink-0 accent-[#008BC5] cursor-pointer"
+                          />
+                          <span className={`font-bold text-sm w-5 shrink-0 ${ans.isCorrect ? 'text-[#008BC5]' : 'text-slate-600'}`}>
+                            {String.fromCharCode(65 + idx)}.
+                          </span>
+                          <input
+                            type="text"
+                            placeholder={`Nội dung phương án ${String.fromCharCode(65 + idx)}...`}
+                            value={ans.content}
+                            onChange={(e) => handleAnswerChange(idx, 'content', e.target.value)}
+                            className="flex-1 min-w-0 px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-lg focus:outline-none focus:border-[#008BC5] bg-transparent"
+                          />
+                          {answers.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeAnswerField(idx)}
+                              className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors shrink-0"
+                              title="Xóa phương án này"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Answers Area */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <label className="block text-sm font-semibold text-slate-700">Các phương án trả lời (Từ A đến H)</label>
-                  {answers.length < 8 && (
-                    <button
-                      type="button"
-                      onClick={addAnswerField}
-                      className="text-xs font-semibold text-[#008BC5] hover:underline"
-                    >
-                      + Thêm phương án
-                    </button>
-                  )}
-                </div>
-
-                <div className="space-y-2.5">
-                  {answers.map((ans, idx) => (
-                    <div key={idx} className="flex gap-2 items-center">
-                      <input
-                        type={answerType === 'single' ? 'radio' : 'checkbox'}
-                        name="correct_answer"
-                        checked={ans.isCorrect}
-                        onChange={(e) => handleAnswerChange(idx, 'isCorrect', e.target.checked)}
-                        className="w-5 h-5 shrink-0 text-[#008BC5] focus:ring-[#008BC5]"
-                      />
-                      <span className="font-bold text-sm text-slate-500 w-4 shrink-0">{String.fromCharCode(65 + idx)}.</span>
-                      <input
-                        type="text"
-                        placeholder={`Nhập phương án ${String.fromCharCode(65 + idx)}...`}
-                        value={ans.content}
-                        onChange={(e) => handleAnswerChange(idx, 'content', e.target.value)}
-                        className="flex-1 min-w-0 px-3 py-2 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
-                      />
-                      {answers.length > 2 && (
-                        <button
-                          type="button"
-                          onClick={() => removeAnswerField(idx)}
-                          className="text-slate-400 hover:text-red-500 p-2 -m-1 min-h-[38px] min-w-[38px] flex items-center justify-center shrink-0"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-4 flex gap-3 pb-1">
+              {/* Footer buttons */}
+              <div className="pt-4 border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setIsFormOpen(false)}
-                  className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  className="px-6 py-3 min-h-[48px] border-2 border-slate-300 rounded-xl font-bold text-slate-700 hover:bg-slate-100 transition-colors text-base"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={actionLoading}
-                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
+                  className="px-8 py-3 min-h-[48px] bg-[#008BC5] hover:bg-[#007ba1] text-white rounded-xl font-bold text-base transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-75"
                 >
-                  {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {actionLoading && <Loader2 className="w-5 h-5 animate-spin" />}
                   Lưu câu hỏi
                 </button>
               </div>

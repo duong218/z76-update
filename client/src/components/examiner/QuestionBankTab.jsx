@@ -821,8 +821,12 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
 
       {/* Toolbar & Filters */}
       {/* MỚI — animate-fade-in-up: đồng bộ hiệu ứng xuất hiện khi tab vừa tải
-          xong, cùng pattern với AccountTab.jsx bên Admin. */}
-      <div className="animate-fade-in-up bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4" style={{ '--stagger-delay': '0ms' }}>
+          xong, cùng pattern với AccountTab.jsx bên Admin.
+          SỬA LỖI — danh sách xổ xuống của các ô lọc (chủ đề, phạm vi, bộ phận, độ khó, hình thức đáp án) bị thẻ "Chọn tất cả
+          trang này" và danh sách câu hỏi bên dưới đè lên: animate-fade-in-up giữ transform nên mỗi thẻ là 1 stacking context
+          riêng, thẻ nằm sau trong DOM luôn vẽ đè lên phần dropdown tràn ra ngoài thẻ lọc. relative + z-30 nâng cả thẻ lọc
+          (và mọi dropdown bên trong) lên trên các thẻ phía dưới; vẫn thấp hơn Header/modal (z-50). */}
+      <div className="animate-fade-in-up relative z-30 bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4" style={{ '--stagger-delay': '0ms' }}>
         <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <input

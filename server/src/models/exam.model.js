@@ -25,6 +25,24 @@ const examSchema = new mongoose.Schema(
      * Kỳ thi tạo mới luôn được service ghi giá trị rõ ràng (mặc định false). Không đổi được sau khi kỳ thi đã công bố.
      */
     allowCommonCompensation: { type: Boolean },
+    /**
+     * MỚI — Phạm vi phòng ban được phép tham gia kỳ thi (allowed departments).
+     * - all     : Tất cả phòng ban đều được thi (mặc định cho kỳ thi mới).
+     * - selected: Chỉ các phòng ban trong danh sách allowedDepartmentIds được thi.
+     * CỐ TÌNH KHÔNG đặt default: kỳ thi cũ (chưa có field) được code coi là 'all' để tương thích ngược.
+     */
+    departmentScope: {
+      type: String,
+      enum: ['all', 'selected'],
+    },
+    /**
+     * Danh sách ID phòng ban được thi khi departmentScope = 'selected'.
+     * BẮT BUỘC default: undefined để tránh Mongoose tự gán [] khiến kỳ thi cũ bị hiểu nhầm thành không phòng nào được thi.
+     */
+    allowedDepartmentIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Department' }],
+      default: undefined,
+    },
     status: {
       type: String,
       enum: Object.values(EXAM_STATUS),

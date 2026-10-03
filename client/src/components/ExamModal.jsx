@@ -681,7 +681,11 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                                     </span>
                                     {disabled && (
                                       <span className="block text-xs text-slate-500">
-                                        Chưa đủ câu hỏi riêng ({o.deptQuestionCount ?? 0}/{o.requiredDeptQuestions ?? 0})
+                                        {o.reason === 'out_of_scope'
+                                          ? 'Phòng ban không thuộc phạm vi kỳ thi này'
+                                          : o.reason === 'insufficient_questions'
+                                            ? `Chưa đủ câu hỏi riêng (${o.deptQuestionCount ?? 0}/${o.requiredDeptQuestions ?? 0} câu) - kỳ thi tắt bù câu chung`
+                                            : 'Kỳ thi này không dành cho phòng ban này'}
                                       </span>
                                     )}
                                   </span>
@@ -721,8 +725,8 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                           <p className="text-sm text-[#C53030] bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg px-3 py-2 flex items-start gap-1.5">
                             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                             <span>
-                              Hiện chưa có phòng ban nào của bạn <strong>đủ câu hỏi riêng</strong> để thi kỳ này. Vui lòng
-                              liên hệ Người duyệt đề hoặc quản trị viên.
+                              Kỳ thi này <strong>không dành cho phòng ban nào của bạn</strong>. Vui lòng liên hệ Người
+                              duyệt đề hoặc quản trị viên nếu bạn cho rằng đây là nhầm lẫn.
                             </span>
                           </p>
                         ) : canPick && eligibleCount > 1 ? (
@@ -738,8 +742,8 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                           <p className="text-sm text-[#334155] flex items-start gap-1.5">
                             <AlertCircle className="w-4 h-4 text-[#F6AD37] shrink-0 mt-0.5" />
                             <span>
-                              Chỉ có <strong>1 phòng ban</strong> đủ câu hỏi riêng nên bạn sẽ thi với phòng này. Các phòng bị
-                              mờ không thể chọn trong kỳ thi này.
+                              Kỳ thi này chỉ dành cho <strong>1 phòng ban</strong> của bạn nên bạn sẽ thi với phòng này.
+                              Các phòng bị mờ không nằm trong phạm vi kỳ thi.
                             </span>
                           </p>
                         ) : (

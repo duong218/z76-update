@@ -13,6 +13,7 @@
  */
 
 import crypto from 'node:crypto';
+import mongoose from 'mongoose';
 import {
   Department,
   Employee,
@@ -65,9 +66,29 @@ export function isCommonCompensationEnabled(exam) {
   return exam?.allowCommonCompensation !== false;
 }
 
+// MỚI — Phạm vi phòng ban được thi (đọc phòng thủ vì listExams / .lean() không áp default Mongoose).
+export function resolveDepartmentScope(exam) {
+  const mode = exam?.departmentScope === 'selected' ? 'selected' : 'all';
+  const ids = new Set();
+  if (mode === 'selected' && Array.isArray(exam?.allowedDepartmentIds)) {
+    for (const raw of exam.allowedDepartmentIds) {
+      const key = raw?._id ? String(raw._id) : String(raw);
+      if (key && key !== 'undefined') ids.add(key);
+    }
+  }
+  return { mode, ids };
+}
+
+export function isDepartmentInScope(exam, departmentId) {
+  const { mode, ids } = resolveDepartmentScope(exam);
+  if (mode === 'all') return true;
+  return ids.has(String(departmentId));
+}
+
 // MỚI — Đếm số câu riêng (ngân hàng THI CHÍNH THỨC) của 1 phòng ban thuộc chủ đề của kỳ thi, và xét phòng đó có đủ điều kiện
-// làm vai trò thi hay không. Bật bù -> luôn eligible; tắt bù -> eligible khi số câu riêng >= departmentQuestionCount.
+// làm vai trò thi hay không. eligible = trong phạm vi AND (bật bù OR đủ câu riêng).
 async function resolveDepartmentEligibility(exam, departmentId) {
+  const inScope = isDepartmentInScope(exam, departmentId);
   const deptQuestionCount = await Question.countDocuments({
     topicId: exam.topicId,
     scope: QUESTION_SCOPE.DEPARTMENT_SPECIFIC,
@@ -76,8 +97,13 @@ async function resolveDepartmentEligibility(exam, departmentId) {
     ...questionUsageFilter(QUESTION_USAGE.EXAM),
   });
   const requiredDeptQuestions = exam.departmentQuestionCount ?? 0;
-  const eligible = isCommonCompensationEnabled(exam) || deptQuestionCount >= requiredDeptQuestions;
-  return { eligible, deptQuestionCount, requiredDeptQuestions };
+  const meetsQuestionRule =
+    requiredDeptQuestions === 0 || isCommonCompensationEnabled(exam) || deptQuestionCount >= requiredDeptQuestions;
+  const eligible = inScope && meetsQuestionRule;
+  let reason = null;
+  if (!inScope) reason = 'out_of_scope';
+  else if (!meetsQuestionRule) reason = 'insufficient_questions';
+  return { eligible, inScope, deptQuestionCount, requiredDeptQuestions, reason };
 }
 
 // Kiểm tra số lượng câu hỏi khả dụng và lập phương án rút câu.
@@ -86,6 +112,20 @@ async function resolveDepartmentEligibility(exam, departmentId) {
 //   INSUFFICIENT_QUESTIONS khi thiếu câu CHUNG.
 // extraOnly = true: phòng ban này chỉ xuất hiện ở nhân viên KIÊM NHIỆM (chưa ai lấy làm phòng chính) — chỉ để làm rõ thông báo lỗi.
 async function validateQuestionAvailability(exam, department, { extraOnly = false } = {}) {
+  const inScope = isDepartmentInScope(exam, department._id);
+  if (!inScope) {
+    const requiredDeptQuestions = exam.departmentQuestionCount ?? 0;
+    return {
+      eligible: false,
+      inScope: false,
+      deptQuestionCount: 0,
+      requiredDeptQuestions,
+      commonQuestions: [],
+      deptQuestions: [],
+      plan: { commonPickCount: 0, deptPickCount: 0, shortfall: 0 },
+    };
+  }
+
   const commonQuestions = await Question.find({
     topicId: exam.topicId,
     scope: QUESTION_SCOPE.COMMON,
@@ -110,7 +150,7 @@ async function validateQuestionAvailability(exam, department, { extraOnly = fals
   const deptPickCount = Math.min(deptQuestions.length, requiredDeptQuestions);
   const shortfall = compensate ? requiredDeptQuestions - deptPickCount : 0;
   const commonPickCount = exam.commonQuestionCount + shortfall;
-  const eligible = compensate || deptQuestions.length >= requiredDeptQuestions;
+  const eligible = compensate || requiredDeptQuestions === 0 || deptQuestions.length >= requiredDeptQuestions;
 
   if (commonQuestions.length < commonPickCount) {
     const totalAvailable = commonQuestions.length + deptQuestions.length;
@@ -129,6 +169,7 @@ async function validateQuestionAvailability(exam, department, { extraOnly = fals
 
   return {
     eligible,
+    inScope: true,
     deptQuestionCount: deptQuestions.length,
     requiredDeptQuestions,
     commonQuestions,
@@ -169,8 +210,8 @@ async function ensureExamCodeForEmployee(exam, department, employee, precomputed
   if (!eligible) {
     throw new ApiError(
       400,
-      `Phòng ban "${department.name}" chưa đủ câu hỏi riêng cho kỳ thi này (có ${deptQuestionCount}/${requiredDeptQuestions} câu) ` +
-        'và kỳ thi không bật chế độ bù câu chung, nên không thể thi với tư cách phòng ban này.',
+      `Kỳ thi này không dành cho phòng ban "${department.name}" (chưa đủ câu hỏi riêng: ${deptQuestionCount}/${requiredDeptQuestions} câu, ` +
+        'kỳ thi không bật chế độ bù câu chung) nên không thể thi với tư cách phòng ban này.',
       'ROLE_NOT_ELIGIBLE',
     );
   }
@@ -185,19 +226,10 @@ async function ensureExamCodeForEmployee(exam, department, employee, precomputed
   }
 }
 
-// Sinh mã đề và gán đề cho TOÀN BỘ nhân viên khi công bố kỳ thi (Publish)
-// Mã đề mặc định của mỗi nhân viên theo PHÒNG CHÍNH (phòng chính ngừng hoạt động -> phòng kiêm nhiệm đầu tiên còn hoạt động).
-// Bước kiểm tra ngân hàng câu hỏi được làm cho cả các phòng KIÊM NHIỆM, để lúc thí sinh chọn vai trò kiêm nhiệm không bị báo
-// thiếu câu hỏi (lỗi phải bị chặn ngay từ lúc publish).
-export async function generateExamCodesAndAssignCandidates(exam) {
-  const employees = await Employee.find({ isActive: true }).select(
-    '_id employeeCode departmentId extraDepartmentIds',
-  );
-
-  if (employees.length === 0) {
-    throw new ApiError(400, 'Không có nhân viên nào đang hoạt động để gán đề thi', 'NO_ACTIVE_EMPLOYEES');
-  }
-
+// MỚI — Phân tích kỳ thi theo từng phòng ban / nhân viên (KHÔNG ghi gì vào DB): tính eligible của từng phòng, gom nhân viên theo
+// phòng ban MẶC ĐỊNH (phòng đầu tiên còn hoạt động và đủ điều kiện) và tìm các nhân viên bị CHẶN (không phòng nào đủ điều kiện,
+// chỉ xảy ra khi kỳ thi TẮT bù câu chung). Dùng chung cho bước kiểm tra sớm lúc gửi duyệt và bước sinh đề lúc công bố.
+async function analyzeExamRoles(exam, employees) {
   // Tập mọi phòng ban có thể được chọn làm vai trò thi = phòng chính ∪ phòng kiêm nhiệm của các nhân viên đang hoạt động
   const mainDeptKeys = new Set();
   const allDeptKeys = new Set();
@@ -224,41 +256,221 @@ export async function generateExamCodesAndAssignCandidates(exam) {
     pools.set(deptKey, pool);
   }
 
-  // Gom nhân viên theo phòng ban MẶC ĐỊNH của họ: phòng đầu tiên (chính rồi kiêm nhiệm) vừa còn hoạt động vừa ĐỦ ĐIỀU KIỆN.
-  // - Nhân viên không còn phòng ban nào hoạt động thì không được gán đề (bỏ qua như trước).
-  // - Nhân viên có phòng hoạt động nhưng KHÔNG phòng nào đủ điều kiện (chỉ xảy ra khi tắt bù) -> chặn công bố (NO_ELIGIBLE_ROLE).
+  // Gom nhân viên theo phòng ban MẶC ĐỊNH: phòng đầu tiên (chính rồi kiêm nhiệm) vừa còn hoạt động vừa eligible (trong phạm vi + đủ câu/bù).
+  // Nhân viên không có phòng eligible -> ngoài phạm vi kỳ thi (không chặn gửi duyệt), chỉ cảnh báo.
   const employeesByDept = new Map();
-  const blockedByDept = new Map(); // deptKey -> số nhân viên bị chặn mà phòng này nằm trong danh sách phòng của họ
-  let blockedEmployeeCount = 0;
+  const outOfScopeByDept = new Map();
+  let outOfScopeEmployeeCount = 0;
   for (const emp of employees) {
     const activeKeys = getEmployeeDepartmentIds(emp).filter((id) => activeDeptKeys.has(id));
     if (activeKeys.length === 0) continue;
 
     const defaultKey = activeKeys.find((id) => pools.get(id)?.eligible);
     if (!defaultKey) {
-      blockedEmployeeCount += 1;
-      for (const key of activeKeys) blockedByDept.set(key, (blockedByDept.get(key) ?? 0) + 1);
+      outOfScopeEmployeeCount += 1;
+      const mainKey = emp.departmentId ? String(emp.departmentId) : activeKeys[0];
+      outOfScopeByDept.set(mainKey, (outOfScopeByDept.get(mainKey) ?? 0) + 1);
       continue;
     }
     if (!employeesByDept.has(defaultKey)) employeesByDept.set(defaultKey, []);
     employeesByDept.get(defaultKey).push(emp);
   }
 
-  if (blockedEmployeeCount > 0) {
-    const detail = [...blockedByDept.entries()]
-      .map(([key, count]) => {
-        const pool = pools.get(key);
-        return `"${deptNameByKey.get(key)}" (có ${pool.deptQuestionCount}/${pool.requiredDeptQuestions} câu riêng, ảnh hưởng ${count} nhân viên)`;
-      })
-      .join('; ');
-    throw new ApiError(
-      400,
-      `Không thể công bố: ${blockedEmployeeCount} nhân viên không có phòng ban nào đủ câu hỏi riêng để thi ` +
-        `(kỳ thi đang TẮT chế độ bù câu chung). Phòng ban thiếu câu riêng: ${detail}. ` +
-        'Vui lòng bổ sung câu hỏi riêng cho các phòng ban này hoặc bật chế độ bù câu chung cho kỳ thi.',
-      'NO_ELIGIBLE_ROLE',
-    );
+  const { mode, ids } = resolveDepartmentScope(exam);
+  let selectedZeroEmployeeDeptNames = [];
+  if (mode === 'selected' && ids.size > 0) {
+    const empCountByDept = new Map();
+    for (const emp of employees) {
+      for (const id of getEmployeeDepartmentIds(emp)) {
+        empCountByDept.set(id, (empCountByDept.get(id) || 0) + 1);
+      }
+    }
+    const scopeDeptDocs = await Department.find({ _id: { $in: [...ids] }, isActive: true })
+      .select('name')
+      .lean();
+    const scopeNameByKey = new Map(scopeDeptDocs.map((d) => [d._id.toString(), d.name]));
+    for (const id of ids) {
+      if ((empCountByDept.get(id) || 0) === 0) {
+        selectedZeroEmployeeDeptNames.push(scopeNameByKey.get(id) || id);
+      }
+    }
   }
+
+  return {
+    departments,
+    pools,
+    employeesByDept,
+    outOfScopeEmployeeCount,
+    outOfScopeByDept,
+    deptNameByKey,
+    selectedZeroEmployeeDeptNames,
+  };
+}
+
+// MỚI — Cảnh báo (không chặn) khi có nhân viên ngoài phạm vi kỳ thi.
+export function buildScopeWarnings(analysis) {
+  const { outOfScopeEmployeeCount, outOfScopeByDept, deptNameByKey } = analysis;
+  if (!outOfScopeEmployeeCount) return null;
+  return {
+    outOfScopeEmployeeCount,
+    outOfScopeDepartments: [...outOfScopeByDept.entries()].map(([departmentId, employeeCount]) => ({
+      departmentId,
+      name: deptNameByKey.get(departmentId) ?? departmentId,
+      employeeCount,
+    })),
+  };
+}
+
+function countInScopeEmployees(analysis) {
+  let total = 0;
+  for (const arr of analysis.employeesByDept.values()) total += arr.length;
+  return total;
+}
+
+function buildNoEligibleCandidatesError(exam, analysis) {
+  let message =
+    'Không có nhân viên nào thuộc phạm vi kỳ thi này. Vui lòng điều chỉnh phạm vi phòng ban hoặc bổ sung câu hỏi.';
+  const zeroNames = analysis.selectedZeroEmployeeDeptNames ?? [];
+  if (zeroNames.length > 0) {
+    message += ` Gợi ý: bỏ chọn các phòng ban không có nhân viên (${zeroNames.join(', ')}) nếu phạm vi hiện chỉ gồm các phòng đó.`;
+  }
+  return new ApiError(400, message, 'NO_ELIGIBLE_CANDIDATES');
+}
+
+// MỚI — Kiểm tra phòng TRONG PHẠM VI đủ câu riêng khi TẮT bù (gọi lúc lưu đề xuất + gửi duyệt + công bố).
+export async function assertScopeQuestionsSufficient({
+  topicId,
+  departmentQuestionCount,
+  allowCommonCompensation,
+  departmentScope,
+  allowedDepartmentIds,
+}) {
+  if (allowCommonCompensation !== false) return;
+  const required = departmentQuestionCount ?? 0;
+  if (required === 0) return;
+
+  if (!mongoose.isValidObjectId(topicId)) {
+    throw new ApiError(400, 'topicId không hợp lệ', 'QUESTION_STATS_INVALID_TOPIC');
+  }
+
+  const examLike = {
+    departmentScope,
+    allowedDepartmentIds,
+    allowCommonCompensation,
+    topicId,
+    departmentQuestionCount: required,
+  };
+
+  const [deptCountsRaw, departments, employees] = await Promise.all([
+    Question.aggregate([
+      {
+        $match: {
+          topicId: new mongoose.Types.ObjectId(topicId),
+          scope: QUESTION_SCOPE.DEPARTMENT_SPECIFIC,
+          isActive: true,
+          ...questionUsageFilter(QUESTION_USAGE.EXAM),
+        },
+      },
+      { $group: { _id: '$departmentId', count: { $sum: 1 } } },
+    ]),
+    Department.find({ isActive: true }).sort({ name: 1 }).lean(),
+    Employee.find({ isActive: true }).select('departmentId extraDepartmentIds').lean(),
+  ]);
+
+  const countByDeptId = new Map(deptCountsRaw.map((d) => [d._id.toString(), d.count]));
+  const employeeCountByDeptId = new Map();
+  for (const emp of employees) {
+    for (const id of getEmployeeDepartmentIds(emp)) {
+      employeeCountByDeptId.set(id, (employeeCountByDeptId.get(id) || 0) + 1);
+    }
+  }
+
+  const { mode, ids } = resolveDepartmentScope(examLike);
+  const departmentsToCheck = [];
+  if (mode === 'selected') {
+    for (const dept of departments) {
+      const key = dept._id.toString();
+      if (ids.has(key)) departmentsToCheck.push(dept);
+    }
+  } else {
+    for (const dept of departments) {
+      const key = dept._id.toString();
+      if ((employeeCountByDeptId.get(key) || 0) > 0) departmentsToCheck.push(dept);
+    }
+  }
+
+  const insufficient = [];
+  for (const dept of departmentsToCheck) {
+    const key = dept._id.toString();
+    const count = countByDeptId.get(key) ?? 0;
+    if (count < required) {
+      insufficient.push({ name: dept.name, count, required });
+    }
+  }
+
+  if (insufficient.length === 0) return;
+
+  const detail = insufficient.map((d) => `"${d.name}" (${d.count}/${d.required} câu riêng)`).join('; ');
+  throw new ApiError(
+    400,
+    `Không thể lưu: các phòng ban trong phạm vi thi chưa đủ câu hỏi riêng (kỳ thi đang TẮT bù câu chung): ${detail}. ` +
+      'Vui lòng bổ sung câu hỏi riêng, bật bù câu chung, hoặc điều chỉnh phạm vi phòng ban.',
+    'SCOPE_DEPARTMENT_INSUFFICIENT_QUESTIONS',
+  );
+}
+
+// Kiểm tra sớm trước gửi duyệt / công bố. Trả về object cảnh báo phạm vi (hoặc null).
+export async function assertExamPublishable(exam) {
+  await assertScopeQuestionsSufficient({
+    topicId: exam.topicId,
+    departmentQuestionCount: exam.departmentQuestionCount,
+    allowCommonCompensation: exam.allowCommonCompensation,
+    departmentScope: exam.departmentScope,
+    allowedDepartmentIds: exam.allowedDepartmentIds,
+  });
+
+  const employees = await Employee.find({ isActive: true }).select(
+    '_id employeeCode departmentId extraDepartmentIds',
+  );
+  if (employees.length === 0) {
+    throw buildNoEligibleCandidatesError(exam, { selectedZeroEmployeeDeptNames: [] });
+  }
+
+  const analysis = await analyzeExamRoles(exam, employees);
+  if (countInScopeEmployees(analysis) === 0) {
+    throw buildNoEligibleCandidatesError(exam, analysis);
+  }
+
+  return buildScopeWarnings(analysis);
+}
+
+// Sinh mã đề và gán đề cho TOÀN BỘ nhân viên khi công bố kỳ thi (Publish)
+// Mã đề mặc định của mỗi nhân viên theo PHÒNG CHÍNH (phòng chính ngừng hoạt động -> phòng kiêm nhiệm đầu tiên còn hoạt động).
+// Bước kiểm tra ngân hàng câu hỏi được làm cho cả các phòng KIÊM NHIỆM, để lúc thí sinh chọn vai trò kiêm nhiệm không bị báo
+// thiếu câu hỏi (lỗi phải bị chặn ngay từ lúc publish).
+export async function generateExamCodesAndAssignCandidates(exam) {
+  const employees = await Employee.find({ isActive: true }).select(
+    '_id employeeCode departmentId extraDepartmentIds',
+  );
+
+  if (employees.length === 0) {
+    throw new ApiError(400, 'Không có nhân viên nào đang hoạt động để gán đề thi', 'NO_ACTIVE_EMPLOYEES');
+  }
+
+  await assertScopeQuestionsSufficient({
+    topicId: exam.topicId,
+    departmentQuestionCount: exam.departmentQuestionCount,
+    allowCommonCompensation: exam.allowCommonCompensation,
+    departmentScope: exam.departmentScope,
+    allowedDepartmentIds: exam.allowedDepartmentIds,
+  });
+
+  const analysis = await analyzeExamRoles(exam, employees);
+  if (countInScopeEmployees(analysis) === 0) {
+    throw buildNoEligibleCandidatesError(exam, analysis);
+  }
+
+  const { departments, employeesByDept, pools } = analysis;
 
   // Tạo đề và gán thí sinh độc lập cho từng nhân viên (theo phòng ban mặc định của họ)
   for (const dept of departments) {
@@ -317,6 +529,8 @@ export async function getEmployeeRoleOptions(employee, exam = null) {
     for (const option of options) {
       const stats = await resolveDepartmentEligibility(exam, option.departmentId);
       option.eligible = stats.eligible;
+      option.inScope = stats.inScope;
+      option.reason = stats.reason;
       option.deptQuestionCount = stats.deptQuestionCount;
       option.requiredDeptQuestions = stats.requiredDeptQuestions;
     }
@@ -350,12 +564,12 @@ export async function assignCandidateRole({ exam, examCandidate, employee, depar
   // MỚI — Kiểm tra phòng được chọn có ĐỦ ĐIỀU KIỆN (đủ câu riêng, hoặc kỳ thi bật bù) TRƯỚC khi giữ nguyên mã đề cũ
   const stats = await resolveDepartmentEligibility(exam, department._id);
   if (!stats.eligible) {
-    throw new ApiError(
-      400,
-      `Phòng ban "${department.name}" chưa đủ câu hỏi riêng cho kỳ thi này (có ${stats.deptQuestionCount}/${stats.requiredDeptQuestions} câu) ` +
-        'nên không thể chọn làm vai trò thi.',
-      'ROLE_NOT_ELIGIBLE',
-    );
+    const message =
+      stats.reason === 'out_of_scope'
+        ? `Phòng ban "${department.name}" không thuộc phạm vi được thi của kỳ thi này.`
+        : `Kỳ thi này không dành cho phòng ban "${department.name}" (chưa đủ câu hỏi riêng: ${stats.deptQuestionCount}/${stats.requiredDeptQuestions} câu) ` +
+          'nên không thể chọn làm vai trò thi.';
+    throw new ApiError(400, message, 'ROLE_NOT_ELIGIBLE');
   }
 
   const currentCode = await ExamCode.findById(examCandidate.examCodeId);
@@ -403,9 +617,13 @@ export async function assignEmployeeToActiveExamIfAny(employee) {
     if (roleOptions.length === 0) return null;
     const defaultOption = roleOptions.find((o) => o.isDefault);
     if (!defaultOption) {
+      // MỚI — Ngoài phạm vi kỳ thi: im lặng, không báo lỗi gán đề.
+      if (roleOptions.length === 0 || roleOptions.every((o) => o.inScope === false)) {
+        return null;
+      }
       throw new ApiError(
         400,
-        'Nhân viên không có phòng ban nào đủ câu hỏi riêng để thi (kỳ thi đang tắt chế độ bù câu chung).',
+        'Kỳ thi này không dành cho phòng ban nào của nhân viên (kỳ thi đang tắt chế độ bù câu chung).',
         'NO_ELIGIBLE_ROLE',
       );
     }

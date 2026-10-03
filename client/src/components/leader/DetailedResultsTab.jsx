@@ -412,7 +412,7 @@ export const DetailedResultsTab = () => {
                         </span>
                         {ineligible && (
                           <span className="block text-xs text-slate-500">
-                            Chưa đủ câu hỏi riêng ({o.deptQuestionCount ?? 0}/{o.requiredDeptQuestions ?? 0})
+                            Kỳ thi không dành cho phòng ban này (chưa đủ câu riêng: {o.deptQuestionCount ?? 0}/{o.requiredDeptQuestions ?? 0})
                           </span>
                         )}
                         {id === grantDialog.currentDepartmentId && (

@@ -122,7 +122,19 @@ const DEFAULT_FORM_DATA = {
   passThresholdPercent: 70,
   // MỚI — Công tắc BÙ CÂU CHUNG: mặc định TẮT (công bằng). Bật = phòng thiếu câu riêng được bù bằng câu chung (hành vi cũ).
   allowCommonCompensation: false,
+  // MỚI — Phạm vi phòng ban được thi: mặc định tất cả phòng ban.
+  departmentScope: 'all',
+  allowedDepartmentIds: [],
 };
+
+// MỚI — Hiển thị phạm vi phòng ban trên danh sách đề xuất (kỳ thi cũ không có field = tất cả).
+function formatExamScopeLabel(exam) {
+  if (exam.departmentScope !== 'selected') return 'Tất cả phòng ban';
+  const names = (exam.allowedDepartmentIds ?? [])
+    .map((d) => (typeof d === 'object' && d?.name ? d.name : null))
+    .filter(Boolean);
+  return names.length ? names.join(', ') : 'Chọn phòng ban (chưa có danh sách)';
+}
 
 export const ExamProposalTab = () => {
   const { showToast } = useToast();
@@ -200,8 +212,18 @@ export const ExamProposalTab = () => {
   // Công tắc bù câu chung (MỚI): BẬT -> thiếu câu riêng thì bù từ pool chung (chỉ chặn khi pool chung không đủ bù).
   // TẮT -> KHÔNG bù: phòng thiếu câu riêng không bị chặn lưu đề, nhưng sẽ bị KHÓA khỏi danh sách vai trò thi (chỉ cảnh báo).
   const allowCompensation = Boolean(formData.allowCommonCompensation);
+  const scopeMode = formData.departmentScope === 'selected' ? 'selected' : 'all';
+  const allowedDeptIdSet = new Set((formData.allowedDepartmentIds ?? []).map(String));
 
-  const infeasibleDepartments = (topicStats?.departments ?? [])
+  // MỚI — Chỉ kiểm tra / cảnh báo các phòng nằm trong phạm vi thi (mode all: phòng có ≥1 NV).
+  const isDeptInFormScope = (d) => {
+    if (scopeMode === 'selected') return allowedDeptIdSet.has(String(d.departmentId));
+    return (d.employeeCount ?? 0) > 0;
+  };
+
+  const scopedDepartments = (topicStats?.departments ?? []).filter(isDeptInFormScope);
+
+  const infeasibleDepartments = scopedDepartments
     .map((d) => {
       const shortfall = Math.max(0, perDept - d.count);
       const neededCommon = common + shortfall;
@@ -214,9 +236,22 @@ export const ExamProposalTab = () => {
     })
     .filter((d) => d.shortfall > 0);
 
+  const scopeInsufficientDepartments =
+    !allowCompensation && perDept > 0
+      ? scopedDepartments.filter((d) => d.count < perDept)
+      : [];
+
+  const excludedScopeDepartments =
+    scopeMode === 'selected'
+      ? (topicStats?.departments ?? []).filter((d) => !allowedDeptIdSet.has(String(d.departmentId)))
+      : [];
+
   const hasBlockingError =
     !!formData.topicId &&
-    (commonExceedsPool || sumMismatch || infeasibleDepartments.some((d) => d.infeasible));
+    (commonExceedsPool ||
+      sumMismatch ||
+      infeasibleDepartments.some((d) => d.infeasible) ||
+      scopeInsufficientDepartments.length > 0);
 
   // MỚI — Mở modal ở chế độ "Tạo mới": reset form về mặc định, editingExamId
   // = null để form biết gọi createExamProposal khi submit.
@@ -243,8 +278,31 @@ export const ExamProposalTab = () => {
       passThresholdPercent: exam.passThresholdPercent,
       // Kỳ thi cũ chưa có field này được hệ thống coi là đang BẬT bù -> hiển thị đúng như vậy khi sửa
       allowCommonCompensation: exam.allowCommonCompensation !== false,
+      departmentScope: exam.departmentScope === 'selected' ? 'selected' : 'all',
+      allowedDepartmentIds:
+        exam.departmentScope === 'selected'
+          ? (exam.allowedDepartmentIds ?? []).map((d) => String(d._id ?? d))
+          : [],
     });
     setIsModalOpen(true);
+  };
+
+  const toggleAllowedDepartment = (departmentId) => {
+    const key = String(departmentId);
+    setFormData((prev) => {
+      const set = new Set((prev.allowedDepartmentIds ?? []).map(String));
+      if (set.has(key)) set.delete(key);
+      else set.add(key);
+      return { ...prev, allowedDepartmentIds: [...set] };
+    });
+  };
+
+  const switchToSelectedScope = () => {
+    setFormData((prev) => {
+      if (prev.departmentScope === 'selected') return prev;
+      const allIds = (topicStats?.departments ?? []).map((d) => String(d.departmentId));
+      return { ...prev, departmentScope: 'selected', allowedDepartmentIds: allIds };
+    });
   };
 
   const closeModal = () => {
@@ -265,6 +323,18 @@ export const ExamProposalTab = () => {
       showToast('Cấu hình số câu hỏi chưa hợp lệ so với ngân hàng câu hỏi hiện có của chủ đề này. Vui lòng kiểm tra lại phần cảnh báo trong form.', 'warning');
       return;
     }
+    if (scopeMode === 'selected' && allowedDeptIdSet.size === 0) {
+      showToast('Vui lòng chọn ít nhất một phòng ban trong phạm vi được thi.', 'warning');
+      return;
+    }
+    if (excludedScopeDepartments.length > 0) {
+      const names = excludedScopeDepartments.map((d) => d.name).join(', ');
+      const ok = await confirmAction(
+        `Các phòng ban sau sẽ không được phép tham gia thi: ${names}. Bạn vẫn muốn lưu đề xuất?`,
+        { title: 'Xác nhận phạm vi phòng ban', confirmLabel: 'Vẫn lưu', danger: false },
+      );
+      if (!ok) return;
+    }
     const payload = {
       ...formData,
       durationMinutes: Number(formData.durationMinutes),
@@ -273,6 +343,8 @@ export const ExamProposalTab = () => {
       departmentQuestionCount: Number(formData.departmentQuestionCount),
       passThresholdPercent: Number(formData.passThresholdPercent),
       allowCommonCompensation: Boolean(formData.allowCommonCompensation),
+      departmentScope: scopeMode,
+      allowedDepartmentIds: scopeMode === 'selected' ? [...allowedDeptIdSet] : undefined,
     };
     try {
       if (editingExamId) {
@@ -308,8 +380,17 @@ export const ExamProposalTab = () => {
     );
     if (!ok) return;
     try {
-      await submitForReview(id);
+      const data = await submitForReview(id);
       showToast('Đã gửi đề xuất cho Người duyệt đề.', 'success');
+      if (data?.warnings?.outOfScopeEmployeeCount > 0) {
+        const deptText = (data.warnings.outOfScopeDepartments ?? [])
+          .map((d) => `${d.name} (${d.employeeCount} NV)`)
+          .join(', ');
+        showToast(
+          `Cảnh báo: ${data.warnings.outOfScopeEmployeeCount} nhân viên ngoài phạm vi kỳ thi${deptText ? ` — ${deptText}` : ''}.`,
+          'warning',
+        );
+      }
       loadData();
     } catch (error) {
       // EXAM_INVALID_STATUS: kỳ thi không còn ở trạng thái draft/rejected nữa
@@ -417,6 +498,7 @@ export const ExamProposalTab = () => {
                     <div>Chung/Riêng</div>
                   </div>
                 </div>
+                <p className="text-xs text-slate-500">Phạm vi: {formatExamScopeLabel(exam)}</p>
 
                 {exam.status === 'rejected' && exam.rejectionReason && (
                   <div className="flex items-start gap-1.5 text-[#C53030] text-xs bg-[#FEECEC] p-2.5 rounded-lg">
@@ -469,6 +551,7 @@ export const ExamProposalTab = () => {
                         <div>Tổng câu: {exam.totalQuestions}</div>
                         <div>Chung: {exam.commonQuestionCount} / Riêng: {exam.departmentQuestionCount}</div>
                         <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt' : 'Bật'}</div>
+                        <div>Phạm vi: {formatExamScopeLabel(exam)}</div>
                       </td>
                       <td className="p-4">{getStatusBadge(exam.status)}</td>
                       <td className="p-4 text-slate-600">
@@ -635,6 +718,16 @@ export const ExamProposalTab = () => {
                         Số câu chung ({common}) vượt quá số câu chung hiện có ({commonCount}) của chủ đề này.
                       </p>
                     )}
+                    {scopeInsufficientDepartments.length > 0 && (
+                      <div className="space-y-1">
+                        {scopeInsufficientDepartments.map((d) => (
+                          <p key={`scope-${d.departmentId}`} className="text-xs text-[#C53030] flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            {d.name}: chỉ có {d.count}/{perDept} câu riêng — không thể lưu (phòng trong phạm vi thi, kỳ thi đang TẮT bù câu chung).
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     {infeasibleDepartments.length > 0 && (
                       <div className="space-y-1">
                         {infeasibleDepartments.map((d) => (
@@ -676,6 +769,120 @@ export const ExamProposalTab = () => {
                     </span>
                   </span>
                 </label>
+
+                {/* MỚI — Cấu hình phạm vi phòng ban tham gia kỳ thi */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-800 mb-1">
+                      Phạm vi phòng ban được phép thi
+                    </label>
+                    <p className="text-xs text-slate-500 mb-2">
+                      Chọn xem toàn bộ nhà máy hay chỉ một số phòng ban/phân xưởng cụ thể được tham gia kỳ thi này.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, departmentScope: 'all', allowedDepartmentIds: [] })}
+                        className={`p-2.5 rounded-lg border text-sm font-medium transition-colors text-center ${
+                          formData.departmentScope !== 'selected'
+                            ? 'bg-[#008BC5] text-white border-[#008BC5]'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        Tất cả phòng ban
+                      </button>
+                      <button
+                        type="button"
+                        onClick={switchToSelectedScope}
+                        className={`p-2.5 rounded-lg border text-sm font-medium transition-colors text-center ${
+                          formData.departmentScope === 'selected'
+                            ? 'bg-[#008BC5] text-white border-[#008BC5]'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        Chọn phòng ban cụ thể
+                      </button>
+                    </div>
+                  </div>
+
+                  {formData.departmentScope === 'selected' && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-700">
+                          Danh sách phòng ban ({allowedDeptIdSet.size}/{(topicStats?.departments ?? []).length} đã chọn):
+                        </span>
+                        <div className="flex gap-2 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const allIds = (topicStats?.departments ?? []).map((d) => String(d.departmentId));
+                              setFormData({ ...formData, allowedDepartmentIds: allIds });
+                            }}
+                            className="text-[#008BC5] hover:underline"
+                          >
+                            Chọn tất cả
+                          </button>
+                          <span className="text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({ ...formData, allowedDepartmentIds: [] })}
+                            className="text-slate-500 hover:underline"
+                          >
+                            Bỏ chọn hết
+                          </button>
+                        </div>
+                      </div>
+
+                      {topicStats?.departments && topicStats.departments.length > 0 ? (
+                        <div className="max-h-48 overflow-y-auto space-y-1 pr-1 bg-white p-2 rounded-lg border border-slate-200">
+                          {topicStats.departments.map((dept) => {
+                            const isChecked = allowedDeptIdSet.has(String(dept.departmentId));
+                            const hasNoEmp = (dept.employeeCount ?? 0) === 0;
+                            return (
+                              <label
+                                key={dept.departmentId}
+                                className={`flex items-center justify-between p-1.5 rounded hover:bg-slate-50 cursor-pointer text-xs ${
+                                  isChecked ? 'bg-sky-50/50' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className="w-4 h-4 accent-[#008BC5] rounded"
+                                    checked={isChecked}
+                                    onChange={() => toggleAllowedDepartment(dept.departmentId)}
+                                  />
+                                  <span className={`font-medium ${isChecked ? 'text-slate-900' : 'text-slate-600'}`}>
+                                    {dept.name}
+                                  </span>
+                                  {hasNoEmp && (
+                                    <span className="text-[10px] text-amber-600 bg-amber-50 px-1 rounded">
+                                      (0 nhân viên)
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-slate-400 font-mono text-[11px]">
+                                  {dept.count} câu
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">
+                          Vui lòng chọn chủ đề liên kết để xem danh sách phòng ban.
+                        </p>
+                      )}
+
+                      {allowedDeptIdSet.size === 0 && (
+                        <p className="text-xs text-[#C53030] flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          Cần chọn ít nhất một phòng ban trong phạm vi được thi.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </form>
             </div>
 

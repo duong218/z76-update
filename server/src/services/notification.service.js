@@ -3,7 +3,7 @@
  * Tự động gửi thông báo theo các sự kiện: Nộp đề xuất thi, Phê duyệt/Từ chối, Công bố kỳ thi và Cảnh báo phát đề lỗi.
  */
 
-import { Notification, User, Role } from '../models/index.js';
+import { Notification, User, Role, ExamCandidate, Employee } from '../models/index.js';
 
 function formatDateTime(date) {
   if (!date) return '';
@@ -73,15 +73,44 @@ export const notificationService = {
 
   // Sự kiện: Leader công bố chính thức kỳ thi -> Báo cho tất cả thí sinh và cán bộ liên quan
   async notifyExamPublished(exam, publisherId) {
-    const adminRole = await Role.findOne({ code: 'admin' }).select('_id').lean();
+    const [adminRole, candidateRole] = await Promise.all([
+      Role.findOne({ code: 'admin' }).select('_id').lean(),
+      Role.findOne({ code: 'candidate' }).select('_id').lean(),
+    ]);
 
     const query = { isActive: true, _id: { $ne: publisherId } };
     if (adminRole?._id) {
       query.roleId = { $ne: adminRole._id };
     }
 
-    const recipients = await User.find(query).select('_id').lean();
-    const recipientIds = recipients.map((u) => u._id);
+    const users = await User.find(query).select('_id roleId').lean();
+    const candidateRoleId = candidateRole?._id?.toString();
+
+    const recipientIdSet = new Set();
+    for (const user of users) {
+      const isCandidate = candidateRoleId && user.roleId?.toString() === candidateRoleId;
+      if (!isCandidate) {
+        recipientIdSet.add(user._id.toString());
+      }
+    }
+
+    // MỚI — Thí sinh chỉ nhận thông báo nếu đã được gán ExamCandidate (trong phạm vi kỳ thi).
+    const assigned = await ExamCandidate.find({ examId: exam._id }).select('employeeId').lean();
+    if (assigned.length > 0) {
+      const employees = await Employee.find({
+        _id: { $in: assigned.map((c) => c.employeeId) },
+        userId: { $exists: true, $ne: null },
+      })
+        .select('userId')
+        .lean();
+      for (const emp of employees) {
+        if (emp.userId && emp.userId.toString() !== publisherId.toString()) {
+          recipientIdSet.add(emp.userId.toString());
+        }
+      }
+    }
+
+    const recipientIds = [...recipientIdSet].map((id) => id);
 
     return this.createMany(recipientIds, {
       type: 'exam_published',
@@ -148,4 +177,4 @@ export const notificationService = {
       { $set: { isRead: true } },
     );
   },
-};
+};

@@ -3,11 +3,58 @@
  * Xử lý các nghiệp vụ: Đề xuất kỳ thi, Gửi duyệt, Phê duyệt/Từ chối, Xuất bản kỳ thi (Publish) và Lưu trữ (Archive).
  */
 
-import { Exam, Topic } from '../models/index.js';
+import mongoose from 'mongoose';
+import { Exam, Topic, Department } from '../models/index.js';
 import { EXAM_STATUS } from '../models/constants.js';
 import { ApiError } from '../utils/api-error.js';
-import { generateExamCodesAndAssignCandidates } from './exam-code-generation.service.js';
+import {
+  generateExamCodesAndAssignCandidates,
+  assertExamPublishable,
+  assertScopeQuestionsSufficient,
+} from './exam-code-generation.service.js';
 import { notificationService } from './notification.service.js';
+
+// MỚI — Chuẩn hoá và kiểm tra phạm vi phòng ban từ payload client.
+async function parseDepartmentScopeFields(payload) {
+  const rawScope = payload.departmentScope;
+  const departmentScope = rawScope === 'selected' ? 'selected' : 'all';
+
+  if (departmentScope === 'all') {
+    return { departmentScope: 'all', allowedDepartmentIds: undefined };
+  }
+
+  const rawIds = payload.allowedDepartmentIds;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new ApiError(
+      400,
+      'Khi chọn phạm vi theo từng phòng ban, cần chọn ít nhất một phòng ban.',
+      'EXAM_SCOPE_INVALID',
+    );
+  }
+
+  const allowedDepartmentIds = [];
+  for (const raw of rawIds) {
+    const idStr = String(raw);
+    if (!mongoose.isValidObjectId(idStr)) {
+      throw new ApiError(400, 'Danh sách phòng ban được thi có ID không hợp lệ.', 'EXAM_SCOPE_INVALID');
+    }
+    allowedDepartmentIds.push(new mongoose.Types.ObjectId(idStr));
+  }
+
+  const activeCount = await Department.countDocuments({
+    _id: { $in: allowedDepartmentIds },
+    isActive: true,
+  });
+  if (activeCount !== allowedDepartmentIds.length) {
+    throw new ApiError(
+      400,
+      'Danh sách phòng ban được thi có phòng không tồn tại hoặc đã ngừng hoạt động.',
+      'EXAM_SCOPE_INVALID',
+    );
+  }
+
+  return { departmentScope: 'selected', allowedDepartmentIds };
+}
 
 export const examService = {
   // Lấy danh sách kỳ thi theo bộ lọc (trạng thái, người tạo, chủ đề)
@@ -20,6 +67,7 @@ export const examService = {
 
     const exams = await Exam.find(query)
       .populate('topicId', 'name')
+      .populate('allowedDepartmentIds', 'name code')
       .populate('createdBy', 'username fullName')
       .populate('approvedBy', 'username fullName')
       .sort({ createdAt: -1 })
@@ -30,10 +78,30 @@ export const examService = {
 
   // Examiner tạo bản thảo đề xuất kỳ thi mới (DRAFT)
   async createExamProposal(payload, userId) {
-    const { title, topicId, durationMinutes, totalQuestions, commonQuestionCount, departmentQuestionCount, passThresholdPercent, allowCommonCompensation } = payload;
+    const {
+      title,
+      topicId,
+      durationMinutes,
+      totalQuestions,
+      commonQuestionCount,
+      departmentQuestionCount,
+      passThresholdPercent,
+      allowCommonCompensation,
+    } = payload;
 
     const topic = await Topic.findById(topicId);
     if (!topic) throw new ApiError(404, 'Không tìm thấy chủ đề', 'TOPIC_NOT_FOUND');
+
+    const scopeFields = await parseDepartmentScopeFields(payload);
+    const allowComp = allowCommonCompensation === true;
+
+    await assertScopeQuestionsSufficient({
+      topicId,
+      departmentQuestionCount,
+      allowCommonCompensation: allowComp,
+      departmentScope: scopeFields.departmentScope,
+      allowedDepartmentIds: scopeFields.allowedDepartmentIds,
+    });
 
     const exam = new Exam({
       title,
@@ -44,7 +112,9 @@ export const examService = {
       departmentQuestionCount,
       passThresholdPercent,
       // MỚI — Công tắc bù câu chung: luôn ghi giá trị rõ ràng; client không gửi thì mặc định TẮT (công bằng)
-      allowCommonCompensation: allowCommonCompensation === true,
+      allowCommonCompensation: allowComp,
+      departmentScope: scopeFields.departmentScope,
+      allowedDepartmentIds: scopeFields.allowedDepartmentIds,
       createdBy: userId,
       status: EXAM_STATUS.DRAFT,
     });
@@ -67,7 +137,17 @@ export const examService = {
       throw new ApiError(400, 'Kỳ thi không ở trạng thái hợp lệ để chỉnh sửa', 'EXAM_INVALID_STATUS');
     }
 
-    const { title, topicId, durationMinutes, totalQuestions, commonQuestionCount, departmentQuestionCount, passThresholdPercent, allowCommonCompensation } = payload;
+    const {
+      title,
+      topicId,
+      durationMinutes,
+      totalQuestions,
+      commonQuestionCount,
+      departmentQuestionCount,
+      passThresholdPercent,
+      allowCommonCompensation,
+      departmentScope,
+    } = payload;
 
     if (topicId && String(topicId) !== String(exam.topicId)) {
       const topic = await Topic.findById(topicId);
@@ -82,10 +162,26 @@ export const examService = {
     exam.departmentQuestionCount = departmentQuestionCount;
     exam.passThresholdPercent = passThresholdPercent;
     // MỚI — Chỉ cập nhật công tắc khi client có gửi (kỳ thi cũ chưa có field sẽ giữ nguyên hành vi bù nếu không gửi).
-    // Không cần chặn riêng trạng thái PUBLISHED: hàm này chỉ cho sửa đề ở trạng thái draft/rejected (kiểm tra ở đầu hàm).
     if (typeof allowCommonCompensation === 'boolean') {
       exam.allowCommonCompensation = allowCommonCompensation;
     }
+    if (departmentScope === 'selected' || departmentScope === 'all') {
+      const scopeFields = await parseDepartmentScopeFields(payload);
+      exam.departmentScope = scopeFields.departmentScope;
+      exam.allowedDepartmentIds = scopeFields.allowedDepartmentIds;
+    } else if (payload.allowedDepartmentIds !== undefined && exam.departmentScope === 'selected') {
+      const scopeFields = await parseDepartmentScopeFields({ ...payload, departmentScope: 'selected' });
+      exam.allowedDepartmentIds = scopeFields.allowedDepartmentIds;
+    }
+
+    await assertScopeQuestionsSufficient({
+      topicId: exam.topicId,
+      departmentQuestionCount: exam.departmentQuestionCount,
+      allowCommonCompensation: exam.allowCommonCompensation,
+      departmentScope: exam.departmentScope,
+      allowedDepartmentIds: exam.allowedDepartmentIds,
+    });
+
     exam.status = EXAM_STATUS.DRAFT;
     exam.rejectionReason = undefined;
 
@@ -102,6 +198,10 @@ export const examService = {
       throw new ApiError(400, 'Kỳ thi không ở trạng thái hợp lệ để gửi duyệt', 'EXAM_INVALID_STATUS');
     }
 
+    // MỚI — Kiểm tra sớm: thiếu câu hỏi (chung hoặc riêng theo công tắc bù) thì chặn ngay lúc gửi duyệt,
+    // không đợi tới khi Người duyệt đề bấm Đăng chính thức. Lúc công bố hệ thống vẫn kiểm tra lại.
+    const warnings = await assertExamPublishable(exam);
+
     exam.status = EXAM_STATUS.PENDING_REVIEW;
     await exam.save();
 
@@ -111,7 +211,9 @@ export const examService = {
       console.error('notifyExamSubmitted failed:', err);
     }
 
-    return exam;
+    const result = exam.toObject();
+    if (warnings) result.warnings = warnings;
+    return result;
   },
 
   // Leader phê duyệt kỳ thi (APPROVED) và ấn định khung thời gian thi
@@ -181,6 +283,8 @@ export const examService = {
       throw new ApiError(400, 'Chỉ có thể phát hành kỳ thi đã được duyệt', 'EXAM_INVALID_STATUS');
     }
 
+    const warnings = await assertExamPublishable(exam);
+
     // Sinh mã đề và gán thí sinh
     await generateExamCodesAndAssignCandidates(exam);
 
@@ -200,7 +304,9 @@ export const examService = {
       console.error('notifyExamPublished failed:', err);
     }
 
-    return exam;
+    const result = exam.toObject();
+    if (warnings) result.warnings = warnings;
+    return result;
   },
 
   // Lưu trữ (ARCHIVE) một kỳ thi đã duyệt mà Leader quyết định không xuất bản nữa

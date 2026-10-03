@@ -20,6 +20,7 @@ import {
   Question,
   Department,
   Exam,
+  Employee,
 } from '../models/index.js';
 import { QUESTION_USAGE } from '../models/constants.js';
 import { questionUsageFilter } from '../models/question.model.js';
@@ -1329,7 +1330,7 @@ export async function getQuestionStatsByTopic(topicId) {
     throw new ApiError(400, 'topicId không hợp lệ', 'QUESTION_STATS_INVALID_TOPIC');
   }
 
-  const [commonCount, deptCountsRaw, departments] = await Promise.all([
+  const [commonCount, deptCountsRaw, departments, employees] = await Promise.all([
     Question.countDocuments({
       topicId,
       scope: QUESTION_SCOPE.COMMON,
@@ -1348,18 +1349,35 @@ export async function getQuestionStatsByTopic(topicId) {
       { $group: { _id: '$departmentId', count: { $sum: 1 } } },
     ]),
     Department.find({ isActive: true }).sort({ name: 1 }).lean(),
+    Employee.find({ isActive: true }).select('departmentId extraDepartmentIds').lean(),
   ]);
 
   const countByDeptId = new Map(deptCountsRaw.map((d) => [d._id.toString(), d.count]));
 
+  // Đếm số lượng nhân viên đang hoạt động thuộc mỗi phòng ban (kể cả phòng chính hoặc kiêm nhiệm)
+  const employeeCountByDeptId = new Map();
+  for (const emp of employees) {
+    const deptIds = new Set([
+      emp.departmentId ? emp.departmentId.toString() : null,
+      ...(emp.extraDepartmentIds || []).map((id) => (id ? id.toString() : null)),
+    ].filter(Boolean));
+    for (const dId of deptIds) {
+      employeeCountByDeptId.set(dId, (employeeCountByDeptId.get(dId) || 0) + 1);
+    }
+  }
+
   return {
     topicId,
     commonCount,
-    departments: departments.map((dept) => ({
-      departmentId: dept._id.toString(),
-      name: dept.name,
-      code: dept.code,
-      count: countByDeptId.get(dept._id.toString()) ?? 0,
-    })),
+    departments: departments.map((dept) => {
+      const dIdStr = dept._id.toString();
+      return {
+        departmentId: dIdStr,
+        name: dept.name,
+        code: dept.code,
+        count: countByDeptId.get(dIdStr) ?? 0,
+        employeeCount: employeeCountByDeptId.get(dIdStr) ?? 0,
+      };
+    }),
   };
 }

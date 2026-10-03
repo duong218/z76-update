@@ -311,13 +311,13 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
   const examRoleEligibleCount = examRole?.options?.filter((o) => o.eligible !== false).length ?? 0;
   const examRoleHint = examRole
     ? examRoleNoEligible
-      ? 'Hiện chưa có phòng ban nào của bạn đủ câu hỏi riêng để thi kỳ này. Vui lòng liên hệ Người duyệt đề.'
+      ? 'Kỳ thi này không dành cho phòng ban nào của bạn. Vui lòng liên hệ Người duyệt đề nếu bạn cho rằng đây là nhầm lẫn.'
       : examRole.locked
         ? 'Vai trò đã được khóa cho kỳ thi này.'
         : examRoleEligibleCount > 1
           ? 'Bạn có phòng kiêm nhiệm — sẽ chọn vai trò khi bấm vào thi.'
           : examRole.options?.length > 1
-            ? 'Một số phòng kiêm nhiệm chưa đủ câu hỏi riêng nên không thể chọn cho kỳ thi này.'
+            ? 'Kỳ thi này không dành cho một số phòng kiêm nhiệm của bạn nên bạn chỉ thi được với phòng còn lại.'
             : ''
     : '';
 
@@ -775,10 +775,25 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
 
                   {activeExam && !examStatusLoading && !canStartExam && (
                     <p className="text-center text-sm text-slate-500">
-                      {examStatusErrorCode === 'CANDIDATE_NOT_ASSIGNED' ? (
+                      {examStatusErrorCode === 'CANDIDATE_OUT_OF_SCOPE' ? (
+                        <>
+                          Kỳ thi "{activeExam.title}" không dành cho phòng ban của bạn. Vui lòng liên hệ
+                          Người ra đề hoặc Quản trị viên nếu bạn cho rằng đây là nhầm lẫn.
+                        </>
+                      ) : examStatusErrorCode === 'ROLE_NOT_ELIGIBLE' ? (
+                        <>
+                          Kỳ thi "{activeExam.title}" chưa đủ câu hỏi riêng cho phòng ban của bạn (kỳ thi đang tắt chế độ bù câu chung).
+                          Vui lòng liên hệ Người ra đề để bổ sung câu hỏi.
+                        </>
+                      ) : examStatusErrorCode === 'CANDIDATE_NOT_ASSIGNED' ? (
                         <>
                           Bạn chưa được phân bổ đề thi cho kỳ thi "{activeExam.title}". Vui lòng liên hệ
                           Người ra đề hoặc Quản trị viên để được hỗ trợ.
+                        </>
+                      ) : examStatusErrorCode === 'EMPLOYEE_NOT_FOUND' ? (
+                        <>
+                          Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên nào. Vui lòng liên hệ
+                          Quản trị viên để được cập nhật thông tin nhân viên.
                         </>
                       ) : examStatusErrorCode && examStatusErrorCode !== 'EXAM_NOT_ACTIVE' ? (
                         <>

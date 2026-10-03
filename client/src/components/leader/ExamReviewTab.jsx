@@ -255,6 +255,17 @@ export const ExamReviewTab = () => {
                           <div>Tgian: {exam.durationMinutes}p | Qua: {exam.passThresholdPercent}%</div>
                           <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
                           <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt (phòng thiếu câu riêng bị khóa)' : 'Bật (thiếu câu riêng thì bù câu chung)'}</div>
+                          <div>
+                            Phạm vi:{' '}
+                            <span className="font-medium text-slate-700">
+                              {exam.departmentScope === 'selected'
+                                ? (exam.allowedDepartmentIds ?? [])
+                                    .map((d) => (typeof d === 'object' && d?.name ? d.name : null))
+                                    .filter(Boolean)
+                                    .join(', ') || 'Chỉ định phòng ban'
+                                : 'Tất cả phòng ban'}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-4">
                           <div className="flex gap-2 justify-end">
@@ -281,10 +292,21 @@ export const ExamReviewTab = () => {
                     <div className="font-bold text-[#0F172A] text-base">{exam.title}</div>
                     <div className="text-base text-[#64748B]">{exam.topicId?.name}</div>
                   </div>
-                  <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5">
+                  <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
                     <div>Thời gian: {exam.durationMinutes} phút · Qua: {exam.passThresholdPercent}%</div>
                     <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
                     <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt (phòng thiếu câu riêng bị khóa)' : 'Bật (thiếu câu riêng thì bù câu chung)'}</div>
+                    <div>
+                      Phạm vi:{' '}
+                      <span className="font-medium text-slate-700">
+                        {exam.departmentScope === 'selected'
+                          ? (exam.allowedDepartmentIds ?? [])
+                              .map((d) => (typeof d === 'object' && d?.name ? d.name : null))
+                              .filter(Boolean)
+                              .join(', ') || 'Chỉ định phòng ban'
+                          : 'Tất cả phòng ban'}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => openReject(exam._id)} className="flex-1 h-11 bg-[#FEECEC] hover:bg-[#FDD8D8] text-[#C53030] font-semibold rounded-lg transition-colors text-base min-touch-target">
@@ -336,6 +358,17 @@ export const ExamReviewTab = () => {
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                           <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
+                          <div>
+                            Phạm vi:{' '}
+                            <span className="font-medium text-slate-700">
+                              {exam.departmentScope === 'selected'
+                                ? (exam.allowedDepartmentIds ?? [])
+                                    .map((d) => (typeof d === 'object' && d?.name ? d.name : null))
+                                    .filter(Boolean)
+                                    .join(', ') || 'Chỉ định phòng ban'
+                                : 'Tất cả phòng ban'}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-4">
                           <div className="flex gap-2 justify-end items-center">
@@ -371,9 +404,20 @@ export const ExamReviewTab = () => {
                     <div className="font-bold text-[#0F172A] text-base">{exam.title}</div>
                     <div className="text-base text-[#64748B]">{exam.topicId?.name}</div>
                   </div>
-                  <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5">
+                  <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
                     <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                     <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
+                    <div>
+                      Phạm vi:{' '}
+                      <span className="font-medium text-slate-700">
+                        {exam.departmentScope === 'selected'
+                          ? (exam.allowedDepartmentIds ?? [])
+                              .map((d) => (typeof d === 'object' && d?.name ? d.name : null))
+                              .filter(Boolean)
+                              .join(', ') || 'Chỉ định phòng ban'
+                          : 'Tất cả phòng ban'}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button

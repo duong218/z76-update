@@ -119,7 +119,20 @@ async function resolveCandidateContext(userId) {
 
   const examCandidate = await ExamCandidate.findOne({ examId: exam._id, employeeId: employee._id });
   if (!examCandidate) {
-    throw new ApiError(403, 'Bạn chưa được gán đề thi cho kỳ thi này. Vui lòng liên hệ Người ra đề / quản trị viên.', 'CANDIDATE_NOT_ASSIGNED');
+    const roleOptions = await getEmployeeRoleOptions(employee, exam);
+    const hasEligible = roleOptions.some((o) => o.eligible);
+    if (!hasEligible) {
+      throw new ApiError(
+        403,
+        'Kỳ thi này không dành cho phòng ban của bạn.',
+        'CANDIDATE_OUT_OF_SCOPE',
+      );
+    }
+    throw new ApiError(
+      403,
+      'Bạn chưa được gán đề thi cho kỳ thi này. Vui lòng liên hệ Người ra đề / quản trị viên.',
+      'CANDIDATE_NOT_ASSIGNED',
+    );
   }
 
   return { employee, exam, examCandidate };
@@ -200,6 +213,8 @@ async function buildRoleInfo(employee, exam, examCandidate, examCode) {
       code: o.code,
       isMain: o.isMain,
       eligible: o.eligible,
+      inScope: o.inScope,
+      reason: o.reason ?? null,
       deptQuestionCount: o.deptQuestionCount ?? 0,
       requiredDeptQuestions: o.requiredDeptQuestions ?? 0,
     })),
@@ -358,7 +373,7 @@ export const examAttemptService = {
     if (eligibleOptions.length === 0) {
       throw new ApiError(
         400,
-        'Không có phòng ban nào của bạn đủ câu hỏi riêng để thi kỳ này. Vui lòng liên hệ Người duyệt đề / quản trị viên.',
+        'Kỳ thi này không dành cho phòng ban nào của bạn. Vui lòng liên hệ Người duyệt đề / quản trị viên nếu bạn cho rằng đây là nhầm lẫn.',
         'ROLE_NOT_ELIGIBLE',
       );
     }

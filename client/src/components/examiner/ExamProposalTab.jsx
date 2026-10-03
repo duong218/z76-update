@@ -616,282 +616,420 @@ export const ExamProposalTab = () => {
         </>
       )}
 
-      {/* Create Modal */}
+      {/* Create / Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
-            <div className="p-4 sm:p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h2 className="text-lg sm:text-xl font-bold text-slate-800">
-                {editingExamId ? 'Chỉnh sửa đề xuất kỳ thi' : 'Tạo đề xuất kỳ thi mới'}
-              </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-2 sm:p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[94vh] border border-slate-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-800">
+                  {editingExamId ? 'Chỉnh sửa đề xuất kỳ thi' : 'Tạo đề xuất kỳ thi mới'}
+                </h2>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Thiết lập cấu trúc đề, phân bổ số lượng câu hỏi và phạm vi phòng ban tham gia
+                </p>
+              </div>
               <button
                 onClick={closeModal}
-                className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center"
+                className="text-slate-400 hover:text-slate-700 p-2 rounded-xl hover:bg-slate-200/60 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label="Đóng cửa sổ"
               >
-                <XCircle className="w-6 h-6" />
+                <XCircle className="w-7 h-7" />
               </button>
             </div>
 
-            <div className="p-4 sm:p-6 overflow-y-auto" data-lenis-prevent>
-              <form id="createExamForm" onSubmit={handleSubmitForm} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tên kỳ thi</label>
-                  <input required type="text" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
-                    value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="VD: Hội thi chuyên môn tháng 10" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Chủ đề liên kết</label>
-                  <TopicSelect
-                    value={formData.topicId}
-                    options={topics}
-                    onChange={(topicId) => setFormData({ ...formData, topicId })}
-                  />
-                </div>
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto" data-lenis-prevent>
+              <form id="createExamForm" onSubmit={handleSubmitForm} className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* CỘT TRÁI (7 cột): Thông tin cơ bản & Số lượng câu hỏi */}
+                  <div className="lg:col-span-7 space-y-5">
+                    {/* 1. Tên kỳ thi */}
+                    <div>
+                      <label className="block text-base font-semibold text-slate-800 mb-1.5">
+                        Tên kỳ thi <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        required
+                        type="text"
+                        className="w-full px-4 py-3 text-base border-2 border-slate-300 rounded-xl focus:border-[#008BC5] focus:bg-white bg-slate-50/50 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-900"
+                        value={formData.title}
+                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                        placeholder="VD: Hội thi chuyên môn nghiệp vụ quý 4"
+                      />
+                    </div>
 
-                {formData.topicId && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs space-y-2">
-                    {statsLoading ? (
-                      <p className="text-slate-500">Đang tải số liệu ngân hàng câu hỏi...</p>
-                    ) : topicStats ? (
-                      <>
-                        <p className="font-semibold text-slate-700">
-                          Ngân hàng câu hỏi của chủ đề này: <span className="text-[#008BC5]">{topicStats.commonCount} câu chung</span>
-                        </p>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
-                          {topicStats.departments.map((d) => (
-                            <div key={d.departmentId} className="flex justify-between text-slate-600">
-                              <span className="truncate" title={d.name}>{d.name}</span>
-                              <span className="font-semibold ml-1">{d.count}</span>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-slate-400 italic">
-                          {allowCompensation
-                            ? 'Nếu bộ phận nào thiếu câu riêng, hệ thống sẽ tự động bù thêm từ pool câu chung khi phát hành đề — miễn pool chung còn đủ dư.'
-                            : 'Đang TẮT bù câu chung: bộ phận nào thiếu câu riêng sẽ bị khóa, nhân viên không chọn được phòng đó để thi.'}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-[#E53E3E]">Không tải được số liệu câu hỏi cho chủ đề này.</p>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Thời gian (phút)</label>
-                    <input required type="number" min="1" inputMode="numeric" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
-                      value={formData.durationMinutes} onChange={e => setFormData({ ...formData, durationMinutes: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Tổng số câu hỏi</label>
-                    <input required type="number" min="1" inputMode="numeric" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
-                      value={formData.totalQuestions} onChange={e => setFormData({ ...formData, totalQuestions: e.target.value })} />
-                  </div>
-                </div>
-                {sumMismatch && (
-                  <p className="text-xs text-[#C53030] flex items-center gap-1 -mt-2">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    Số câu chung + số câu bộ phận ({common + perDept}) phải bằng đúng Tổng số câu hỏi ({total}).
-                  </p>
-                )}
-
-                <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Số câu hỏi chung</label>
-                    <input required type="number" min="0" inputMode="numeric" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
-                      value={formData.commonQuestionCount} onChange={e => setFormData({ ...formData, commonQuestionCount: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Số câu bộ phận</label>
-                    <input required type="number" min="0" inputMode="numeric" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
-                      value={formData.departmentQuestionCount} onChange={e => setFormData({ ...formData, departmentQuestionCount: e.target.value })} />
-                  </div>
-                </div>
-
-                {formData.topicId && topicStats && (
-                  <>
-                    {commonExceedsPool && (
-                      <p className="text-xs text-[#C53030] flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        Số câu chung ({common}) vượt quá số câu chung hiện có ({commonCount}) của chủ đề này.
+                    {/* 2. Chủ đề liên kết */}
+                    <div>
+                      <label className="block text-base font-semibold text-slate-800 mb-1.5">
+                        Chủ đề câu hỏi liên kết <span className="text-red-500">*</span>
+                      </label>
+                      <TopicSelect
+                        value={formData.topicId}
+                        options={topics}
+                        onChange={(topicId) => setFormData({ ...formData, topicId })}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Ngân hàng đề sẽ rút câu hỏi từ chủ đề này cho toàn bộ thí sinh.
                       </p>
-                    )}
-                    {scopeInsufficientDepartments.length > 0 && (
-                      <div className="space-y-1">
-                        {scopeInsufficientDepartments.map((d) => (
-                          <p key={`scope-${d.departmentId}`} className="text-xs text-[#C53030] flex items-center gap-1">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                            {d.name}: chỉ có {d.count}/{perDept} câu riêng — không thể lưu (phòng trong phạm vi thi, kỳ thi đang TẮT bù câu chung).
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                    {infeasibleDepartments.length > 0 && (
-                      <div className="space-y-1">
-                        {infeasibleDepartments.map((d) => (
-                          <p key={d.departmentId} className={`text-xs flex items-center gap-1 ${d.infeasible ? 'text-[#C53030]' : 'text-[#B45309]'}`}>
-                            {d.infeasible ? <AlertCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
-                            {d.name}: chỉ có {d.count}/{perDept} câu riêng
-                            {!allowCompensation
-                              ? ' — phòng này sẽ bị KHÓA (không chọn được làm vai trò thi) vì kỳ thi không bù câu chung.'
-                              : d.infeasible
-                                ? ` — kể cả bù từ pool chung cũng không đủ (cần bù ${d.shortfall} câu nhưng pool chung chỉ có ${commonCount} câu, cần ${d.neededCommon} câu).`
-                                : ` — sẽ tự bù ${d.shortfall} câu từ pool chung (đủ khả thi).`}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Điểm đạt tối thiểu (%)</label>
-                  <input required type="number" min="0" max="100" inputMode="numeric" className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
-                    value={formData.passThresholdPercent} onChange={e => setFormData({ ...formData, passThresholdPercent: e.target.value })} />
-                </div>
-
-                {/* MỚI — Công tắc bù câu chung: chỉ sửa được khi đề còn ở trạng thái nháp/bị từ chối (form này không mở cho kỳ thi đã công bố) */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-1 w-5 h-5 shrink-0 accent-[#008BC5]"
-                    checked={Boolean(formData.allowCommonCompensation)}
-                    onChange={e => setFormData({ ...formData, allowCommonCompensation: e.target.checked })}
-                  />
-                  <span className="text-sm text-slate-700">
-                    <span className="block font-medium text-slate-800">Cho phép bù câu hỏi chung khi phòng ban thiếu câu riêng</span>
-                    <span className="block text-xs text-slate-500 mt-0.5">
-                      <strong>Bật:</strong> phòng thiếu câu riêng vẫn thi được, phần thiếu bù bằng câu chung; nhân viên kiêm nhiệm
-                      chọn phòng nào cũng được. <strong>Tắt (khuyến nghị cho công bằng):</strong> phòng chưa đủ câu riêng bị khóa,
-                      nhân viên kiêm nhiệm không thể chọn phòng đó để thi đề toàn câu chung. Không đổi được sau khi kỳ thi đã công bố.
-                    </span>
-                  </span>
-                </label>
-
-                {/* MỚI — Cấu hình phạm vi phòng ban tham gia kỳ thi */}
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-800 mb-1">
-                      Phạm vi phòng ban được phép thi
-                    </label>
-                    <p className="text-xs text-slate-500 mb-2">
-                      Chọn xem toàn bộ nhà máy hay chỉ một số phòng ban/phân xưởng cụ thể được tham gia kỳ thi này.
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, departmentScope: 'all', allowedDepartmentIds: [] })}
-                        className={`p-2.5 rounded-lg border text-sm font-medium transition-colors text-center ${
-                          formData.departmentScope !== 'selected'
-                            ? 'bg-[#008BC5] text-white border-[#008BC5]'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                        }`}
-                      >
-                        Tất cả phòng ban
-                      </button>
-                      <button
-                        type="button"
-                        onClick={switchToSelectedScope}
-                        className={`p-2.5 rounded-lg border text-sm font-medium transition-colors text-center ${
-                          formData.departmentScope === 'selected'
-                            ? 'bg-[#008BC5] text-white border-[#008BC5]'
-                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                        }`}
-                      >
-                        Chọn phòng ban cụ thể
-                      </button>
                     </div>
+
+                    {/* 3. Cấu hình thời gian & điểm đạt */}
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                      <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-[#008BC5]" />
+                        Thời gian & Tiêu chuẩn đạt
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Thời gian làm bài (phút)
+                          </label>
+                          <input
+                            required
+                            type="number"
+                            min="1"
+                            inputMode="numeric"
+                            className="w-full px-3.5 py-2.5 text-base font-semibold border-2 border-slate-300 rounded-lg focus:border-[#008BC5] bg-white outline-none"
+                            value={formData.durationMinutes}
+                            onChange={(e) => setFormData({ ...formData, durationMinutes: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Điểm đạt tối thiểu (%)
+                          </label>
+                          <input
+                            required
+                            type="number"
+                            min="0"
+                            max="100"
+                            inputMode="numeric"
+                            className="w-full px-3.5 py-2.5 text-base font-semibold border-2 border-slate-300 rounded-lg focus:border-[#008BC5] bg-white outline-none"
+                            value={formData.passThresholdPercent}
+                            onChange={(e) => setFormData({ ...formData, passThresholdPercent: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4. Cấu trúc số lượng câu hỏi */}
+                    <div className="p-4 bg-sky-50/40 border border-sky-200 rounded-xl space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-sky-900 uppercase tracking-wide">
+                          Cơ cấu phân bổ số câu hỏi
+                        </h3>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded bg-sky-100 text-sky-800">
+                          Chung + Riêng = Tổng
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                            <span>Tổng số câu</span>
+                            <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded font-medium">Tự tính</span>
+                          </label>
+                          <input
+                            tabIndex={-1}
+                            readOnly
+                            type="number"
+                            className="w-full px-3 py-2 text-lg font-bold text-center text-slate-700 border-2 border-slate-200 rounded-lg bg-slate-100/80 outline-none cursor-default select-none"
+                            value={formData.totalQuestions}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Số câu chung
+                          </label>
+                          <input
+                            required
+                            type="number"
+                            min="0"
+                            inputMode="numeric"
+                            className="w-full px-3 py-2 text-lg font-bold text-center text-[#008BC5] border-2 border-slate-300 rounded-lg focus:border-[#008BC5] bg-white outline-none"
+                            value={formData.commonQuestionCount}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const cNum = Number(val) || 0;
+                              const dNum = Number(formData.departmentQuestionCount) || 0;
+                              setFormData({
+                                ...formData,
+                                commonQuestionCount: val,
+                                totalQuestions: cNum + dNum,
+                              });
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Số câu bộ phận
+                          </label>
+                          <input
+                            required
+                            type="number"
+                            min="0"
+                            inputMode="numeric"
+                            className="w-full px-3 py-2 text-lg font-bold text-center text-indigo-600 border-2 border-slate-300 rounded-lg focus:border-[#008BC5] bg-white outline-none"
+                            value={formData.departmentQuestionCount}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const dNum = Number(val) || 0;
+                              const cNum = Number(formData.commonQuestionCount) || 0;
+                              setFormData({
+                                ...formData,
+                                departmentQuestionCount: val,
+                                totalQuestions: cNum + dNum,
+                              });
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 5. Công tắc bù câu chung */}
+                    <label className="flex items-start gap-3.5 p-4 bg-slate-50 hover:bg-slate-100/70 border-2 border-slate-200 rounded-xl cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        className="mt-1 w-5 h-5 shrink-0 accent-[#008BC5] rounded cursor-pointer"
+                        checked={Boolean(formData.allowCommonCompensation)}
+                        onChange={(e) => setFormData({ ...formData, allowCommonCompensation: e.target.checked })}
+                      />
+                      <span className="text-sm text-slate-700 select-none">
+                        <span className="block font-bold text-base text-slate-800">
+                          Cho phép bù câu hỏi chung khi phòng ban thiếu câu riêng
+                        </span>
+                        <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                          <strong>• Bật:</strong> Phòng thiếu câu riêng vẫn thi được (bù phần thiếu bằng câu chung).
+                          <br />
+                          <strong>• Tắt (khuyến nghị công bằng):</strong> Phòng chưa đủ câu riêng bị khóa, thí sinh không thể thi đề toàn câu chung.
+                        </span>
+                      </span>
+                    </label>
                   </div>
 
-                  {formData.departmentScope === 'selected' && (
-                    <div className="space-y-2 pt-2 border-t border-slate-200">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-slate-700">
-                          Danh sách phòng ban ({allowedDeptIdSet.size}/{(topicStats?.departments ?? []).length} đã chọn):
-                        </span>
-                        <div className="flex gap-2 text-xs">
+                  {/* CỘT PHẢI (5 cột): Số liệu ngân hàng câu hỏi & Phạm vi phòng ban */}
+                  <div className="lg:col-span-5 space-y-5">
+                    {/* Bảng số liệu câu hỏi của chủ đề */}
+                    <div className="bg-slate-50 border-2 border-slate-200 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                        <span className="text-sm font-bold text-slate-800">Ngân hàng câu hỏi hiện có</span>
+                        {topicStats && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#008BC5]/10 text-[#008BC5]">
+                            {topicStats.commonCount} câu chung
+                          </span>
+                        )}
+                      </div>
+
+                      {statsLoading ? (
+                        <div className="py-8 text-center text-sm text-slate-500 flex items-center justify-center gap-2">
+                          <span className="inline-block w-4 h-4 border-2 border-[#008BC5] border-t-transparent rounded-full animate-spin"></span>
+                          Đang kiểm tra số lượng câu hỏi...
+                        </div>
+                      ) : topicStats ? (
+                        <>
+                          <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                            {topicStats.departments.map((d) => {
+                              const isInsufficient = !allowCompensation && perDept > 0 && d.count < perDept;
+                              return (
+                                <div
+                                  key={d.departmentId}
+                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium ${
+                                    isInsufficient ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-white text-slate-700 border border-slate-200'
+                                  }`}
+                                >
+                                  <span className="truncate pr-2" title={d.name}>{d.name}</span>
+                                  <span className="font-bold shrink-0">{d.count} câu</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <p className="text-[11px] text-slate-500 italic">
+                            * Chỉ tính các câu hỏi thuộc ngân hàng Thi chính thức (không tính câu Ôn tập).
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-slate-400 py-4 text-center italic">
+                          Vui lòng chọn chủ đề để xem số liệu câu hỏi khả dụng.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Cảnh báo lỗi cấu hình nếu có */}
+                    {formData.topicId && topicStats && (
+                      <div className="space-y-2">
+                        {commonExceedsPool && (
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#C53030] flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                            <span>Số câu chung ({common}) vượt quá số câu chung hiện có ({commonCount}).</span>
+                          </div>
+                        )}
+                        {scopeInsufficientDepartments.length > 0 && (
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#C53030] space-y-1.5">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <AlertCircle className="w-4 h-4 shrink-0" />
+                              Không thể lưu do thiếu câu riêng (đang tắt bù):
+                            </div>
+                            <ul className="list-disc pl-5 space-y-0.5">
+                              {scopeInsufficientDepartments.map((d) => (
+                                <li key={`scope-${d.departmentId}`}>
+                                  {d.name}: có {d.count}/{perDept} câu riêng
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {infeasibleDepartments.length > 0 && (
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+                              Lưu ý về phòng ban thiếu câu riêng:
+                            </div>
+                            {infeasibleDepartments.map((d) => (
+                              <p key={d.departmentId} className="text-[11px]">
+                                • {d.name}: có {d.count}/{perDept} câu riêng
+                                {allowCompensation ? ` (sẽ tự bù ${d.shortfall} câu chung)` : ' (bị khóa khỏi kỳ thi)'}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Cấu hình phạm vi phòng ban */}
+                    <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-xl space-y-3">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-800 mb-1">
+                          Phạm vi phòng ban được phép thi
+                        </label>
+                        <p className="text-xs text-slate-500 mb-2.5">
+                          Giới hạn phòng ban/phân xưởng được tham gia thi đề này.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
-                            onClick={() => {
-                              const allIds = (topicStats?.departments ?? []).map((d) => String(d.departmentId));
-                              setFormData({ ...formData, allowedDepartmentIds: allIds });
-                            }}
-                            className="text-[#008BC5] hover:underline"
+                            onClick={() => setFormData({ ...formData, departmentScope: 'all', allowedDepartmentIds: [] })}
+                            className={`py-2 px-3 rounded-lg border text-sm font-semibold transition-all text-center ${
+                              formData.departmentScope !== 'selected'
+                                ? 'bg-[#008BC5] text-white border-[#008BC5] shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            }`}
                           >
-                            Chọn tất cả
+                            Tất cả phòng ban
                           </button>
-                          <span className="text-slate-300">|</span>
                           <button
                             type="button"
-                            onClick={() => setFormData({ ...formData, allowedDepartmentIds: [] })}
-                            className="text-slate-500 hover:underline"
+                            onClick={switchToSelectedScope}
+                            className={`py-2 px-3 rounded-lg border text-sm font-semibold transition-all text-center ${
+                              formData.departmentScope === 'selected'
+                                ? 'bg-[#008BC5] text-white border-[#008BC5] shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                            }`}
                           >
-                            Bỏ chọn hết
+                            Chọn phòng ban cụ thể
                           </button>
                         </div>
                       </div>
 
-                      {topicStats?.departments && topicStats.departments.length > 0 ? (
-                        <div className="max-h-48 overflow-y-auto space-y-1 pr-1 bg-white p-2 rounded-lg border border-slate-200">
-                          {topicStats.departments.map((dept) => {
-                            const isChecked = allowedDeptIdSet.has(String(dept.departmentId));
-                            const hasNoEmp = (dept.employeeCount ?? 0) === 0;
-                            return (
-                              <label
-                                key={dept.departmentId}
-                                className={`flex items-center justify-between p-1.5 rounded hover:bg-slate-50 cursor-pointer text-xs ${
-                                  isChecked ? 'bg-sky-50/50' : ''
-                                }`}
+                      {formData.departmentScope === 'selected' && (
+                        <div className="space-y-2.5 pt-3 border-t border-slate-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-700">
+                              Đã chọn: {allowedDeptIdSet.size}/{(topicStats?.departments ?? []).length} phòng
+                            </span>
+                            <div className="flex gap-2 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const allIds = (topicStats?.departments ?? []).map((d) => String(d.departmentId));
+                                  setFormData({ ...formData, allowedDepartmentIds: allIds });
+                                }}
+                                className="text-[#008BC5] font-semibold hover:underline"
                               >
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    className="w-4 h-4 accent-[#008BC5] rounded"
-                                    checked={isChecked}
-                                    onChange={() => toggleAllowedDepartment(dept.departmentId)}
-                                  />
-                                  <span className={`font-medium ${isChecked ? 'text-slate-900' : 'text-slate-600'}`}>
-                                    {dept.name}
-                                  </span>
-                                  {hasNoEmp && (
-                                    <span className="text-[10px] text-amber-600 bg-amber-50 px-1 rounded">
-                                      (0 nhân viên)
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-slate-400 font-mono text-[11px]">
-                                  {dept.count} câu
-                                </span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 italic">
-                          Vui lòng chọn chủ đề liên kết để xem danh sách phòng ban.
-                        </p>
-                      )}
+                                Chọn tất cả
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, allowedDepartmentIds: [] })}
+                                className="text-slate-500 font-semibold hover:underline"
+                              >
+                                Bỏ chọn hết
+                              </button>
+                            </div>
+                          </div>
 
-                      {allowedDeptIdSet.size === 0 && (
-                        <p className="text-xs text-[#C53030] flex items-center gap-1">
-                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                          Cần chọn ít nhất một phòng ban trong phạm vi được thi.
-                        </p>
+                          {topicStats?.departments && topicStats.departments.length > 0 ? (
+                            <div className="max-h-52 overflow-y-auto space-y-1.5 p-2 bg-white rounded-lg border border-slate-200">
+                              {topicStats.departments.map((dept) => {
+                                const isChecked = allowedDeptIdSet.has(String(dept.departmentId));
+                                const hasNoEmp = (dept.employeeCount ?? 0) === 0;
+                                return (
+                                  <label
+                                    key={dept.departmentId}
+                                    className={`flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 cursor-pointer text-xs transition-colors ${
+                                      isChecked ? 'bg-sky-50/70 border border-sky-200' : 'border border-transparent'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        className="w-4 h-4 accent-[#008BC5] rounded cursor-pointer"
+                                        checked={isChecked}
+                                        onChange={() => toggleAllowedDepartment(dept.departmentId)}
+                                      />
+                                      <span className={`font-semibold truncate ${isChecked ? 'text-slate-900' : 'text-slate-600'}`}>
+                                        {dept.name}
+                                      </span>
+                                      {hasNoEmp && (
+                                        <span className="text-[10px] text-amber-700 bg-amber-100/80 px-1.5 py-0.5 rounded font-medium shrink-0">
+                                          0 nhân viên
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-slate-400 font-mono text-[11px] shrink-0 ml-1">
+                                      {dept.count} câu
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic py-2 text-center">
+                              Vui lòng chọn chủ đề để hiển thị danh sách phòng ban.
+                            </p>
+                          )}
+
+                          {allowedDeptIdSet.size === 0 && (
+                            <p className="text-xs text-[#C53030] flex items-center gap-1 font-semibold">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              Cần chọn ít nhất một phòng ban trong phạm vi được thi.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </form>
             </div>
 
-            <div className="p-4 sm:p-6 border-t border-slate-200 bg-slate-50 flex flex-col-reverse sm:flex-row justify-end gap-3 shrink-0">
-              <button type="button" onClick={closeModal} className="px-4 py-3 min-h-[46px] bg-slate-200 hover:bg-slate-300 active:bg-slate-300 text-slate-700 rounded-lg font-medium transition-colors">
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col-reverse sm:flex-row justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="px-6 py-3 min-h-[48px] bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-base transition-colors"
+              >
                 Hủy
               </button>
-              <button type="submit" form="createExamForm" disabled={hasBlockingError}
-                className="px-4 py-3 min-h-[46px] bg-[#008BC5] hover:bg-sky-600 active:bg-sky-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#008BC5]">
+              <button
+                type="submit"
+                form="createExamForm"
+                disabled={hasBlockingError}
+                className="px-8 py-3 min-h-[48px] bg-[#008BC5] hover:bg-sky-600 text-white rounded-xl font-bold text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+              >
                 {editingExamId ? 'Lưu thay đổi' : 'Lưu đề xuất'}
               </button>
             </div>

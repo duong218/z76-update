@@ -20,16 +20,20 @@ export async function createDepartment({ name, code, description }) {
   if (!trimmed) {
     throw new ApiError(400, 'Tên bộ phận là bắt buộc', 'DEPARTMENT_VALIDATION');
   }
+  const trimmedCode = code ? normalizeDeptCode(code) : '';
+  if (!trimmedCode) {
+    throw new ApiError(400, 'Mã bộ phận là bắt buộc', 'DEPARTMENT_VALIDATION');
+  }
   try {
     const doc = await Department.create({
       name: trimmed,
-      code: code?.trim() || undefined,
+      code: trimmedCode,
       description: description?.trim() || '',
     });
     return doc.toObject();
   } catch (err) {
     if (err.code === 11000) {
-      throw new ApiError(409, 'Bộ phận đã tồn tại', 'DEPARTMENT_DUPLICATE');
+      throw new ApiError(409, 'Tên hoặc mã bộ phận đã tồn tại', 'DEPARTMENT_DUPLICATE');
     }
     throw err;
   }
@@ -204,7 +208,13 @@ export async function updateDepartment(id, { name, code, description, isActive }
     }
     dept.name = trimmed;
   }
-  if (code !== undefined) dept.code = code?.trim() || undefined;
+  if (code !== undefined) {
+    const trimmedCode = code ? normalizeDeptCode(code) : '';
+    if (!trimmedCode) {
+      throw new ApiError(400, 'Mã bộ phận là bắt buộc', 'DEPARTMENT_VALIDATION');
+    }
+    dept.code = trimmedCode;
+  }
   if (description !== undefined) dept.description = description?.trim() || '';
   if (isActive !== undefined) dept.isActive = Boolean(isActive);
 
@@ -212,7 +222,7 @@ export async function updateDepartment(id, { name, code, description, isActive }
     await dept.save();
   } catch (err) {
     if (err.code === 11000) {
-      throw new ApiError(409, 'Bộ phận đã tồn tại', 'DEPARTMENT_DUPLICATE');
+      throw new ApiError(409, 'Tên hoặc mã bộ phận đã tồn tại', 'DEPARTMENT_DUPLICATE');
     }
     throw err;
   }

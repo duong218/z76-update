@@ -287,7 +287,9 @@ export const DepartmentTab = ({ onViewQuestions } = {}) => {
             </div>
             <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Mã bộ phận (Ví dụ: XDM1)</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Mã bộ phận (Ví dụ: XDM1) <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   required
@@ -298,7 +300,9 @@ export const DepartmentTab = ({ onViewQuestions } = {}) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Tên bộ phận</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Tên bộ phận <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   required

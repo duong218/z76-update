@@ -1,14 +1,31 @@
 import { apiRequest, API_BASE_URL } from './api';
 import { getAuthHeaders, getAccessToken } from './auth.service';
 
-export const fetchOverviewStats = async () => {
-  return apiRequest('/reports/overview', {
+// MỚI — Gắn bộ lọc chủ đề (tùy chọn) vào đường dẫn. Không có topicId thì giữ nguyên đường dẫn cũ,
+// nên các nơi đang gọi không truyền tham số vẫn chạy như trước.
+const withTopicFilter = (path, filters = {}) => {
+  const query = new URLSearchParams();
+  if (filters.topicId) query.append('topicId', filters.topicId);
+  const qs = query.toString();
+  return qs ? `${path}?${qs}` : path;
+};
+
+export const fetchOverviewStats = async (filters = {}) => {
+  return apiRequest(withTopicFilter('/reports/overview', filters), {
     headers: getAuthHeaders(),
   });
 };
 
-export const fetchResultsByDepartment = async () => {
-  return apiRequest('/reports/by-department', {
+export const fetchResultsByDepartment = async (filters = {}) => {
+  return apiRequest(withTopicFilter('/reports/by-department', filters), {
+    headers: getAuthHeaders(),
+  });
+};
+
+// MỚI — Danh sách chủ đề có kết quả thi, dùng cho bộ lọc ở tab Tổng quan của Người duyệt đề.
+// Trả về { success, data: [{ _id, name, totalSubmissions }] }
+export const fetchReportTopics = async () => {
+  return apiRequest('/reports/topics', {
     headers: getAuthHeaders(),
   });
 };

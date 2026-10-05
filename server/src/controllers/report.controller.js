@@ -9,7 +9,7 @@ import { reportService } from '../services/report.service.js';
 export const reportController = {
   // Lấy các chỉ số thống kê tổng quan (tổng đề thi, số thí sinh, tỷ lệ đạt)
   getOverviewStats: asyncHandler(async (req, res) => {
-    const stats = await reportService.getOverviewStats();
+    const stats = await reportService.getOverviewStats({ topicId: req.query.topicId });
     res.json({
       success: true,
       data: stats,
@@ -18,7 +18,16 @@ export const reportController = {
 
   // Thống kê kết quả thi và tỷ lệ đạt theo từng đơn vị / phòng ban
   getResultsByDepartment: asyncHandler(async (req, res) => {
-    const data = await reportService.getResultsByDepartment();
+    const data = await reportService.getResultsByDepartment({ topicId: req.query.topicId });
+    res.json({
+      success: true,
+      data,
+    });
+  }),
+
+  // MỚI — Danh sách chủ đề có kết quả thi, dùng cho bộ lọc ở tab Tổng quan
+  getTopicOptions: asyncHandler(async (req, res) => {
+    const data = await reportService.getTopicOptions();
     res.json({
       success: true,
       data,

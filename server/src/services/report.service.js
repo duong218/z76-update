@@ -76,6 +76,18 @@ const getBasePipeline = () => [
   },
 ];
 
+// Bộ lọc theo CHỦ ĐỀ (tùy chọn): chỉ giữ các kết quả thuộc kỳ thi có exam.topicId = topicId.
+// Không truyền topicId -> không lọc (giữ nguyên hành vi cũ). topicId sai định dạng -> trả về rỗng thay vì
+// bỏ qua bộ lọc, để không hiển thị nhầm số liệu toàn hệ thống khi người dùng đang xem một chủ đề.
+// Phải đặt SAU getBasePipeline() vì cần trường `exam` đã được $lookup.
+const topicMatchStages = (topicId) => {
+  if (topicId === undefined || topicId === null || topicId === '') return [];
+  if (typeof topicId !== 'string' || !mongoose.Types.ObjectId.isValid(topicId)) {
+    return [{ $match: { _id: { $in: [] } } }];
+  }
+  return [{ $match: { 'exam.topicId': new mongoose.Types.ObjectId(topicId) } }];
+};
+
 // Hàm phụ trợ escape ký tự đặc biệt trong Regex tránh lỗi Regex Injection
 function escapeRegex(str) {
   return String(str ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -123,9 +135,10 @@ function styleDataRow(row, { centerCols = [], passedCol = null, passedValue = nu
 
 export const reportService = {
   // Lấy các chỉ số thống kê tổng quan toàn hệ thống (Tổng lượt nộp, Thí sinh, Số lượng đạt/hỏng, Điểm TB)
-  async getOverviewStats() {
+  async getOverviewStats(filters = {}) {
     const pipeline = [
       ...getBasePipeline(),
+      ...topicMatchStages(filters.topicId),
       {
         $group: {
           _id: null,
@@ -167,9 +180,10 @@ export const reportService = {
   },
 
   // Thống kê tỷ lệ thi đạt và điểm trung bình theo từng Phòng ban / Đơn vị
-  async getResultsByDepartment() {
+  async getResultsByDepartment(filters = {}) {
     const pipeline = [
       ...getBasePipeline(),
+      ...topicMatchStages(filters.topicId),
       {
         $group: {
           _id: '$department._id',
@@ -252,6 +266,24 @@ export const reportService = {
       passRate: Number(r.passRate.toFixed(2)),
       avgScore: Number(r.avgScore.toFixed(2)),
     }));
+  },
+
+  // MỚI — Danh sách chủ đề để làm bộ lọc ở tab Tổng quan của Người duyệt đề.
+  // Chỉ gồm các chủ đề đã có ít nhất 1 kết quả thi (chọn chủ đề chưa có kết quả thì chỉ ra trang trống).
+  async getTopicOptions() {
+    const pipeline = [
+      ...getBasePipeline(),
+      { $match: { 'topic._id': { $exists: true } } },
+      {
+        $group: {
+          _id: '$topic._id',
+          name: { $first: '$topic.name' },
+          totalSubmissions: { $sum: 1 },
+        },
+      },
+      { $sort: { name: 1 } },
+    ];
+    return Result.aggregate(pipeline);
   },
 
   // Lấy tỷ lệ thi đạt theo phòng ban cho Trang chủ Công khai (Không cần đăng nhập, ẩn các thông tin nhạy cảm)

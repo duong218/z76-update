@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Award, Search, CheckCircle2, XCircle, Loader2, ChevronDown, BarChart3 } from 'lucide-react';
+import { Award, Search, CheckCircle2, XCircle, Loader2, ChevronDown, BarChart3, Trophy } from 'lucide-react';
 import { fetchPublicResultsByDepartment, lookupPublicResult } from '../services/report.service';
 
 const VISIBLE_DEPT_COUNT = 5;
@@ -31,7 +31,7 @@ export const ResultsLookupSection = () => {
     try {
       const data = await lookupPublicResult(term);
       setSearchResults(Array.isArray(data) ? data : []);
-    } catch (err) {
+    } catch {
       setSearchError('Không thể tra cứu lúc này. Vui lòng thử lại.');
       setSearchResults(null);
     } finally {
@@ -39,7 +39,11 @@ export const ResultsLookupSection = () => {
     }
   };
 
-  const visibleDepartments = showAllDepts ? departments : departments.slice(0, VISIBLE_DEPT_COUNT);
+  // Xếp hạng theo tỷ lệ đạt giảm dần (bằng nhau thì phòng nhiều lượt thi hơn xếp trên) — không phụ thuộc thứ tự API trả về.
+  const rankedDepartments = [...departments].sort(
+    (a, b) => (b.passRate - a.passRate) || ((b.totalSubmissions || 0) - (a.totalSubmissions || 0)),
+  );
+  const visibleDepartments = showAllDepts ? rankedDepartments : rankedDepartments.slice(0, VISIBLE_DEPT_COUNT);
 
   return (
     <section id="results" className="py-6 px-4 bg-white border-t border-slate-200">
@@ -167,24 +171,44 @@ export const ResultsLookupSection = () => {
           ) : (
             <>
               <div className="space-y-2">
-                {visibleDepartments.map((dept) => (
-                  <div
-                    key={dept.departmentName}
-                    className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-z176"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold text-[#0F172A]">{dept.departmentName}</span>
-                      <span className="text-sm font-bold text-[#008BC5]">{dept.passRate}%</span>
+                {visibleDepartments.map((dept, index) => {
+                  // Top 1 nổi bật màu vàng; nếu chưa ai đạt (0%) thì không trao danh hiệu
+                  const isTop = index === 0 && dept.passRate > 0;
+                  return (
+                    <div
+                      key={dept.departmentName}
+                      className={`rounded-[10px] p-4 border ${
+                        isTop
+                          ? 'bg-gradient-to-br from-[#FFF8E6] to-white border-[#F6AD37] ring-1 ring-[#F6AD37]/40 shadow-[0_4px_16px_rgba(246,173,55,0.22)]'
+                          : 'bg-white border-slate-200 shadow-z176'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {isTop && (
+                            <span className="inline-flex items-center gap-1 shrink-0 px-2 py-0.5 rounded-full bg-[#F6AD37] text-[#0F172A] text-xs font-bold">
+                              <Trophy className="w-3.5 h-3.5" aria-hidden="true" />
+                              1
+                            </span>
+                          )}
+                          <span className="font-semibold text-[#0F172A] truncate">{dept.departmentName}</span>
+                        </div>
+                        <span className={`text-sm font-bold shrink-0 ${isTop ? 'text-[#B45309]' : 'text-[#008BC5]'}`}>
+                          {dept.passRate}%
+                        </span>
+                      </div>
+                      <div className={`h-2 rounded-full overflow-hidden ${isTop ? 'bg-[#FDE9C0]' : 'bg-slate-100'}`}>
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            isTop ? 'bg-gradient-to-r from-[#FBBF4E] to-[#F59E0B]' : 'bg-[#008BC5]'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(0, dept.passRate))}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">{dept.totalSubmissions} lượt thi</div>
                     </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-[#008BC5] rounded-full transition-all"
-                        style={{ width: `${Math.min(100, Math.max(0, dept.passRate))}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">{dept.totalSubmissions} lượt thi</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {departments.length > VISIBLE_DEPT_COUNT && (

@@ -80,6 +80,8 @@ function App() {
   // hiển thị + đổi được từ menu 3 gạch trên mobile.
   const [adminSubTab, setAdminSubTab] = useState('overview');
   const [examinerSubTab, setExaminerSubTab] = useState('overview');
+  // Đề xuất cần tô sáng khi Người ra đề mở từ thông báo: { examId, ts } (null = không có yêu cầu)
+  const [examinerHighlight, setExaminerHighlight] = useState(null);
   const [leaderSubTab, setLeaderSubTab] = useState('overview');
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isExamOpen, setIsExamOpen] = useState(false);
@@ -302,6 +304,29 @@ function App() {
     }
   };
 
+  // Bấm thông báo trên chuông, điều hướng theo role + loại thông báo; trả về true nếu đã điều hướng
+  // để NotificationBell đóng dropdown. Loại khác (vd exam_published) giữ nguyên, không chuyển trang.
+  //  - Leader bấm "đề xuất chờ duyệt" (exam_submitted)  -> tab "Duyệt kỳ thi".
+  //  - Examiner bấm "đã phê duyệt/bị từ chối" (exam_approved/exam_rejected) -> tab "Đề xuất kỳ thi".
+  const handleNotificationClick = (notification) => {
+    const type = notification?.type;
+    const role = currentUser?.roleCode;
+    if (role === 'leader' && type === 'exam_submitted') {
+      setLeaderSubTab('review');
+      setActiveTab('leader-dashboard');
+    } else if (role === 'examiner' && (type === 'exam_approved' || type === 'exam_rejected')) {
+      setExaminerSubTab('proposals');
+      // listForUser populate examId thành { _id, title }; null nếu kỳ thi đã bị xóa
+      const examId = notification.examId?._id ?? notification.examId;
+      setExaminerHighlight(examId ? { examId: String(examId), ts: Date.now() } : null);
+      setActiveTab('examiner-dashboard');
+    } else {
+      return false;
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return true;
+  };
+
   const handleOpenExam = () => {
     setIsExamOpen(true);
   };
@@ -350,6 +375,7 @@ function App() {
         currentUser={currentUser}
         authLoading={authLoading}
         onLogout={handleLogout}
+        onNotificationClick={handleNotificationClick}
         dashboardTabs={
           activeTab === 'admin-dashboard'
             ? ADMIN_DASHBOARD_TABS
@@ -404,7 +430,12 @@ function App() {
         {activeTab === 'admin-dashboard' && currentUser?.roleCode === 'admin' ? (
           <AdminDashboard currentUser={currentUser} activeTab={adminSubTab} onTabChange={setAdminSubTab} />
         ) : activeTab === 'examiner-dashboard' && currentUser?.roleCode === 'examiner' ? (
-          <ExaminerDashboard activeTab={examinerSubTab} onTabChange={setExaminerSubTab} />
+          <ExaminerDashboard
+            activeTab={examinerSubTab}
+            onTabChange={setExaminerSubTab}
+            highlightExam={examinerHighlight}
+            onHighlightConsumed={() => setExaminerHighlight(null)}
+          />
         ) : activeTab === 'leader-dashboard' && currentUser?.roleCode === 'leader' ? (
           <LeaderDashboard onLogout={handleLogout} activeTab={leaderSubTab} onTabChange={setLeaderSubTab} />
         ) : activeTab === 'candidate-dashboard' && currentUser?.roleCode === 'candidate' ? (

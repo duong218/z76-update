@@ -31,6 +31,8 @@ export const Header = ({
   dashboardTabs = [],
   dashboardActiveTab,
   onSelectDashboardTab,
+  // MỚI — bấm vào 1 thông báo trong chuông (App quyết định điều hướng theo loại thông báo)
+  onNotificationClick,
 }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -136,7 +138,7 @@ export const Header = ({
           ) : currentUser ? (
             <div className="flex items-center gap-1.5 xl:gap-2">
               {/* Chuông thông báo */}
-              <NotificationBell currentUser={currentUser} />
+              <NotificationBell currentUser={currentUser} onNotificationClick={onNotificationClick} />
 
               {/* User info pill */}
               <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-800 rounded-lg border border-slate-700 max-w-[9rem] xl:max-w-none">
@@ -179,7 +181,7 @@ export const Header = ({
 
         {/* Mobile/Tablet Right Area: Chuông (nếu đăng nhập) + Hamburger Toggle (<1024px) */}
         <div className="flex items-center gap-1 lg:hidden">
-          {!authLoading && currentUser && <NotificationBell currentUser={currentUser} />}
+          {!authLoading && currentUser && <NotificationBell currentUser={currentUser} onNotificationClick={onNotificationClick} />}
           <button
             onClick={() => setDrawerOpen(true)}
             className="p-2.5 text-white hover:bg-[#334155] rounded-lg min-touch-target flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#008BC5]"

@@ -20,7 +20,8 @@ export const EXAMINER_DASHBOARD_TABS = [
 
 // activeTab/onTabChange giờ là props từ App.jsx (thay vì state nội bộ) — để
 // Header.jsx (menu 3 gạch ở mobile) đọc/đổi được đúng tab đang chọn ở đây.
-export const ExaminerDashboard = ({ activeTab, onTabChange }) => {
+// highlightExam/onHighlightConsumed: yêu cầu tô sáng 1 đề xuất khi mở từ chuông thông báo (xem App.jsx).
+export const ExaminerDashboard = ({ activeTab, onTabChange, highlightExam, onHighlightConsumed }) => {
   // Khi bấm "Xem câu hỏi" trên 1 thẻ chủ đề ở tab Chủ đề, hoặc trên 1 thẻ bộ
   // phận ở tab Bộ phận/Phòng ban, lưu filter tương ứng + mốc thời gian
   // (seed) vào đây rồi chuyển sang tab Ngân hàng câu hỏi. Kèm seed để nếu
@@ -75,7 +76,7 @@ export const ExaminerDashboard = ({ activeTab, onTabChange }) => {
           {activeTab === 'questions' && <QuestionBankTab initialFilter={questionsFilterSeed} />}
           {activeTab === 'topics' && <TopicTab onViewQuestions={handleViewQuestionsByTopic} />}
           {activeTab === 'departments' && <DepartmentTab onViewQuestions={handleViewQuestionsByDepartment} />}
-          {activeTab === 'proposals' && <ExamProposalTab />}
+          {activeTab === 'proposals' && <ExamProposalTab highlightExam={highlightExam} onHighlightConsumed={onHighlightConsumed} />}
           {activeTab === 'materials' && <StudyDocumentTab />}
         </div>
       </div>

@@ -39,7 +39,9 @@ function timeAgo(dateStr) {
   return `${diffDay} ngày trước`;
 }
 
-export const NotificationBell = ({ currentUser }) => {
+// onNotificationClick(notification): App quyết định có điều hướng hay không và trả về true nếu đã điều hướng
+// (khi đó dropdown tự đóng). Trả về false/undefined thì giữ hành vi cũ: chỉ đánh dấu đã đọc, dropdown vẫn mở.
+export const NotificationBell = ({ currentUser, onNotificationClick }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -109,6 +111,9 @@ export const NotificationBell = ({ currentUser }) => {
   const handleToggle = () => setIsOpen((prev) => !prev);
 
   const handleItemClick = async (notification) => {
+    // Điều hướng trước, không chờ mạng; thông báo đã đọc rồi vẫn bấm để đi tiếp được.
+    const navigated = onNotificationClick?.(notification) === true;
+    if (navigated) setIsOpen(false);
     if (notification.isRead) return;
     try {
       await markNotificationRead(notification._id);

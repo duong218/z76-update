@@ -136,7 +136,9 @@ function formatExamScopeLabel(exam) {
   return names.length ? names.join(', ') : 'Chọn phòng ban (chưa có danh sách)';
 }
 
-export const ExamProposalTab = () => {
+// highlightExam: { examId, ts } — yêu cầu từ chuông thông báo (bấm "đã duyệt"/"bị từ chối"): nhảy tới đúng trang,
+// cuộn và tô sáng đúng đề xuất đó. onHighlightConsumed: báo App xóa yêu cầu để lần sau mở lại tab không tô sáng lại.
+export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
   const { showToast } = useToast();
   const confirmAction = useConfirm();
   const [exams, setExams] = useState([]);
@@ -417,6 +419,47 @@ export const ExamProposalTab = () => {
     }
   };
 
+  // ── Tô sáng 1 đề xuất khi được mở từ thông báo ──
+  const [highlightedId, setHighlightedId] = useState(null);
+  const pendingHighlightRef = useRef(null);
+
+  // (2) Dữ liệu đã tải xong và đang có yêu cầu chờ -> nhảy tới trang chứa đề đó rồi tô sáng.
+  // Khai báo TRƯỚC effect nhận yêu cầu để lần render đầu chưa có yêu cầu thì bỏ qua.
+  useEffect(() => {
+    const targetId = pendingHighlightRef.current;
+    if (loading || !targetId) return;
+    pendingHighlightRef.current = null;
+    onHighlightConsumed?.();
+    const index = exams.findIndex((e) => e._id === targetId);
+    if (index === -1) return; // đề không còn trong danh sách: chỉ mở tab, không tô sáng
+    setPage(Math.floor(index / PAGE_SIZE) + 1);
+    setHighlightedId(targetId);
+  }, [loading, exams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // (1) Nhận yêu cầu mới. Nếu tab đã mở sẵn (không đang tải) thì tải lại để thấy đúng trạng thái
+  // vừa được duyệt/từ chối; nếu vừa mở tab thì loadData() lần đầu đang chạy rồi nên không tải thêm.
+  useEffect(() => {
+    if (!highlightExam?.examId) return;
+    pendingHighlightRef.current = String(highlightExam.examId);
+    if (!loading) loadData();
+  }, [highlightExam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cuộn tới dòng được tô sáng (bản mobile/desktop cùng tồn tại trong DOM, chọn bản đang hiển thị), tự tắt sau 4s.
+  useEffect(() => {
+    if (!highlightedId) return undefined;
+    const raf = requestAnimationFrame(() => {
+      const el = Array.from(document.querySelectorAll(`[data-exam-id="${highlightedId}"]`)).find(
+        (n) => n.offsetParent !== null,
+      );
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    const timer = setTimeout(() => setHighlightedId(null), 4000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [highlightedId]);
+
   // MỚI — Cắt danh sách theo trang hiện tại (10 kỳ thi/trang). exams giữ
   // nguyên toàn bộ dữ liệu gốc (không đổi) — chỉ pagedExams (phần hiển thị)
   // thay đổi theo `page`.
@@ -475,7 +518,13 @@ export const ExamProposalTab = () => {
           {/* Mobile card list */}
           <div className="animate-fade-in-up md:hidden space-y-3" style={{ '--stagger-delay': '80ms' }}>
             {pagedExams.map(exam => (
-              <div key={exam._id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+              <div
+                key={exam._id}
+                data-exam-id={exam._id}
+                className={`bg-white rounded-xl border shadow-sm p-4 space-y-3 transition-colors ${
+                  highlightedId === exam._id ? 'border-[#008BC5] ring-2 ring-[#008BC5]/40 bg-[#EAF6FF]' : 'border-slate-200'
+                }`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="font-bold text-slate-800 text-base leading-snug break-words">{exam.title}</h3>
@@ -543,7 +592,11 @@ export const ExamProposalTab = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {pagedExams.map(exam => (
-                    <tr key={exam._id} className="hover:bg-slate-50">
+                    <tr
+                      key={exam._id}
+                      data-exam-id={exam._id}
+                      className={`transition-colors ${highlightedId === exam._id ? 'bg-[#EAF6FF]' : 'hover:bg-slate-50'}`}
+                    >
                       <td className="p-4 font-medium text-slate-800">{exam.title}</td>
                       <td className="p-4 text-slate-600">{exam.topicId?.name}</td>
                       <td className="p-4 text-slate-600 text-xs">

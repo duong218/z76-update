@@ -4,8 +4,9 @@
  */
 
 import mongoose from 'mongoose';
-import { Exam, Topic, Department } from '../models/index.js';
-import { EXAM_STATUS } from '../models/constants.js';
+import { Exam, Topic, Department, Question } from '../models/index.js';
+import { EXAM_STATUS, QUESTION_USAGE } from '../models/constants.js';
+import { questionUsageFilter } from '../models/question.model.js';
 import { ApiError } from '../utils/api-error.js';
 import {
   generateExamCodesAndAssignCandidates,
@@ -13,6 +14,25 @@ import {
   assertScopeQuestionsSufficient,
 } from './exam-code-generation.service.js';
 import { notificationService } from './notification.service.js';
+
+// MỚI — Chủ đề dùng để ra đề phải có ít nhất 1 câu hỏi THI CHÍNH THỨC đang hoạt động. Câu ở ngân hàng Ôn tập không bao giờ
+// được rút vào đề (xem questionUsageFilter), nên chủ đề chỉ có câu Ôn tập không thể tạo thành đề thi. Chặn từ lúc tạo/đổi chủ đề
+// ở phía server, không chỉ dựa vào việc ẩn chủ đề trong form.
+async function assertTopicHasExamQuestions(topicId, topicName) {
+  const examCount = await Question.countDocuments({
+    topicId,
+    isActive: true,
+    ...questionUsageFilter(QUESTION_USAGE.EXAM),
+  });
+  if (examCount === 0) {
+    throw new ApiError(
+      400,
+      `Chủ đề "${topicName}" chưa có câu hỏi thi chính thức nào (câu thuộc ngân hàng Ôn tập không được dùng để ra đề). ` +
+        'Vui lòng chọn chủ đề khác hoặc chuyển câu hỏi sang ngân hàng Thi chính thức.',
+      'TOPIC_NO_EXAM_QUESTIONS',
+    );
+  }
+}
 
 // MỚI — Chuẩn hoá và kiểm tra phạm vi phòng ban từ payload client.
 async function parseDepartmentScopeFields(payload) {
@@ -91,6 +111,7 @@ export const examService = {
 
     const topic = await Topic.findById(topicId);
     if (!topic) throw new ApiError(404, 'Không tìm thấy chủ đề', 'TOPIC_NOT_FOUND');
+    await assertTopicHasExamQuestions(topic._id, topic.name);
 
     const scopeFields = await parseDepartmentScopeFields(payload);
     const allowComp = allowCommonCompensation === true;
@@ -152,6 +173,8 @@ export const examService = {
     if (topicId && String(topicId) !== String(exam.topicId)) {
       const topic = await Topic.findById(topicId);
       if (!topic) throw new ApiError(404, 'Không tìm thấy chủ đề', 'TOPIC_NOT_FOUND');
+      // Chỉ kiểm tra khi ĐỔI sang chủ đề khác (sửa đề giữ nguyên chủ đề cũ thì không chặn, tránh khóa đề đang soạn dở)
+      await assertTopicHasExamQuestions(topic._id, topic.name);
     }
 
     exam.title = title;

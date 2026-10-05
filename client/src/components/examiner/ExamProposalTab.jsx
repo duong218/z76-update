@@ -182,7 +182,8 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
     try {
       const [examsData, topicsData] = await Promise.all([
         fetchMyExamProposals(),
-        fetchTopics()
+        // MỚI — kèm số câu hỏi từng ngân hàng của mỗi chủ đề (questionCounts: { exam, practice }) để chỉ cho chọn chủ đề có câu THI CHÍNH THỨC
+        fetchTopics({ withCounts: true })
       ]);
       setExams(Array.isArray(examsData) ? examsData : []);
       setTopics(Array.isArray(topicsData) ? topicsData : []);
@@ -248,9 +249,29 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
       ? (topicStats?.departments ?? []).filter((d) => !allowedDeptIdSet.has(String(d.departmentId)))
       : [];
 
+  // MỚI — Ô chọn chủ đề CHỈ liệt kê chủ đề đang có câu hỏi thuộc ngân hàng THI CHÍNH THỨC (kể cả chủ đề vừa được chuyển câu từ
+  // Ôn tập sang Thi). Chủ đề chỉ có câu Ôn tập không xuất hiện. Câu ôn tập không bao giờ được rút vào đề (server lọc theo
+  // questionUsageFilter). Thiếu questionCounts (server cũ) -> coi là có, không ẩn nhầm.
+  const examCountOfTopic = (topic) => (topic?.questionCounts ? topic.questionCounts.exam ?? 0 : null);
+  const examTopics = topics.filter((t) => {
+    const n = examCountOfTopic(t);
+    return n === null || n > 0;
+  });
+  const hasExamTopics = examTopics.length > 0;
+  const topicOptions = examTopics.map((t) => {
+    const n = examCountOfTopic(t);
+    return n === null ? t : { ...t, name: `${t.name} (${n} câu thi chính thức)` };
+  });
+  // Chủ đề đang chọn không nằm trong danh sách chủ đề thi chính thức (chỉ xảy ra khi dữ liệu vừa đổi) -> chặn lưu
+  const selectedTopicNoExam =
+    Boolean(formData.topicId) &&
+    topics.length > 0 &&
+    !examTopics.some((t) => String(t._id) === String(formData.topicId));
+
   const hasBlockingError =
     !!formData.topicId &&
-    (commonExceedsPool ||
+    (selectedTopicNoExam ||
+      commonExceedsPool ||
       sumMismatch ||
       infeasibleDepartments.some((d) => d.infeasible) ||
       scopeInsufficientDepartments.length > 0);
@@ -268,11 +289,19 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
   // mở modal y hệt giao diện tạo mới. topicId có thể là object đã populate
   // (exam.topicId?.name) hoặc string id tuỳ nơi gọi — chuẩn hoá về string id
   // để TopicSelect nhận đúng giá trị.
+  const officialTopicIdOrEmpty = (topicId) => {
+    if (!topicId || topics.length === 0) return topicId;
+    if (examTopics.some((t) => String(t._id) === String(topicId))) return topicId;
+    showToast('Chủ đề của đề xuất này hiện không còn câu hỏi thi chính thức. Vui lòng chọn chủ đề khác.', 'warning');
+    return '';
+  };
+
   const openEditModal = (exam) => {
     setEditingExamId(exam._id);
     setFormData({
       title: exam.title,
-      topicId: exam.topicId?._id ?? exam.topicId ?? '',
+      // Chủ đề của đề cũ đã hết câu thi chính thức (vd đã chuyển hết sang Ôn tập) -> bỏ chọn để người soạn chọn chủ đề khác
+      topicId: officialTopicIdOrEmpty(exam.topicId?._id ?? exam.topicId ?? ''),
       durationMinutes: exam.durationMinutes,
       totalQuestions: exam.totalQuestions,
       commonQuestionCount: exam.commonQuestionCount,
@@ -319,6 +348,10 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
     e.preventDefault();
     if (!formData.topicId) {
       showToast('Vui lòng chọn chủ đề liên kết cho kỳ thi.', 'warning');
+      return;
+    }
+    if (selectedTopicNoExam) {
+      showToast('Chủ đề này chưa có câu hỏi thi chính thức nào (câu thuộc ngân hàng Ôn tập không được dùng để ra đề). Vui lòng chọn chủ đề khác hoặc chuyển câu hỏi sang ngân hàng Thi chính thức.', 'warning');
       return;
     }
     if (hasBlockingError) {
@@ -720,12 +753,23 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                       </label>
                       <TopicSelect
                         value={formData.topicId}
-                        options={topics}
+                        options={topicOptions}
                         onChange={(topicId) => setFormData({ ...formData, topicId })}
                       />
-                      <p className="text-xs text-slate-500 mt-1">
-                        Ngân hàng đề sẽ rút câu hỏi từ chủ đề này cho toàn bộ thí sinh.
+                      <p className="text-sm text-slate-600 mt-1">
+                        Chỉ hiển thị các chủ đề đang có câu hỏi thi chính thức.
                       </p>
+                      {!loading && !hasExamTopics && (
+                        <p className="text-sm text-[#C53030] bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg px-3 py-2 mt-2">
+                          Chưa có chủ đề nào có câu hỏi thi chính thức. Hãy thêm câu hỏi vào ngân hàng Thi chính thức trước
+                          khi tạo đề xuất.
+                        </p>
+                      )}
+                      {selectedTopicNoExam && (
+                        <p className="text-sm text-[#C53030] bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg px-3 py-2 mt-2">
+                          Chủ đề đang chọn hiện không còn câu hỏi thi chính thức. Vui lòng chọn chủ đề khác.
+                        </p>
+                      )}
                     </div>
 
                     {/* 3. Cấu hình thời gian & điểm đạt */}

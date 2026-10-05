@@ -66,10 +66,10 @@ client/
 │   │   └── PracticeSection.jsx             # Phân hệ luyện tập cá nhân: cấu hình bộ đề ôn tập (theo chủ đề, độ khó, chế độ instant/exam), làm bài, kiểm tra từng câu, đếm giờ, chấm điểm, xem tiến độ, chuỗi ngày liên tiếp (streak) và huy hiệu thành tích
 │   │
 │   ├── components/examiner/
-│   │   ├── DepartmentTab.jsx               # Tab quản lý phòng ban: CRUD phòng ban, mã code, slug, tìm kiếm, ngừng sử dụng/khôi phục, useScrollLock
-│   │   ├── ExamProposalTab.jsx             # Tab đề xuất kỳ thi: tạo mới / chỉnh sửa dự thảo (draft/rejected), cấu hình câu hỏi theo độ khó/phạm vi, thời gian thi, nộp duyệt, useScrollLock
+│   │   ├── DepartmentTab.jsx               # Tab quản lý phòng ban: CRUD phòng ban, bắt buộc mã bộ phận (code chuẩn hóa) & tên bộ phận (name), slug không dấu, tìm kiếm, ngừng sử dụng/khôi phục, useScrollLock
+│   │   ├── ExamProposalTab.jsx             # Tab đề xuất kỳ thi: tạo mới / chỉnh sửa dự thảo (draft/rejected), cấu hình câu hỏi theo độ khó/phạm vi, chọn phạm vi phòng ban dự thi (departmentScope: all/selected & allowedDepartmentIds), modal 2 cột rộng rãi cỡ chữ lớn cho người lớn tuổi, tự động tính tổng số câu hỏi từ số câu chung + riêng, thời gian thi, nộp duyệt, useScrollLock
 │   │   ├── OverviewTab.jsx                 # Tab tổng quan examiner: thống kê ngân hàng câu hỏi, chủ đề, trạng thái đề xuất
-│   │   ├── QuestionBankTab.jsx             # Tab ngân hàng câu hỏi: phân tách 2 ngân hàng (Thi chính thức vs Ôn tập), CRUD câu hỏi đơn/nhiều đáp án, upload ảnh Cloudinary, import Excel/Word 2 bước (preview bóc tách + duyệt/chỉnh đáp án -> confirm), chuyển đổi ngân hàng hàng loạt, xóa hàng loạt, useScrollLock
+│   │   ├── QuestionBankTab.jsx             # Tab ngân hàng câu hỏi: phân tách 2 ngân hàng (Thi chính thức vs Ôn tập), CRUD câu hỏi đơn/nhiều đáp án (modal thêm/sửa rộng 2 cột to rõ), upload ảnh Cloudinary, import Excel/Word 2 bước (preview bóc tách + tự tạo phòng ban thiếu kèm mã -> confirm), chuyển đổi ngân hàng hàng loạt, xóa hàng loạt, useScrollLock
 │   │   ├── StudyDocumentTab.jsx            # Tab tài liệu ôn tập: upload file PDF/Word/Excel lên server nội bộ, phân quyền phòng ban, xem/tải/xóa
 │   │   └── TopicTab.jsx                    # Tab chủ đề thi: CRUD chủ đề, tự động khôi phục nếu tạo trùng tên chủ đề đã xóa mềm
 │   │
@@ -77,12 +77,12 @@ client/
 │   │   ├── DepartmentReportTab.jsx         # Tab báo cáo phòng ban: thống kê số thí sinh, số lượt thi, tỷ lệ đạt/không đạt theo từng đơn vị
 │   │   ├── DetailedResultsTab.jsx          # Tab kết quả chi tiết: danh sách bảng điểm thí sinh, bộ lọc nâng cao, xuất Excel, cấp thêm lượt thi (hỗ trợ đổi lại phòng ban thi nếu chọn nhầm)
 │   │   ├── ExamReportTab.jsx               # Tab báo cáo kỳ thi: thống kê tổng hợp kết quả theo từng kỳ thi, xuất báo cáo Excel
-│   │   ├── ExamReviewTab.jsx               # Tab duyệt đề thi: xem chi tiết cấu hình đề, duyệt (approve), từ chối (reject kèm lý do), phát hành (publish), lưu trữ (archive), useScrollLock
+│   │   ├── ExamReviewTab.jsx               # Tab duyệt đề thi: xem chi tiết cấu hình đề (bao gồm phạm vi phòng ban áp dụng), cảnh báo thí sinh ngoài phạm vi (outOfScopeEmployeeCount), duyệt (approve), từ chối (reject kèm lý do), phát hành (publish), lưu trữ (archive), useScrollLock
 │   │   └── OverviewTab.jsx                 # Tab tổng quan leader: biểu đồ và chỉ số hiệu suất thi toàn đơn vị
 │   │
 │   ├── pages/
 │   │   ├── admin/AdminDashboard.jsx        # Dashboard Quản trị viên: điều phối các tab Admin (Overview, Account, AuditLog, Backup)
-│   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: xem kỳ thi active, tài liệu ôn tập theo phòng ban, luyện tập tự do & thành tích, lịch sử làm bài, vào thi
+│   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: xem kỳ thi active (hiển thị thông báo thân thiện khi không thuộc phạm vi phòng ban CANDIDATE_OUT_OF_SCOPE hoặc chưa được phân bổ đề), tài liệu ôn tập theo phòng ban, luyện tập tự do & thành tích, lịch sử làm bài, vào thi
 │   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, Topic, Department, ExamProposal, StudyDocument)
 │   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, ExamReview, DepartmentReport, ExamReport, DetailedResults)
 │   │

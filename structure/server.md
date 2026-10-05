@@ -21,9 +21,9 @@ server/
     │   ├── audit.controller.js                     # Xử lý request tra cứu nhật ký hệ thống (phân trang, lọc theo action/user/resource/thời gian)
     │   ├── auth.controller.js                      # Xử lý request xác thực: đăng nhập, refresh token, đăng xuất, lấy hồ sơ cá nhân (/me), đổi mật khẩu
     │   ├── backup.controller.js                    # Xử lý request sao lưu: danh sách bản lưu trên Drive, tạo sao lưu mới, tải về máy, khôi phục từ file .gz
-    │   ├── department.controller.js                # Xử lý request CRUD phòng ban, mã đơn vị, ngừng sử dụng (xóa mềm) và khôi phục
-    │   ├── exam.controller.js                      # Xử lý request kỳ thi: tạo dự thảo, chỉnh sửa đề xuất, nộp duyệt, phê duyệt, từ chối, phát hành, lưu trữ, lấy kỳ thi active
-    │   ├── exam-attempt.controller.js              # Xử lý request lượt thi: lấy đề thi, bắt đầu/resume (chọn vai trò/phòng ban), nộp bài, autosave đáp án, heartbeat 15s, cấp thêm lượt kèm đổi vai trò
+    │   ├── department.controller.js                # Xử lý request CRUD phòng ban: bắt buộc cả tên và mã phòng ban (code chuẩn hóa), ngừng sử dụng (xóa mềm) và khôi phục
+    │   ├── exam.controller.js                      # Xử lý request kỳ thi: tạo dự thảo, cấu hình phạm vi phòng ban dự thi (departmentScope: all/selected, allowedDepartmentIds), chỉnh sửa đề xuất, nộp duyệt, phê duyệt, từ chối, phát hành, lưu trữ, lấy kỳ thi active
+    │   ├── exam-attempt.controller.js              # Xử lý request lượt thi: lấy đề thi, bắt đầu/resume (chặn thí sinh ngoài phạm vi với CANDIDATE_OUT_OF_SCOPE, chọn vai trò/phòng ban), nộp bài, autosave đáp án, heartbeat 15s, cấp thêm lượt kèm đổi vai trò
     │   ├── notification.controller.js              # Xử lý request thông báo: danh sách, đếm chưa đọc, đánh dấu đã đọc / đọc tất cả
     │   ├── practice.controller.js                  # Xử lý request luyện tập cá nhân: lấy chủ đề khả dụng, xem tiến độ, chuỗi ngày & huy hiệu (achievements), bắt đầu phiên, kiểm tra tức thì, nộp bài, bỏ bài
     │   ├── question.controller.js                  # Xử lý request ngân hàng câu hỏi: CRUD, import Excel/Word 2 bước (preview -> confirm), upload ảnh Cloudinary, chuyển ngân hàng hàng loạt (thi/ôn tập), thống kê theo chủ đề, xóa hàng loạt
@@ -44,9 +44,9 @@ server/
     │   ├── attempt-question.model.js               # Schema câu hỏi trong lượt thi: snapshot thứ tự câu hỏi và danh sách đáp án xáo riêng cho từng lượt
     │   ├── audit-log.model.js                      # Schema nhật ký hệ thống: hành động (action), người thực hiện, thời gian, metadata chi tiết
     │   ├── candidate-answer.model.js               # Schema đáp án thí sinh đã chọn khi nộp bài: attemptId, questionId, selectedAnswerIds
-    │   ├── department.model.js                     # Schema phòng ban: tên, mã (code), mô tả, slug chuẩn hóa, trạng thái active
+    │   ├── department.model.js                     # Schema phòng ban: tên, mã (code duy nhất, bắt buộc), mô tả, slug chuẩn hóa không dấu, trạng thái active
     │   ├── employee.model.js                       # Schema hồ sơ nhân sự: họ tên, mã nhân viên, phòng ban chính (departmentId), danh sách phòng ban kiêm nhiệm (extraDepartmentIds), chức vụ, liên kết tài khoản userId
-    │   ├── exam.model.js                           # Schema kỳ thi: tiêu đề, chủ đề ref, cấu hình số câu theo độ khó/phạm vi, thời gian làm bài, điểm đạt, trạng thái workflow
+    │   ├── exam.model.js                           # Schema kỳ thi: tiêu đề, chủ đề ref, phạm vi phòng ban dự thi (departmentScope: all/selected, allowedDepartmentIds: [ObjectId]), cấu hình số câu theo độ khó/phạm vi, thời gian làm bài, điểm đạt, trạng thái workflow
     │   ├── exam-attempt.model.js                   # Schema lượt thi: thí sinh, kỳ thi, trạng thái (in_progress/submitted/expired), loại (practice/official), thời gian, lastHeartbeat
     │   ├── exam-candidate.model.js                 # Schema thí sinh được phân bổ vào kỳ thi: examId, employeeId, mã đề examCodeId, extraAttemptsGranted, roleConfirmedAt, roleChosenBy
     │   ├── exam-code.model.js                      # Schema mã đề thi: examId, departmentId, code, fingerprint (hash bộ câu hỏi)
@@ -89,10 +89,10 @@ server/
     │   ├── backup.service.js                       # Logic sao lưu: mongodump nén .gz, kết nối Google Drive API v3, upload, xoay vòng lưu trữ tối đa 5 bản, khôi phục mongorestore --drop
     │   ├── backup.scheduler.js                     # Cron scheduler: Tự động sao lưu dữ liệu lúc 03:00 hàng ngày (Asia/Ho_Chi_Minh)
     │   ├── upload-cleanup.scheduler.js             # Cron scheduler: Tự động dọn dẹp tệp tin tạm quá 6 giờ trong thư mục upload (chạy mỗi giờ)
-    │   ├── department.service.js                   # Logic phòng ban: CRUD, xóa mềm, tự động khôi phục khi tạo trùng, slugify chuẩn hóa tiếng Việt, đảm bảo mã khi import Excel (ensureDepartmentsForImport)
-    │   ├── exam.service.js                         # Logic kỳ thi: tạo dự thảo, chỉnh sửa đề xuất (draft/rejected → draft), đệ trình duyệt, approve/reject kèm lý do, publish, archive, truy vấn kỳ thi active
-    │   ├── exam-attempt.service.js                 # Logic làm bài thi chính thức: xác nhận vai trò/phòng ban thi (chính hoặc kiêm nhiệm), sinh snapshot câu hỏi xáo trộn, start/resume, autosave, heartbeat giữ phiên, tự nộp khi vắng mặt >1 phút, chấm điểm tự động, cấp thêm lượt thi kèm đổi vai trò
-    │   ├── exam-code-generation.service.js         # Logic sinh mã đề thi: thuật toán phân bổ câu hỏi chung/riêng theo phòng ban, lọc chỉ lấy câu hỏi thi chính thức (usage=exam), xáo Fisher-Yates, sinh mã đề và gán thí sinh tự động
+    │   ├── department.service.js                   # Logic phòng ban: CRUD, bắt buộc cả name và code (chuẩn hóa normalizeDeptCode), xóa mềm, tự động khôi phục khi tạo trùng, slugify chuẩn hóa tiếng Việt, upsert phòng ban khi import Excel/Word
+    │   ├── exam.service.js                         # Logic kỳ thi: tạo dự thảo, cấu hình phạm vi phòng ban dự thi (toàn bộ hoặc chọn lọc), kiểm tra cảnh báo outOfScopeEmployeeCount khi Leader duyệt/xem xét, chỉnh sửa đề xuất, đệ trình duyệt, approve/reject kèm lý do, publish, archive
+    │   ├── exam-attempt.service.js                 # Logic làm bài thi chính thức: kiểm tra tính hợp lệ phạm vi phòng ban (chặn CANDIDATE_OUT_OF_SCOPE), xác nhận vai trò/phòng ban thi (chính hoặc kiêm nhiệm), sinh snapshot câu hỏi xáo trộn, start/resume, autosave, heartbeat giữ phiên, tự nộp khi vắng mặt >1 phút, chấm điểm tự động, cấp thêm lượt thi kèm đổi vai trò
+    │   ├── exam-code-generation.service.js         # Logic sinh mã đề thi: thuật toán phân bổ câu hỏi chung/riêng theo phạm vi phòng ban được phép (allowedDepartmentIds hoặc all), lọc chỉ lấy câu hỏi thi chính thức (usage=exam), assert câu hỏi đủ số lượng, xáo Fisher-Yates, sinh mã đề và chỉ gán cho thí sinh thuộc phạm vi được thi
     │   ├── notification.service.js                 # Logic thông báo: tạo thông báo tự động theo sự kiện kỳ thi (nộp duyệt, phê duyệt, từ chối, phát hành), đánh dấu đã đọc
     │   ├── practice.service.js                     # Logic luyện tập cá nhân: lọc câu hỏi ôn tập (usage=practice), sinh bài luyện ngẫu nhiên theo chủ đề/độ khó, kiểm tra từng câu (chế độ instant), nộp bài, tính điểm, thống kê tiến độ, tính streak & thành tựu
     │   ├── question.service.js                     # Logic ngân hàng câu hỏi: CRUD, upload ảnh Cloudinary, import Excel/Word 2 bước (preview phân tích cú pháp/đáp án -> confirm ghi DB), chuyển đổi mục đích sử dụng (exam/practice), xóa hàng loạt
@@ -133,11 +133,13 @@ server/
   - `Question` (1) ↔ (N) `Answer`: Danh sách phương án trả lời (hỗ trợ single/multiple correct answers).
 - **Quy trình Kỳ thi & Mã đề**:
   - `Exam` (1) ↔ (N) `ExamCode`: Khi phát hành kỳ thi (`publish`), hệ thống sinh các mã đề tương ứng cho từng phòng ban tham gia (chỉ rút các câu hỏi có `usage = 'exam'`).
+  - Hỗ trợ phân quyền phạm vi phòng ban dự thi: `departmentScope` (`'all'` hoặc `'selected'`), `allowedDepartmentIds: [ObjectId]`. Nếu kỳ thi chọn lọc phòng ban, chỉ các phòng ban được chỉ định mới được phân bổ đề và sinh mã đề.
   - `ExamCode` (1) ↔ (N) `ExamCodeQuestion` ↔ (1) `Question`: Tập hợp các câu hỏi được trộn ngẫu nhiên gán vào từng mã đề.
-  - `Exam` (1) ↔ (N) `ExamCandidate` ↔ (1) `Employee`: Danh sách thí sinh tham gia kỳ thi kèm mã đề, quyền bổ sung lượt thi (`extraAttemptsGranted`), thời điểm và nguồn xác nhận vai trò (`roleConfirmedAt`, `roleChosenBy`).
+  - `Exam` (1) ↔ (N) `ExamCandidate` ↔ (1) `Employee`: Danh sách thí sinh tham gia kỳ thi kèm mã đề, quyền bổ sung lượt thi (`extraAttemptsGranted`), thời điểm và nguồn xác nhận vai trò (`roleConfirmedAt`, `roleChosenBy`). Chỉ những thí sinh có ít nhất một phòng ban (chính hoặc kiêm nhiệm) nằm trong phạm vi kỳ thi mới được tạo `ExamCandidate`.
 - **Lượt thi Chính thức & Chấm điểm**:
   - `ExamCandidate` (1) ↔ (N) `ExamAttempt`: Mỗi thí sinh có số lượt thi nhất định (mặc định 1 lượt chính thức, có thể được Leader cấp thêm).
-  - Thí sinh có phòng kiêm nhiệm được chọn vai trò thi (phòng chính hoặc một trong các phòng kiêm nhiệm) trước khi bắt đầu; sau khi bắt đầu, vai trò bị khóa chặt chẽ.
+  - Thí sinh ngoài phạm vi phòng ban bị chặn truy cập và ném mã lỗi `CANDIDATE_OUT_OF_SCOPE`.
+  - Thí sinh có phòng kiêm nhiệm được chọn vai trò thi (trong số các phòng thuộc phạm vi kỳ thi) trước khi bắt đầu; sau khi bắt đầu, vai trò bị khóa chặt chẽ.
   - `ExamAttempt` (1) ↔ (N) `AttemptQuestion`: Lưu snapshot câu hỏi và thứ tự đáp án xáo riêng cho từng lượt thi để đảm bảo tính công bằng.
   - `ExamAttempt` (1) ↔ (N) `CandidateAnswer`: Lưu vết các phương án thí sinh đã chọn.
   - `ExamAttempt` (1) ↔ (1) `Result`: Kết quả tổng kết lượt thi (Điểm số, Đạt/Không đạt, thời gian làm bài).
@@ -146,16 +148,18 @@ server/
   - Hỗ trợ theo dõi chuỗi ngày luyện tập (streak) và huy hiệu tích lũy qua endpoint `/api/practice/achievements`.
 
 ### 3. Quy trình Trộn đề và Phát hành Kỳ thi (`exam-code-generation.service.js`)
-- Khi Leader bấm "Đăng chính thức" (`publish`):
-  1. Hệ thống duyệt qua tất cả phòng ban có nhân viên active tham gia kỳ thi (bao gồm cả phòng chính và các phòng kiêm nhiệm).
-  2. Tính toán phương án lấy câu hỏi: Rút số câu Chung (`Common`) và số câu Riêng (`DepartmentSpecific`) theo cấu hình đề xuất (chỉ lọc câu hỏi có `usage = 'exam'` đang `isActive = true`).
-  3. Cơ chế bù đắp thông minh (Smart Fallback): Nếu một phòng ban không đủ số câu riêng, hệ thống tự động bù số câu thiếu từ ngân hàng câu hỏi chung của chủ đề đó.
-  4. Rút ngẫu nhiên câu hỏi độc lập (thuật toán Fisher–Yates) và tạo bản ghi `ExamCode` riêng biệt cho **từng cá nhân nhân viên** (`D3F9A1-PB-NV-RandomHex`), tránh nhìn bài chéo.
-  5. Tự động gán từng thí sinh vào mã đề mặc định ban đầu (theo phòng chính) trong `ExamCandidate` (idempotent theo từng nhân viên).
-  6. Gửi thông báo hệ thống tự động tới toàn bộ thí sinh.
+- Khi Leader duyệt hoặc bấm "Đăng chính thức" (`publish`):
+  1. Xác định phạm vi phòng ban dự thi: Nếu `departmentScope === 'selected'`, tập hợp phòng ban hợp lệ được giới hạn trong `allowedDepartmentIds`; nếu `'all'`, duyệt qua toàn bộ phòng ban có nhân viên active.
+  2. Hệ thống kiểm tra số lượng nhân viên ngoài phạm vi (`outOfScopeEmployeeCount`) và hiển thị cảnh báo minh bạch nếu có thí sinh không thuộc phạm vi kỳ thi.
+  3. Tính toán phương án lấy câu hỏi: Rút số câu Chung (`Common`) và số câu Riêng (`DepartmentSpecific`) theo cấu hình đề xuất (chỉ lọc câu hỏi có `usage = 'exam'` đang `isActive = true`). Kiểm tra tính đầy đủ của ngân hàng câu hỏi (`assertSufficientQuestionsForScope`).
+  4. Cơ chế bù đắp thông minh (Smart Fallback): Nếu một phòng ban không đủ số câu riêng, hệ thống tự động bù số câu thiếu từ ngân hàng câu hỏi chung của chủ đề đó.
+  5. Rút ngẫu nhiên câu hỏi độc lập (thuật toán Fisher–Yates) và tạo bản ghi `ExamCode` riêng biệt cho **từng cá nhân nhân viên** (`D3F9A1-PB-NV-RandomHex`), tránh nhìn bài chéo.
+  6. Tự động gán từng thí sinh đủ điều kiện vào mã đề mặc định ban đầu trong `ExamCandidate` (idempotent theo từng nhân viên).
+  7. Gửi thông báo hệ thống tự động tới toàn bộ thí sinh được tham gia.
 
 ### 4. Quy trình Phòng thi và Giám sát phiên thi (`exam-attempt.service.js`)
-- **Chọn vai trò & Khởi tạo / Tiếp tục (`start`)**: 
+- **Kiểm tra phạm vi & Chọn vai trò**:
+  - Khi thí sinh truy cập, hệ thống xác minh thí sinh có thuộc phạm vi phòng ban của kỳ thi hay không. Nếu không, chặn với lỗi `CANDIDATE_OUT_OF_SCOPE` và hiển thị giải thích thân thiện trên Dashboard. 
   - Nếu thí sinh thuộc nhiều phòng ban (có kiêm nhiệm) và chưa khóa vai trò (`roleConfirmedAt` rỗng), popup yêu cầu chọn phòng ban dự thi. Sau khi chọn, hệ thống cập nhật mã đề tương ứng của phòng ban đó và khóa vai trò (`roleChosenBy: 'candidate'`).
   - Sinh snapshot thứ tự câu hỏi và thứ tự phương án trả lời xáo riêng biệt cho từng lượt thi của thí sinh (`AttemptQuestion`), ẩn hoàn toàn cờ `isCorrect` của đáp án trước khi trả về client.
 - **Tự động lưu câu trả lời (`answer`)**: Lưu tức thì phương án thí sinh đã chọn vào bảng `CandidateAnswer` theo thời gian thực (autosave).

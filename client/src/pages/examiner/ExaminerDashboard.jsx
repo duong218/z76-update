@@ -49,10 +49,12 @@ export const ExaminerDashboard = ({ activeTab, onTabChange }) => {
       <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-hidden">
         {/* Tab Navigation — CHỈ hiện từ md trở lên. Trên mobile, chuyển hẳn
             sang menu 3 gạch (Header.jsx) để không phải vuốt ngang nữa. */}
-        <div className="hidden md:flex overflow-x-auto border-b border-slate-200 bg-slate-50 scrollbar-hide snap-x snap-mandatory">
+        <div role="tablist" aria-label="Các mục quản lý của Người ra đề" className="hidden md:flex overflow-x-auto border-b border-slate-200 bg-slate-50 scrollbar-hide snap-x snap-mandatory">
           {EXAMINER_DASHBOARD_TABS.map(tab => (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`flex items-center gap-2 shrink-0 snap-start px-4 sm:px-6 py-3.5 sm:py-4 font-medium text-sm sm:text-sm whitespace-nowrap transition-colors border-b-2 outline-none focus:bg-slate-100 min-h-[48px] ${
                 activeTab === tab.id
@@ -68,7 +70,8 @@ export const ExaminerDashboard = ({ activeTab, onTabChange }) => {
 
         {/* Tab Content */}
         <div className="p-3 sm:p-4 md:p-6 bg-slate-50/50 min-h-[400px]">
-          {activeTab === 'overview' && <OverviewTab />}
+          {/* onNavigate: để các mục "Việc cần xử lý", "Đề xuất gần đây"... trong Tổng quan chuyển thẳng sang tab tương ứng */}
+          {activeTab === 'overview' && <OverviewTab onNavigate={onTabChange} />}
           {activeTab === 'questions' && <QuestionBankTab initialFilter={questionsFilterSeed} />}
           {activeTab === 'topics' && <TopicTab onViewQuestions={handleViewQuestionsByTopic} />}
           {activeTab === 'departments' && <DepartmentTab onViewQuestions={handleViewQuestionsByDepartment} />}

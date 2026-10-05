@@ -82,6 +82,7 @@
 | Việc cần làm | Repo/Skill | Ghi chú |
 |---|---|---|
 | Bộ công cụ mở rộng năng lực & quy trình agent (Superpowers) | https://github.com/obra/superpowers | Bộ kỹ năng & workflow mở rộng cho AI coding agent (Claude Code, Cursor, Codex...), hỗ trợ tự động hóa luồng làm việc, lập kế hoạch, kiểm thử và tương tác hệ thống. |
+| Giảm over-engineering, tối giản code (Ponytail) | https://github.com/dietrichgebert/ponytail | Tư duy "laziest senior dev" - tập trung giải pháp đơn giản nhất, rà soát code thừa, chống over-engineering, review những gì có thể xóa hoặc tinh gọn. |
 | Xây MCP server | https://officialskills.sh/anthropics/skills/mcp-builder | (trùng mục 4, giữ ở đây để dễ tra theo nhóm AI Tools) |
 | Buộc AI hỏi lại khi thiếu thông tin | https://officialskills.sh/trailofbits/skills/ask-questions-if-underspecified | |
 

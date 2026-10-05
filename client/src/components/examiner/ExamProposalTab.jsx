@@ -244,6 +244,11 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
       ? scopedDepartments.filter((d) => d.count < perDept)
       : [];
 
+  // MỚI — Đang BẬT bù nhưng ngân hàng không đủ câu chung để bù (chung + phần thiếu > số câu chung hiện có) -> chặn lưu, báo lỗi đỏ.
+  // Các phòng thiếu câu riêng còn lại (bù được) chỉ hiện cảnh báo vàng "sẽ tự bù".
+  const compensationShortDepartments = infeasibleDepartments.filter((d) => d.infeasible);
+  const compensatableDepartments = infeasibleDepartments.filter((d) => !d.infeasible);
+
   const excludedScopeDepartments =
     scopeMode === 'selected'
       ? (topicStats?.departments ?? []).filter((d) => !allowedDeptIdSet.has(String(d.departmentId)))
@@ -977,13 +982,32 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                             </ul>
                           </div>
                         )}
-                        {infeasibleDepartments.length > 0 && (
+                        {compensationShortDepartments.length > 0 && (
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-[#C53030] space-y-1.5">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <AlertCircle className="w-4 h-4 shrink-0" />
+                              Không thể lưu do không đủ câu chung để bù:
+                            </div>
+                            <ul className="list-disc pl-5 space-y-0.5">
+                              {compensationShortDepartments.map((d) => (
+                                <li key={`comp-${d.departmentId}`}>
+                                  {d.name}: có {d.count}/{perDept} câu riêng, cần bù {d.shortfall} câu chung
+                                  {' '}(tổng cần {d.neededCommon} câu chung, ngân hàng chỉ có {commonCount})
+                                </li>
+                              ))}
+                            </ul>
+                            <p className="text-[11px]">
+                              Vui lòng bổ sung thêm câu hỏi chung cho chủ đề này hoặc giảm số câu của đề.
+                            </p>
+                          </div>
+                        )}
+                        {compensatableDepartments.length > 0 && (
                           <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1">
                             <div className="font-bold flex items-center gap-1.5">
                               <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
                               Lưu ý về phòng ban thiếu câu riêng:
                             </div>
-                            {infeasibleDepartments.map((d) => (
+                            {compensatableDepartments.map((d) => (
                               <p key={d.departmentId} className="text-[11px]">
                                 • {d.name}: có {d.count}/{perDept} câu riêng
                                 {allowCompensation ? ` (sẽ tự bù ${d.shortfall} câu chung)` : ' (bị khóa khỏi kỳ thi)'}

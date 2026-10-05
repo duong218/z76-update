@@ -66,9 +66,19 @@ export async function rejectExam(id, reason) {
   return res.data;
 }
 
-export async function publishExam(id) {
+// force = true chỉ được gửi sau khi Người duyệt đề đã xác nhận lần 2 (còn thí sinh đang làm bài ở kỳ thi cũ).
+export async function publishExam(id, { force = false } = {}) {
   const res = await apiRequest(`/exams/${id}/publish`, {
     method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(force ? { force: true } : {}),
+  });
+  return res.data;
+}
+
+// Xem trước tác động của việc đăng kỳ thi: { activeAttemptCount, currentExams: [{ _id, title }] }
+export async function fetchPublishImpact(id) {
+  const res = await apiRequest(`/exams/${id}/publish-check`, {
     headers: getAuthHeaders(),
   });
   return res.data;

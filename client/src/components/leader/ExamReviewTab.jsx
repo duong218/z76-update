@@ -7,6 +7,7 @@ import {
   approveExam,
   rejectExam,
   publishExam,
+  fetchPublishImpact,
   archiveExam,
 } from '../../services/exam-review.service';
 import { CheckCircle, XCircle, Clock, Globe, History, Archive } from 'lucide-react';
@@ -44,10 +45,6 @@ const STATUS_TEXT_LABELS = {
   archived: 'Đã lưu trữ',
 };
 
-// Người gửi duyệt = người tạo đề (chỉ Người ra đề mới tạo và gửi duyệt được đề của chính mình).
-// Server đã populate createdBy -> { _id, username }; null nếu tài khoản đó đã bị xóa.
-const authorOf = (exam) => exam.createdBy?.username || 'Không rõ';
-
 export const ExamReviewTab = () => {
   const { showToast } = useToast();
   const confirmAction = useConfirm();
@@ -57,6 +54,8 @@ export const ExamReviewTab = () => {
   const [loading, setLoading] = useState(true);
   const [archivingId, setArchivingId] = useState(null);
   const [publishingId, setPublishingId] = useState(null);
+  // Chống bấm đúp "Xác nhận duyệt" / "Từ chối" trong lúc request đang chạy
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Reject Modal
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -125,6 +124,8 @@ export const ExamReviewTab = () => {
 
   const handleApprove = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await approveExam(approveId, { startDate, endDate });
       setIsApproveModalOpen(false);
@@ -139,11 +140,15 @@ export const ExamReviewTab = () => {
         return;
       }
       showToast(error.message || 'Lỗi khi duyệt kỳ thi', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleReject = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await rejectExam(rejectId, rejectReason);
       setIsRejectModalOpen(false);
@@ -157,6 +162,8 @@ export const ExamReviewTab = () => {
         return;
       }
       showToast(error.message || 'Lỗi khi từ chối kỳ thi', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -168,10 +175,48 @@ export const ExamReviewTab = () => {
     if (!ok) return;
     setPublishingId(id);
     try {
-      await publishExam(id);
+      // Đang có thí sinh làm bài ở kỳ thi hiện tại? Đăng kỳ thi mới sẽ kết thúc kỳ thi đó ngay -> bắt buộc xác nhận lần 2.
+      const confirmForce = (info) =>
+        confirmAction(
+          `Hiện có ${info?.activeAttemptCount ?? 'một số'} thí sinh đang làm bài` +
+            (info?.currentExams?.length ? ` trong kỳ thi "${info.currentExams.map((e) => e.title).join('", "')}"` : '') +
+            '. Nếu đăng kỳ thi mới bây giờ, kỳ thi này sẽ bị lưu trữ ngay và các thí sinh đó sẽ KHÔNG nộp được bài (bài làm dở có thể bị mất). Bạn có chắc chắn vẫn muốn đăng?',
+          { title: 'Còn thí sinh đang làm bài', confirmLabel: 'Vẫn đăng chính thức', danger: true },
+        );
+
+      const impact = await fetchPublishImpact(id).catch(() => null);
+      let force = false;
+      if (impact?.activeAttemptCount > 0) {
+        if (!(await confirmForce(impact))) return;
+        force = true;
+      }
+
+      try {
+        await publishExam(id, { force });
+      } catch (err) {
+        // Có thí sinh vừa vào thi sau lúc kiểm tra: hỏi lại với số liệu mới nhất rồi mới ép đăng.
+        if (err.code === 'EXAM_PUBLISH_ACTIVE_ATTEMPTS' && !force) {
+          const latest = await fetchPublishImpact(id).catch(() => null);
+          if (!(await confirmForce(latest ?? impact))) return;
+          await publishExam(id, { force: true });
+        } else {
+          throw err;
+        }
+      }
       showToast('Đã đăng chính thức kỳ thi.', 'success');
       loadData();
     } catch (error) {
+      // Đề đã được thao tác ở nơi khác (đăng xong / bị bỏ qua) -> báo đúng trạng thái thật, KHÔNG bảo bấm lại.
+      if (error.code === 'EXAM_INVALID_STATUS') {
+        await reportStaleStatusError(id, error.message || 'Lỗi khi đăng chính thức');
+        return;
+      }
+      // Đang có Người duyệt đề khác phát hành đúng kỳ thi này.
+      if (error.code === 'EXAM_PUBLISH_IN_PROGRESS' || error.code === 'EXAM_CONFLICT' || error.code === 'EXAM_PUBLISH_CONFLICT') {
+        showToast(error.message, 'warning');
+        loadData();
+        return;
+      }
       // Publish có thể đã xử lý được MỘT PHẦN trước khi lỗi xảy ra (vd mất
       // mạng giữa chừng lúc đang sinh mã đề/gán thí sinh) — kỳ thi khi đó vẫn
       // ở trạng thái "approved" (chưa published), an toàn để bấm lại. Ghi rõ
@@ -203,6 +248,9 @@ export const ExamReviewTab = () => {
     } catch (error) {
       if (error.code === 'EXAM_INVALID_STATUS') {
         await reportStaleStatusError(id, error.message || 'Lỗi khi bỏ qua kỳ thi');
+      } else if (error.code === 'EXAM_PUBLISH_IN_PROGRESS' || error.code === 'EXAM_CONFLICT') {
+        showToast(error.message, 'warning');
+        loadData();
       } else {
         showToast(error.message || 'Lỗi khi bỏ qua kỳ thi', 'error');
       }
@@ -247,7 +295,6 @@ export const ExamReviewTab = () => {
                     <tr>
                       <th className="p-4 font-semibold">Kỳ thi</th>
                       <th className="p-4 font-semibold">Chủ đề</th>
-                      <th className="p-4 font-semibold">Người gửi</th>
                       <th className="p-4 font-semibold">Cấu trúc</th>
                       <th className="p-4 font-semibold text-right">Thao tác</th>
                     </tr>
@@ -257,7 +304,6 @@ export const ExamReviewTab = () => {
                       <tr key={exam._id} className="hover:bg-[#F6F8FA] transition-colors">
                         <td className="p-4 font-medium text-[#0F172A]">{exam.title}</td>
                         <td className="p-4 text-[#334155]">{exam.topicId?.name}</td>
-                        <td className="p-4 text-[#334155] break-words">{authorOf(exam)}</td>
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Tgian: {exam.durationMinutes}p | Qua: {exam.passThresholdPercent}%</div>
                           <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
@@ -300,7 +346,6 @@ export const ExamReviewTab = () => {
                     <div className="text-base text-[#64748B]">{exam.topicId?.name}</div>
                   </div>
                   <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
-                    <div>Người gửi: <span className="font-medium text-slate-700">{authorOf(exam)}</span></div>
                     <div>Thời gian: {exam.durationMinutes} phút · Qua: {exam.passThresholdPercent}%</div>
                     <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
                     <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt (phòng thiếu câu riêng bị khóa)' : 'Bật (thiếu câu riêng thì bù câu chung)'}</div>
@@ -354,7 +399,6 @@ export const ExamReviewTab = () => {
                     <tr>
                       <th className="p-4 font-semibold">Kỳ thi</th>
                       <th className="p-4 font-semibold">Chủ đề</th>
-                      <th className="p-4 font-semibold">Người gửi</th>
                       <th className="p-4 font-semibold">Thời gian diễn ra</th>
                       <th className="p-4 font-semibold text-right">Thao tác</th>
                     </tr>
@@ -364,7 +408,6 @@ export const ExamReviewTab = () => {
                       <tr key={exam._id} className="hover:bg-[#F6F8FA] transition-colors">
                         <td className="p-4 font-medium text-[#0F172A]">{exam.title}</td>
                         <td className="p-4 text-[#334155]">{exam.topicId?.name}</td>
-                        <td className="p-4 text-[#334155] break-words">{authorOf(exam)}</td>
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                           <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
@@ -415,7 +458,6 @@ export const ExamReviewTab = () => {
                     <div className="text-base text-[#64748B]">{exam.topicId?.name}</div>
                   </div>
                   <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
-                    <div>Người gửi: <span className="font-medium text-slate-700">{authorOf(exam)}</span></div>
                     <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                     <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
                     <div>
@@ -641,9 +683,10 @@ export const ExamReviewTab = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors"
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Xác nhận duyệt
+                  {isSubmitting ? 'Đang xử lý...' : 'Xác nhận duyệt'}
                 </button>
               </div>
             </form>
@@ -687,9 +730,10 @@ export const ExamReviewTab = () => {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 min-h-[46px] bg-[#E53E3E] text-white rounded-lg font-semibold hover:bg-red-700 active:bg-red-700 transition-colors"
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 min-h-[46px] bg-[#E53E3E] text-white rounded-lg font-semibold hover:bg-red-700 active:bg-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Từ chối
+                  {isSubmitting ? 'Đang xử lý...' : 'Từ chối'}
                 </button>
               </div>
             </form>

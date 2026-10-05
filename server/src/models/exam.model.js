@@ -59,8 +59,28 @@ const examSchema = new mongoose.Schema(
     approvedAt: { type: Date },
     publishedAt: { type: Date },
     rejectionReason: { type: String, trim: true },
+    /**
+     * MỚI — Khóa "đang phát hành": đặt nguyên tử khi một Người duyệt đề bắt đầu publishExam, gỡ khi phát hành xong hoặc lỗi.
+     * Chặn 2 người cùng đăng một kỳ thi (sinh trùng mã đề) và chặn Lưu trữ (archive) chen ngang lúc đang phát hành.
+     * Khóa quá hạn (PUBLISH_LOCK_TTL_MS trong exam.service.js) được coi là đã hết hiệu lực, phòng khi server sập giữa chừng.
+     */
+    publishLockedAt: { type: Date },
   },
-  { timestamps: true },
+  // optimisticConcurrency: save() kèm điều kiện __v; nếu đề đã bị thao tác khác sửa/chuyển trạng thái trong lúc đang
+  // xử lý thì ném VersionError thay vì ghi đè lặng lẽ. Mọi cập nhật nguyên tử trong exam.service.js đều $inc __v để khớp.
+  { timestamps: true, optimisticConcurrency: true },
+);
+
+// MỚI — Tối đa MỘT kỳ thi ở trạng thái published tại mọi thời điểm (chốt chặn ở tầng DB, chống 2 kỳ thi được đăng đồng thời).
+// Tên index đặt riêng để không đụng index `status_1` mặc định. LƯU Ý: nếu dữ liệu hiện tại đã có >1 kỳ thi published thì
+// Mongo sẽ không tạo được index này (app vẫn chạy, chỉ log lỗi) — xem hướng dẫn kiểm tra trước khi triển khai.
+examSchema.index(
+  { status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: EXAM_STATUS.PUBLISHED },
+    name: 'uniq_single_published_exam',
+  },
 );
 
 examSchema.pre('validate', function validateQuestionCounts(next) {

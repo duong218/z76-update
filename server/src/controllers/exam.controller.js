@@ -113,18 +113,30 @@ export const examController = {
 
   // Công bố kỳ thi (Publish): Tự động sinh mã đề trộn ngẫu nhiên và gửi thông báo tới thí sinh
   publish: asyncHandler(async (req, res) => {
-    const data = await examService.publishExam(req.params.id, req.auth.userId);
+    // force chỉ có hiệu lực khi client gửi đúng true (sau khi Người duyệt đề xác nhận lần 2)
+    const force = req.body?.force === true;
+    const data = await examService.publishExam(req.params.id, req.auth.userId, { force });
 
     await writeAudit({
       actorUserId: req.auth.userId,
       action: 'PUBLISH_EXAM',
       resourceType: 'Exam',
       resourceId: data._id,
-      metadata: { detail: `Đăng chính thức kỳ thi: ${data.title}` },
+      metadata: {
+        detail: data.forcedOverActiveAttempts
+          ? `Đăng chính thức kỳ thi: ${data.title} (ép đăng khi còn ${data.forcedOverActiveAttempts} thí sinh đang làm bài ở kỳ thi cũ)`
+          : `Đăng chính thức kỳ thi: ${data.title}`,
+      },
       ipAddress: clientIp(req),
     });
 
     res.json({ success: true, message: 'Đã đăng chính thức kỳ thi', data });
+  }),
+
+  // MỚI — Xem trước tác động của việc đăng kỳ thi: kỳ thi đang diễn ra sẽ bị thay thế và số thí sinh đang làm bài
+  publishCheck: asyncHandler(async (req, res) => {
+    const data = await examService.getPublishImpact(req.params.id);
+    res.json({ success: true, message: 'OK', data });
   }),
 
   // Bỏ qua / Lưu trữ (Archive) kỳ thi sau khi hoàn thành

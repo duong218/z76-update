@@ -23,6 +23,7 @@ router.post('/:id/submit', requireRoleCodes('examiner'), examController.submit);
 // Quyền của Leader
 router.post('/:id/approve', requireRoleCodes('leader'), examController.approve);
 router.post('/:id/reject', requireRoleCodes('leader'), examController.reject);
+router.get('/:id/publish-check', requireRoleCodes('leader'), examController.publishCheck);
 router.post('/:id/publish', requireRoleCodes('leader'), examController.publish);
 router.post('/:id/archive', requireRoleCodes('leader'), examController.archive);
 

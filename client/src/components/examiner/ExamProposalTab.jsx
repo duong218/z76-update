@@ -149,6 +149,8 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
   // Dùng để form biết gọi updateExamProposal thay vì createExamProposal, và
   // để đổi tiêu đề/nút bấm của modal cho đúng ngữ cảnh.
   const [editingExamId, setEditingExamId] = useState(null);
+  // Id đề đang gửi duyệt — chống bấm đúp nút "Gửi duyệt" khi request chưa xong
+  const [submittingReviewId, setSubmittingReviewId] = useState(null);
 
   useScrollLock(isModalOpen);
   // MỚI — Trang hiện tại của danh sách đề xuất (phân trang client-side, 10
@@ -419,6 +421,8 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
       { title: 'Gửi duyệt đề xuất', confirmLabel: 'Gửi duyệt', danger: false }
     );
     if (!ok) return;
+    if (submittingReviewId) return;
+    setSubmittingReviewId(id);
     try {
       const data = await submitForReview(id);
       showToast('Đã gửi đề xuất cho Người duyệt đề.', 'success');
@@ -453,7 +457,15 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
         loadData();
         return;
       }
+      // EXAM_CONFLICT: đề vừa bị sửa/chuyển trạng thái ở nơi khác đúng lúc đang gửi -> tải lại cho đúng dữ liệu mới nhất.
+      if (error.code === 'EXAM_CONFLICT') {
+        showToast(error.message, 'warning');
+        loadData();
+        return;
+      }
       showToast(error.message || 'Lỗi khi gửi duyệt', 'error');
+    } finally {
+      setSubmittingReviewId(null);
     }
   };
 
@@ -604,9 +616,10 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                     </button>
                     <button
                       onClick={() => handleSubmitReview(exam._id)}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-[#FFFBEB] hover:bg-[#FDECC8] active:bg-[#FDECC8] text-[#92400E] rounded-lg font-medium transition-colors"
+                      disabled={submittingReviewId === exam._id}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-[#FFFBEB] hover:bg-[#FDECC8] active:bg-[#FDECC8] text-[#92400E] rounded-lg font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <Send className="w-4 h-4" /> Gửi duyệt
+                      <Send className="w-4 h-4" /> {submittingReviewId === exam._id ? 'Đang gửi...' : 'Gửi duyệt'}
                     </button>
                   </div>
                 )}
@@ -664,9 +677,10 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                             </button>
                             <button
                               onClick={() => handleSubmitReview(exam._id)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFFBEB] hover:bg-[#FDECC8] text-[#92400E] rounded font-medium transition-colors"
+                              disabled={submittingReviewId === exam._id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFFBEB] hover:bg-[#FDECC8] text-[#92400E] rounded font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                              <Send className="w-4 h-4" /> Gửi duyệt
+                              <Send className="w-4 h-4" /> {submittingReviewId === exam._id ? 'Đang gửi...' : 'Gửi duyệt'}
                             </button>
                           </div>
                         )}

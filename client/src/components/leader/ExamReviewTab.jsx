@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   fetchPendingExams,
   fetchApprovedExams,
@@ -582,10 +583,12 @@ export const ExamReviewTab = () => {
         })()}
       </div>
 
-      {/* Modals */}
+      {/* Modals — render qua portal vào document.body: nếu để nằm trong cây của tab thì `fixed` bị neo theo
+          phần tử cha có animation/transform (animate-fade-in-up) của dashboard, khiến lớp phủ chỉ phủ vùng
+          nội dung tab và hộp thoại bị căn giữa ở GIỮA CẢ TRANG DÀI -> nằm ngoài màn hình, không thấy ô chọn thời gian. */}
 
       {/* Approve Modal */}
-      {isApproveModalOpen && (
+      {isApproveModalOpen && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
             <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
@@ -635,11 +638,12 @@ export const ExamReviewTab = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Reject Modal */}
-      {isRejectModalOpen && (
+      {isRejectModalOpen && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
             <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
@@ -680,7 +684,8 @@ export const ExamReviewTab = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

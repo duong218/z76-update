@@ -5,11 +5,35 @@
 
 import { Topic, Question, Exam, EXAM_STATUS } from '../models/index.js';
 import { ApiError, assertFound } from '../utils/api-error.js';
+import { QUESTION_USAGE } from '../models/constants.js';
 
-// Lấy danh sách toàn bộ chủ đề câu hỏi
-export async function listTopics({ activeOnly = true } = {}) {
+// Lấy danh sách toàn bộ chủ đề câu hỏi.
+// withCounts = true: gắn thêm `questionCounts: { exam, practice }` (số câu hỏi đang hoạt động của từng ngân hàng)
+// cho mỗi chủ đề, tính bằng 1 lần aggregate. Mặc định tắt để các nơi khác gọi danh sách chủ đề không tốn thêm truy vấn.
+// Cách phân loại giống questionUsageFilter(): 'practice' -> ôn tập; mọi giá trị khác (kể cả câu cũ thiếu usage) -> thi chính thức.
+export async function listTopics({ activeOnly = true, withCounts = false } = {}) {
   const filter = activeOnly ? { isActive: true } : {};
-  return Topic.find(filter).sort({ name: 1 }).lean();
+  const topics = await Topic.find(filter).sort({ name: 1 }).lean();
+  if (!withCounts || topics.length === 0) return topics;
+
+  const rows = await Question.aggregate([
+    { $match: { isActive: true, topicId: { $in: topics.map((t) => t._id) } } },
+    { $group: { _id: { topicId: '$topicId', usage: '$usage' }, count: { $sum: 1 } } },
+  ]);
+
+  const countsByTopic = new Map();
+  for (const { _id, count } of rows) {
+    const key = String(_id.topicId);
+    const entry = countsByTopic.get(key) ?? { exam: 0, practice: 0 };
+    if (_id.usage === QUESTION_USAGE.PRACTICE) entry.practice += count;
+    else entry.exam += count;
+    countsByTopic.set(key, entry);
+  }
+
+  return topics.map((t) => ({
+    ...t,
+    questionCounts: countsByTopic.get(String(t._id)) ?? { exam: 0, practice: 0 },
+  }));
 }
 
 // Hàm phụ trợ escape ký tự đặc biệt trong Regex
@@ -120,4 +144,4 @@ export async function getTopicById(id) {
   const topic = await Topic.findById(id);
   assertFound(topic, 'Không tìm thấy chủ đề', 'TOPIC_NOT_FOUND');
   return topic;
-}
+}

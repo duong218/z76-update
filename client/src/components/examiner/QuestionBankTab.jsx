@@ -204,7 +204,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
           answerType: selectedAnswerType,
           usage: selectedUsage
         }),
-        fetchTopics(),
+        fetchTopics({ withCounts: true }),
         fetchDepartments()
       ]);
       setQuestions(questionsRes.items);
@@ -218,6 +218,30 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
       setLoading(false);
     }
   }, [selectedTopic, selectedScope, selectedDept, selectedDifficulty, selectedAnswerType, selectedUsage]);
+
+  // Chủ đề có câu hỏi ở ngân hàng `usage` không? Server trả kèm topic.questionCounts { exam, practice }
+  // (xem fetchTopics({ withCounts: true })). Thiếu questionCounts (server cũ) -> coi là có, không ẩn nhầm.
+  const topicHasUsage = (topic, usage) => !topic?.questionCounts || (topic.questionCounts[usage] ?? 0) > 0;
+
+  // Ô lọc "Chủ đề": tab Tất cả -> mọi chủ đề; tab Thi chính thức/Ôn tập -> chỉ chủ đề có câu thuộc tab đó.
+  const filterTopics = selectedUsage ? topics.filter((t) => topicHasUsage(t, selectedUsage)) : topics;
+
+  // Đổi tab ngân hàng: nếu chủ đề đang chọn không có câu ở tab mới thì bỏ chọn chủ đề luôn (cùng 1 lần tải, không bị flash 0 câu).
+  const handleUsageChange = (value) => {
+    setSelectedUsage(value);
+    if (value && selectedTopic) {
+      const current = topics.find((t) => t._id === selectedTopic);
+      if (current && !topicHasUsage(current, value)) setSelectedTopic('');
+    }
+  };
+
+  // Chủ đề đang chọn không còn câu nào ở tab hiện tại (vd vừa chuyển hết câu sang ngân hàng kia) -> bỏ chọn thay vì hiện 0 câu.
+  useEffect(() => {
+    if (!selectedUsage || !selectedTopic) return;
+    const current = topics.find((t) => t._id === selectedTopic);
+    if (current && !topicHasUsage(current, selectedUsage)) setSelectedTopic('');
+
+  }, [selectedUsage, selectedTopic, topics]);
 
   useEffect(() => {
     setSelectedIds([]);
@@ -233,7 +257,14 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
   // khác đi).
   useEffect(() => {
     if (!initialFilter?.ts) return;
-    if (initialFilter.topicId) setSelectedTopic(initialFilter.topicId);
+    if (initialFilter.topicId) {
+      setSelectedTopic(initialFilter.topicId);
+      // Chỉ giữ tab Thi chính thức/Ôn tập nếu chủ đề này chắc chắn có câu ở tab đó; nếu không thì về "Tất cả".
+      if (selectedUsage) {
+        const target = topics.find((t) => t._id === initialFilter.topicId);
+        if (!target || !topicHasUsage(target, selectedUsage)) setSelectedUsage('');
+      }
+    }
     if (initialFilter.departmentId) {
       // Bấm "Xem câu hỏi" từ 1 bộ phận cụ thể -> chỉ muốn xem câu hỏi RIÊNG
       // của đúng bộ phận đó, không lẫn câu hỏi Chung -> khóa luôn scope, và
@@ -242,6 +273,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
       setSelectedDept(initialFilter.departmentId);
       setSelectedScope('DepartmentSpecific');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFilter?.topicId, initialFilter?.departmentId, initialFilter?.ts]);
 
   const handleSearchSubmit = (e) => {
@@ -853,7 +885,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
             <button
               key={value || 'all'}
               type="button"
-              onClick={() => setSelectedUsage(value)}
+              onClick={() => handleUsageChange(value)}
               aria-pressed={selectedUsage === value}
               className={`flex items-center gap-1.5 px-4 py-2 min-h-[44px] rounded-lg border font-semibold text-sm touch-manipulation transition-colors ${
                 selectedUsage === value
@@ -874,8 +906,9 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
           <Select
             value={selectedTopic}
             onChange={setSelectedTopic}
-            placeholder="-- Tất cả chủ đề --"
-            options={topics.map(t => ({ value: t._id, label: t.name }))}
+            disabled={Boolean(selectedUsage) && filterTopics.length === 0}
+            placeholder={selectedUsage && filterTopics.length === 0 ? '-- Chưa có chủ đề --' : '-- Tất cả chủ đề --'}
+            options={filterTopics.map(t => ({ value: t._id, label: t.name }))}
             triggerClassName="w-full px-3 py-2.5 min-h-[42px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white text-sm"
           />
 

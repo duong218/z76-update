@@ -130,8 +130,14 @@ export async function bulkMoveQuestionsUsage({ ids, filters, targetUsage }) {
   return res.data;
 }
 
-export async function fetchTopics() {
-  const res = await apiRequest('/topics', {
+// params.withCounts = true -> mỗi chủ đề kèm questionCounts: { exam, practice } (số câu hỏi đang hoạt động)
+export async function fetchTopics(params = {}) {
+  const query = new URLSearchParams();
+  for (const [key, val] of Object.entries(params)) {
+    if (val !== undefined && val !== null && val !== '') query.append(key, val);
+  }
+  const queryString = query.toString();
+  const res = await apiRequest(`/topics${queryString ? '?' + queryString : ''}`, {
     headers: getAuthHeaders(),
   });
   return res.data;

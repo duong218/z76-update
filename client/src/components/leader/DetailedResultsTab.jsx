@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FileText, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Lock, CheckCircle2, Circle, X } from 'lucide-react';
 import { fetchDetailedResults, exportReport } from '../../services/report.service';
 import { grantExtraAttempt, fetchCandidateRoleOptions } from '../../services/exam-review.service';
@@ -350,7 +351,7 @@ export const DetailedResultsTab = () => {
       )}
 
       {/* MỚI — Hộp thoại cấp lại lượt thi + chọn vai trò (phòng ban) cho thí sinh kiêm nhiệm */}
-      {grantDialog && (
+      {grantDialog && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
             <div className="flex items-start justify-between gap-3 p-4 border-b border-[#E2E8F0]">
@@ -453,7 +454,8 @@ export const DetailedResultsTab = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

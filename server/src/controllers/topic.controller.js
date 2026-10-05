@@ -11,7 +11,9 @@ import { writeAudit } from '../services/audit.service.js';
 // Lấy danh sách các chuyên môn / chủ đề
 export const list = asyncHandler(async (req, res) => {
   const activeOnly = req.query.activeOnly !== 'false';
-  const data = await topicService.listTopics({ activeOnly });
+  // ?withCounts=true -> kèm số câu hỏi theo từng ngân hàng (exam/practice) của mỗi chủ đề
+  const withCounts = req.query.withCounts === 'true';
+  const data = await topicService.listTopics({ activeOnly, withCounts });
   res.json({ success: true, message: 'OK', code: 'TOPIC_LIST_OK', data });
 });
 
@@ -99,4 +101,4 @@ export const remove = asyncHandler(async (req, res) => {
     code: 'TOPIC_DEACTIVATED',
     data,
   });
-});
+});

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Plus, Edit2, Lock, Unlock, KeyRound, Loader2, X, Eye, Copy, Check, Upload, FileSpreadsheet, AlertTriangle, AlertCircle, Columns3, ChevronDown, Info, Download, Building2 } from 'lucide-react';
 import { fetchUsers, fetchRoles, createUser, updateUserRole, toggleUserLock, resetUserPassword, previewImportEmployeesExcel, confirmImportEmployeesExcel, downloadImportResultsCsv, downloadSingleAccountCredential, exportCandidateCredentialsExcel, updateEmployeeDepartments } from '../../services/admin.service';
 // Dùng lại đúng fetchDepartments()/createDepartment() đã có sẵn ở tab "Phòng ban"
@@ -7,6 +8,11 @@ import { fetchDepartments, createDepartment } from '../../services/examiner.serv
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
+
+// Render modal thẳng vào <body>. Nếu để modal nằm trong cây DOM của tab thì khi tổ tiên có
+// transform (vd. animate-fade-in-up) hoặc overflow-hidden, `fixed inset-0` sẽ bị bó trong vùng đó
+// thay vì phủ cả màn hình -> cửa sổ bị lệch/ẩn khỏi tầm nhìn.
+const ModalPortal = ({ children }) => createPortal(children, document.body);
 
 // Danh sách cột có thể hiển thị trong bảng tài khoản. `alwaysOn` = cột lõi
 // không cho ẩn (Username, Phân quyền, Trạng thái, Hành động). Các cột còn
@@ -844,635 +850,649 @@ export const AccountTab = ({ currentUser }) => {
 
       {/* CREATE USER MODAL */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A]">Thêm tài khoản mới</h3>
-              <button onClick={() => { setIsCreateOpen(false); resetCreateForm(); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateUser} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Tên đăng nhập (Username)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Nhập username..."
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
-                />
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
+              <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="font-bold text-lg text-[#0F172A]">Thêm tài khoản mới</h3>
+                <button onClick={() => { setIsCreateOpen(false); resetCreateForm(); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Phân quyền (Role)</label>
-                <select
-                  required
-                  value={newRoleId}
-                  onChange={(e) => setNewRoleId(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                >
-                  <option value="">-- Chọn phân quyền --</option>
-                  {roles.map(role => (
-                    <option key={role._id} value={role._id}>{role.name}</option>
-                  ))}
-                </select>
-              </div>
+              <form onSubmit={handleCreateUser} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Tên đăng nhập (Username)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Nhập username..."
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Phân quyền (Role)</label>
+                  <select
+                    required
+                    value={newRoleId}
+                    onChange={(e) => setNewRoleId(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
+                  >
+                    <option value="">-- Chọn phân quyền --</option>
+                    {roles.map(role => (
+                      <option key={role._id} value={role._id}>{role.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* Chỉ hiện khi role được chọn là Thí sinh (candidate) — bắt buộc kèm hồ sơ nhân viên */}
-              {isCandidateRoleSelected && (
-                <div className="space-y-4 p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
-                  <p className="text-xs font-semibold text-slate-500 uppercase">Hồ sơ nhân viên (bắt buộc cho tài khoản Thí sinh)</p>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Họ và tên</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Nguyễn Văn A"
-                      value={newFullname}
-                      onChange={(e) => setNewFullname(e.target.value)}
-                      className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Phòng ban</label>
-                    <select
-                      required
-                      value={newDepartmentId}
-                      onChange={(e) => handleDepartmentSelectChange(e.target.value)}
-                      className="w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                    >
-                      <option value="">-- Chọn phòng ban --</option>
-                      {departments.map(dept => (
-                        <option key={dept._id} value={dept._id}>{dept.name}</option>
-                      ))}
-                      {/* MỚI — Tạo phòng ban mới ngay tại đây, không phải thoát ra tab Phòng ban */}
-                      <option value={CREATE_NEW_DEPARTMENT_VALUE}>+ Tạo phòng ban mới</option>
-                    </select>
-                    {departments.length === 0 && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        Chưa có phòng ban nào trong hệ thống — chọn "+ Tạo phòng ban mới" ở trên để tạo ngay.
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">
-                      Phòng kiêm nhiệm <span className="text-slate-400 font-normal">(không bắt buộc)</span>
-                    </label>
-                    <div className="border border-slate-300 rounded-lg p-2 max-h-36 overflow-y-auto space-y-0.5" data-lenis-prevent>
-                      {departments.filter((d) => d._id !== newDepartmentId).map((dept) => (
-                        <label
-                          key={dept._id}
-                          className={`flex items-center gap-2 text-sm px-1.5 py-1 rounded ${dept.code ? 'text-slate-700 cursor-pointer hover:bg-slate-50' : 'text-slate-400'}`}
-                        >
-                          <input
-                            type="checkbox"
-                            disabled={!dept.code}
-                            checked={newExtraDepartmentIds.includes(dept._id)}
-                            onChange={() => toggleNewExtraDepartment(dept._id)}
-                          />
-                          <span>{dept.name}</span>
-                          {!dept.code && <span className="text-xs">(chưa có mã — bổ sung ở tab Phòng ban)</span>}
-                        </label>
-                      ))}
-                      {departments.filter((d) => d._id !== newDepartmentId).length === 0 && (
-                        <p className="text-xs text-slate-400 px-1">Chưa có phòng ban nào khác để chọn.</p>
+                {/* Chỉ hiện khi role được chọn là Thí sinh (candidate) — bắt buộc kèm hồ sơ nhân viên */}
+                {isCandidateRoleSelected && (
+                  <div className="space-y-4 p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Hồ sơ nhân viên (bắt buộc cho tài khoản Thí sinh)</p>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Họ và tên</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nguyễn Văn A"
+                        value={newFullname}
+                        onChange={(e) => setNewFullname(e.target.value)}
+                        className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Phòng ban</label>
+                      <select
+                        required
+                        value={newDepartmentId}
+                        onChange={(e) => handleDepartmentSelectChange(e.target.value)}
+                        className="w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
+                      >
+                        <option value="">-- Chọn phòng ban --</option>
+                        {departments.map(dept => (
+                          <option key={dept._id} value={dept._id}>{dept.name}</option>
+                        ))}
+                        {/* MỚI — Tạo phòng ban mới ngay tại đây, không phải thoát ra tab Phòng ban */}
+                        <option value={CREATE_NEW_DEPARTMENT_VALUE}>+ Tạo phòng ban mới</option>
+                      </select>
+                      {departments.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Chưa có phòng ban nào trong hệ thống — chọn "+ Tạo phòng ban mới" ở trên để tạo ngay.
+                        </p>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Mỗi kỳ thi, nhân viên chọn 1 vai trò (phòng chính hoặc phòng kiêm nhiệm) để thi.
-                    </p>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                        Phòng kiêm nhiệm <span className="text-slate-400 font-normal">(không bắt buộc)</span>
+                      </label>
+                      <div className="border border-slate-300 rounded-lg p-2 max-h-36 overflow-y-auto space-y-0.5" data-lenis-prevent>
+                        {departments.filter((d) => d._id !== newDepartmentId).map((dept) => (
+                          <label
+                            key={dept._id}
+                            className={`flex items-center gap-2 text-sm px-1.5 py-1 rounded ${dept.code ? 'text-slate-700 cursor-pointer hover:bg-slate-50' : 'text-slate-400'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={!dept.code}
+                              checked={newExtraDepartmentIds.includes(dept._id)}
+                              onChange={() => toggleNewExtraDepartment(dept._id)}
+                            />
+                            <span>{dept.name}</span>
+                            {!dept.code && <span className="text-xs">(chưa có mã — bổ sung ở tab Phòng ban)</span>}
+                          </label>
+                        ))}
+                        {departments.filter((d) => d._id !== newDepartmentId).length === 0 && (
+                          <p className="text-xs text-slate-400 px-1">Chưa có phòng ban nào khác để chọn.</p>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Mỗi kỳ thi, nhân viên chọn 1 vai trò (phòng chính hoặc phòng kiêm nhiệm) để thi.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                        Mã nhân viên <span className="text-slate-400 font-normal">(không bắt buộc)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="NV-001"
+                        value={newEmployeeCode}
+                        onChange={(e) => setNewEmployeeCode(e.target.value)}
+                        className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">
-                      Mã nhân viên <span className="text-slate-400 font-normal">(không bắt buộc)</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="NV-001"
-                      value={newEmployeeCode}
-                      onChange={(e) => setNewEmployeeCode(e.target.value)}
-                      className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
-                    />
-                  </div>
-                </div>
-              )}
+                )}
 
-              <div className="pt-2 flex gap-3 pb-1">
-                <button
-                  type="button"
-                  onClick={() => { setIsCreateOpen(false); resetCreateForm(); }}
-                  className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
-                >
-                  {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Lưu
-                </button>
-              </div>
-            </form>
+                <div className="pt-2 flex gap-3 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => { setIsCreateOpen(false); resetCreateForm(); }}
+                    className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
+                  >
+                    {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Lưu
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* MỚI — MODAL CON: TẠO PHÒNG BAN MỚI */}
       {isCreateDeptOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A]">Tạo phòng ban mới</h3>
-              <button
-                type="button"
-                onClick={() => { setIsCreateDeptOpen(false); setNewDeptName(''); setNewDeptCode(''); setDeptFormError(''); }}
-                className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateDepartmentInline} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              {deptFormError && (
-                <div className="p-3.5 bg-[#FEECEC] border border-[#E53E3E]/30 text-[#0F172A] rounded-lg flex items-center gap-2.5 text-sm">
-                  <AlertCircle className="w-5 h-5 shrink-0" />
-                  <span>{deptFormError}</span>
-                </div>
-              )}
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Mã bộ phận (Ví dụ: XDM1)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Nhập mã viết tắt..."
-                  value={newDeptCode}
-                  onChange={(e) => setNewDeptCode(e.target.value)}
-                  className="w-full px-3.5 py-2.5 min-h-[44px] text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] uppercase"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Tên phòng ban</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Nhập tên phòng ban..."
-                  value={newDeptName}
-                  onChange={(e) => setNewDeptName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 min-h-[44px] text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
-                />
-              </div>
-              <div className="pt-2 flex gap-3 pb-1">
+        <ModalPortal>
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
+              <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="font-bold text-lg text-[#0F172A]">Tạo phòng ban mới</h3>
                 <button
                   type="button"
                   onClick={() => { setIsCreateDeptOpen(false); setNewDeptName(''); setNewDeptCode(''); setDeptFormError(''); }}
-                  className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg"
                 >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={deptActionLoading}
-                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
-                >
-                  {deptActionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Lưu
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+              <form onSubmit={handleCreateDepartmentInline} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                {deptFormError && (
+                  <div className="p-3.5 bg-[#FEECEC] border border-[#E53E3E]/30 text-[#0F172A] rounded-lg flex items-center gap-2.5 text-sm">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <span>{deptFormError}</span>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Mã bộ phận (Ví dụ: XDM1)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Nhập mã viết tắt..."
+                    value={newDeptCode}
+                    onChange={(e) => setNewDeptCode(e.target.value)}
+                    className="w-full px-3.5 py-2.5 min-h-[44px] text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Tên phòng ban</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Nhập tên phòng ban..."
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 min-h-[44px] text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5]"
+                  />
+                </div>
+                <div className="pt-2 flex gap-3 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => { setIsCreateDeptOpen(false); setNewDeptName(''); setNewDeptCode(''); setDeptFormError(''); }}
+                    className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={deptActionLoading}
+                    className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
+                  >
+                    {deptActionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Lưu
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* EDIT DEPARTMENTS MODAL — sửa phòng ban chính + phòng kiêm nhiệm */}
       {isEditDeptOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A]">Sửa phòng ban</h3>
-              <button onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleUpdateDepartments} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              <div>
-                <label className="block text-sm font-semibold text-slate-500">Nhân viên</label>
-                <p className="text-base font-bold text-[#0F172A] mt-0.5">
-                  {editDeptUser?.fullname || editDeptUser?.username}
-                  {editDeptUser?.employeeCode ? <span className="text-slate-400 font-normal"> ({editDeptUser.employeeCode})</span> : null}
-                </p>
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
+              <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="font-bold text-lg text-[#0F172A]">Sửa phòng ban</h3>
+                <button onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Phòng ban chính</label>
-                <select
-                  required
-                  value={editPrimaryDeptId}
-                  onChange={(e) => {
-                    setEditPrimaryDeptId(e.target.value);
-                    setEditExtraDeptIds((prev) => prev.filter((id) => id !== e.target.value));
-                  }}
-                  className="w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                >
-                  {departments.map((dept) => (
-                    <option key={dept._id} value={dept._id}>{dept.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Phòng kiêm nhiệm <span className="text-slate-400 font-normal">(không bắt buộc)</span>
-                </label>
-                <div className="border border-slate-300 rounded-lg p-2 max-h-44 overflow-y-auto space-y-0.5" data-lenis-prevent>
-                  {departments.filter((d) => d._id !== editPrimaryDeptId).map((dept) => (
-                    <label
-                      key={dept._id}
-                      className={`flex items-center gap-2 text-sm px-1.5 py-1 rounded ${dept.code ? 'text-slate-700 cursor-pointer hover:bg-slate-50' : 'text-slate-400'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        disabled={!dept.code}
-                        checked={editExtraDeptIds.includes(dept._id)}
-                        onChange={() => toggleEditExtraDepartment(dept._id)}
-                      />
-                      <span>{dept.name}</span>
-                      {!dept.code && <span className="text-xs">(chưa có mã — bổ sung ở tab Phòng ban)</span>}
-                    </label>
-                  ))}
+              <form onSubmit={handleUpdateDepartments} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-500">Nhân viên</label>
+                  <p className="text-base font-bold text-[#0F172A] mt-0.5">
+                    {editDeptUser?.fullname || editDeptUser?.username}
+                    {editDeptUser?.employeeCode ? <span className="text-slate-400 font-normal"> ({editDeptUser.employeeCode})</span> : null}
+                  </p>
                 </div>
-              </div>
-              <div className="pt-2 flex gap-3 pb-1">
-                <button
-                  type="button"
-                  onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }}
-                  className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
-                >
-                  {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Lưu
-                </button>
-              </div>
-            </form>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Phòng ban chính</label>
+                  <select
+                    required
+                    value={editPrimaryDeptId}
+                    onChange={(e) => {
+                      setEditPrimaryDeptId(e.target.value);
+                      setEditExtraDeptIds((prev) => prev.filter((id) => id !== e.target.value));
+                    }}
+                    className="w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
+                  >
+                    {departments.map((dept) => (
+                      <option key={dept._id} value={dept._id}>{dept.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Phòng kiêm nhiệm <span className="text-slate-400 font-normal">(không bắt buộc)</span>
+                  </label>
+                  <div className="border border-slate-300 rounded-lg p-2 max-h-44 overflow-y-auto space-y-0.5" data-lenis-prevent>
+                    {departments.filter((d) => d._id !== editPrimaryDeptId).map((dept) => (
+                      <label
+                        key={dept._id}
+                        className={`flex items-center gap-2 text-sm px-1.5 py-1 rounded ${dept.code ? 'text-slate-700 cursor-pointer hover:bg-slate-50' : 'text-slate-400'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!dept.code}
+                          checked={editExtraDeptIds.includes(dept._id)}
+                          onChange={() => toggleEditExtraDepartment(dept._id)}
+                        />
+                        <span>{dept.name}</span>
+                        {!dept.code && <span className="text-xs">(chưa có mã — bổ sung ở tab Phòng ban)</span>}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="pt-2 flex gap-3 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }}
+                    className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
+                  >
+                    {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Lưu
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* EDIT ROLE MODAL */}
       {isEditRoleOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A]">Sửa phân quyền</h3>
-              <button onClick={() => { setIsEditRoleOpen(false); setEditingUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
+              <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="font-bold text-lg text-[#0F172A]">Sửa phân quyền</h3>
+                <button onClick={() => { setIsEditRoleOpen(false); setEditingUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleUpdateRole} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-500">Tài khoản</label>
+                  <p className="text-base font-bold text-[#0F172A] mt-0.5">{editingUser?.username}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Phân quyền mới</label>
+                  <select
+                    required
+                    value={editingRoleId}
+                    onChange={(e) => setEditingRoleId(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
+                  >
+                    {roles.map(role => (
+                      <option key={role._id} value={role._id}>{role.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="pt-2 flex gap-3 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => { setIsEditRoleOpen(false); setEditingUser(null); }}
+                    className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
+                  >
+                    {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Cập nhật
+                  </button>
+                </div>
+              </form>
             </div>
-            <form onSubmit={handleUpdateRole} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              <div>
-                <label className="block text-sm font-semibold text-slate-500">Tài khoản</label>
-                <p className="text-base font-bold text-[#0F172A] mt-0.5">{editingUser?.username}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Phân quyền mới</label>
-                <select
-                  required
-                  value={editingRoleId}
-                  onChange={(e) => setEditingRoleId(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
-                >
-                  {roles.map(role => (
-                    <option key={role._id} value={role._id}>{role.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="pt-2 flex gap-3 pb-1">
-                <button
-                  type="button"
-                  onClick={() => { setIsEditRoleOpen(false); setEditingUser(null); }}
-                  className="flex-1 py-3 min-h-[46px] border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition-colors"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="flex-1 py-3 min-h-[46px] bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] active:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-75"
-                >
-                  {actionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Cập nhật
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* TEMPORARY PASSWORD DISPLAY MODAL */}
       {tempPasswordModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto animate-in fade-in zoom-in-95 duration-200" data-lenis-prevent>
-            <div className="p-4 sm:p-6 text-center space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              <div className="w-16 h-16 bg-[#22C55E]/10 rounded-full flex items-center justify-center mx-auto text-[#22C55E]">
-                <Eye className="w-8 h-8" />
-              </div>
-              <h3 className="font-bold text-xl text-[#0F172A]">{tempPasswordModal.title}</h3>
-              
-              <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-100 text-left">
-                <div>
-                  <span className="text-xs text-slate-500 block font-medium">Tên đăng nhập</span>
-                  <span className="text-sm font-semibold text-[#0F172A]">{tempPasswordModal.username}</span>
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto animate-in fade-in zoom-in-95 duration-200" data-lenis-prevent>
+              <div className="p-4 sm:p-6 text-center space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                <div className="w-16 h-16 bg-[#22C55E]/10 rounded-full flex items-center justify-center mx-auto text-[#22C55E]">
+                  <Eye className="w-8 h-8" />
                 </div>
-                <div className="pt-2 border-t border-slate-200/60 relative">
-                  <span className="text-xs text-slate-500 block font-medium">Mật khẩu tạm thời</span>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-lg font-mono font-bold text-[#E53E3E] tracking-wider select-all">{tempPasswordModal.password}</span>
-                    <button
-                      onClick={copyToClipboard}
-                      type="button"
-                      className="flex items-center gap-1 text-xs text-[#008BC5] hover:text-[#007ba1] font-semibold bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-sm"
-                    >
-                      {copied ? <Check className="w-3.5 h-3.5 text-[#22C55E]" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copied ? 'Đã sao chép' : 'Sao chép'}</span>
-                    </button>
+                <h3 className="font-bold text-xl text-[#0F172A]">{tempPasswordModal.title}</h3>
+              
+                <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-100 text-left">
+                  <div>
+                    <span className="text-xs text-slate-500 block font-medium">Tên đăng nhập</span>
+                    <span className="text-sm font-semibold text-[#0F172A]">{tempPasswordModal.username}</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200/60 relative">
+                    <span className="text-xs text-slate-500 block font-medium">Mật khẩu tạm thời</span>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <span className="text-lg font-mono font-bold text-[#E53E3E] tracking-wider select-all">{tempPasswordModal.password}</span>
+                      <button
+                        onClick={copyToClipboard}
+                        type="button"
+                        className="flex items-center gap-1 text-xs text-[#008BC5] hover:text-[#007ba1] font-semibold bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 shadow-sm"
+                      >
+                        {copied ? <Check className="w-3.5 h-3.5 text-[#22C55E]" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copied ? 'Đã sao chép' : 'Sao chép'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                <div className="bg-[#FFFBEB] p-3 rounded-lg border border-[#F6AD37]/40 text-left text-xs text-[#92400E] font-medium">
+                  ⚠️ Mật khẩu tạm này chỉ hiển thị duy nhất một lần. Hãy sao chép hoặc tải file, rồi gửi cho người dùng. Họ sẽ bắt buộc phải đổi mật khẩu khi đăng nhập lần đầu.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => downloadSingleAccountCredential({
+                    title: tempPasswordModal.title,
+                    username: tempPasswordModal.username,
+                    password: tempPasswordModal.password,
+                  })}
+                  className="w-full py-3 min-h-[46px] bg-white border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50 active:bg-slate-100 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-4 h-4 rotate-180" /> Tải file tài khoản (username + mật khẩu)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTempPasswordModal({ isOpen: false, title: '', username: '', password: '' })}
+                  className="w-full py-3 min-h-[46px] bg-[#0F172A] text-white rounded-lg font-semibold hover:bg-slate-800 active:bg-slate-800 transition-colors shadow-md"
+                >
+                  Đóng
+                </button>
               </div>
-
-              <div className="bg-[#FFFBEB] p-3 rounded-lg border border-[#F6AD37]/40 text-left text-xs text-[#92400E] font-medium">
-                ⚠️ Mật khẩu tạm này chỉ hiển thị duy nhất một lần. Hãy sao chép hoặc tải file, rồi gửi cho người dùng. Họ sẽ bắt buộc phải đổi mật khẩu khi đăng nhập lần đầu.
-              </div>
-
-              <button
-                type="button"
-                onClick={() => downloadSingleAccountCredential({
-                  title: tempPasswordModal.title,
-                  username: tempPasswordModal.username,
-                  password: tempPasswordModal.password,
-                })}
-                className="w-full py-3 min-h-[46px] bg-white border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50 active:bg-slate-100 transition-colors flex items-center justify-center gap-2"
-              >
-                <Upload className="w-4 h-4 rotate-180" /> Tải file tài khoản (username + mật khẩu)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTempPasswordModal({ isOpen: false, title: '', username: '', password: '' })}
-                className="w-full py-3 min-h-[46px] bg-[#0F172A] text-white rounded-lg font-semibold hover:bg-slate-800 active:bg-slate-800 transition-colors shadow-md"
-              >
-                Đóng
-              </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* IMPORT EXCEL — XEM TRƯỚC & XÁC NHẬN MODAL (bước 1/2) */}
       {importPreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[90dvh] my-auto" data-lenis-prevent>
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A] flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-[#008BC5]" /> Xem trước import — chưa ghi vào hệ thống
-              </h3>
-              <button
-                onClick={() => setImportPreview(null)}
-                disabled={importConfirming}
-                className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg disabled:opacity-50"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center">
-                <div className="bg-[#F0FDF4] rounded-lg p-3">
-                  <div className="text-xl font-bold text-[#22C55E]">{importPreview.toCreate}</div>
-                  <div className="text-sm text-slate-500">Tạo mới</div>
-                </div>
-                <div className="bg-[#FFF7ED] rounded-lg p-3">
-                  <div className="text-xl font-bold text-[#F6AD37]">{importPreview.toReuse}</div>
-                  <div className="text-sm text-slate-500">Tái sử dụng</div>
-                </div>
-                <div className="bg-[#EAF6FF] rounded-lg p-3">
-                  <div className="text-xl font-bold text-[#008BC5]">{importPreview.toUpdate}</div>
-                  <div className="text-sm text-slate-500">Cập nhật</div>
-                </div>
-                <div className="bg-[#FEECEC] rounded-lg p-3">
-                  <div className="text-xl font-bold text-[#E53E3E]">{importPreview.conflicts}</div>
-                  <div className="text-sm text-slate-500">Trùng t.khoản</div>
-                </div>
-                <div className="bg-[#FEECEC] rounded-lg p-3">
-                  <div className="text-xl font-bold text-[#E53E3E]">{importPreview.duplicatesInFile}</div>
-                  <div className="text-sm text-slate-500">Trùng trong file</div>
-                </div>
-                <div className="bg-[#FEECEC] rounded-lg p-3">
-                  <div className="text-xl font-bold text-[#E53E3E]">{importPreview.errors}</div>
-                  <div className="text-sm text-slate-500">Lỗi dữ liệu</div>
-                </div>
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[90dvh] my-auto" data-lenis-prevent>
+              <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="font-bold text-lg text-[#0F172A] flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-[#008BC5]" /> Xem trước import — chưa ghi vào hệ thống
+                </h3>
+                <button
+                  onClick={() => setImportPreview(null)}
+                  disabled={importConfirming}
+                  className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {(importPreview.duplicatesInFile > 0) && (
-                <div className="bg-[#FEECEC] border border-[#E53E3E]/40 rounded-lg p-3 text-xs text-[#7F1D1D] flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    Có mã nhân viên xuất hiện ở <b>nhiều dòng trong cùng file</b> — các dòng này bị bỏ qua vì không thể xác định dòng nào đúng. Hãy sửa lại file (mỗi mã chỉ giữ 1 dòng) rồi import lại riêng các dòng đó.
-                  </span>
-                </div>
-              )}
-
-              {(importPreview.toReuse > 0) && (
-                <div className="bg-[#FFF7ED] border border-[#F6AD37]/40 rounded-lg p-3 text-xs text-[#92400E] flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    Các dòng "Tái sử dụng" bên dưới sẽ <b>mở khóa và ghi đè</b> lên tài khoản đã bị khóa của nhân viên cũ (tên nhân viên cũ được ghi rõ ở từng dòng). Hãy kiểm tra kỹ trước khi xác nhận.
-                  </span>
-                </div>
-              )}
-
-              {importPreview.departments?.length > 0 && (
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <div className="px-3 py-2 bg-slate-50 text-sm font-semibold text-slate-700 flex items-center justify-between gap-2">
-                    <span>Phòng ban trong file ({importPreview.departments.length})</span>
-                    {importPreview.departmentsNeedingCode > 0 && (
-                      <span className="text-xs font-medium text-amber-600">{importPreview.departmentsNeedingCode} phòng cần nhập mã</span>
-                    )}
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center">
+                  <div className="bg-[#F0FDF4] rounded-lg p-3">
+                    <div className="text-xl font-bold text-[#22C55E]">{importPreview.toCreate}</div>
+                    <div className="text-sm text-slate-500">Tạo mới</div>
                   </div>
-                  {importPreview.departments.some((d) => d.isNew) && (
-                    <div className="px-3 py-2 bg-[#FFF7ED] border-b border-[#F6AD37]/30 text-xs text-[#92400E] flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>Có phòng ban <b>MỚI</b> sẽ được tạo khi xác nhận — hãy kiểm tra tên không bị gõ sai chính tả (tên sai sẽ thành một phòng ban riêng).</span>
+                  <div className="bg-[#FFF7ED] rounded-lg p-3">
+                    <div className="text-xl font-bold text-[#F6AD37]">{importPreview.toReuse}</div>
+                    <div className="text-sm text-slate-500">Tái sử dụng</div>
+                  </div>
+                  <div className="bg-[#EAF6FF] rounded-lg p-3">
+                    <div className="text-xl font-bold text-[#008BC5]">{importPreview.toUpdate}</div>
+                    <div className="text-sm text-slate-500">Cập nhật</div>
+                  </div>
+                  <div className="bg-[#FEECEC] rounded-lg p-3">
+                    <div className="text-xl font-bold text-[#E53E3E]">{importPreview.conflicts}</div>
+                    <div className="text-sm text-slate-500">Trùng t.khoản</div>
+                  </div>
+                  <div className="bg-[#FEECEC] rounded-lg p-3">
+                    <div className="text-xl font-bold text-[#E53E3E]">{importPreview.duplicatesInFile}</div>
+                    <div className="text-sm text-slate-500">Trùng trong file</div>
+                  </div>
+                  <div className="bg-[#FEECEC] rounded-lg p-3">
+                    <div className="text-xl font-bold text-[#E53E3E]">{importPreview.errors}</div>
+                    <div className="text-sm text-slate-500">Lỗi dữ liệu</div>
+                  </div>
+                </div>
+
+                {(importPreview.duplicatesInFile > 0) && (
+                  <div className="bg-[#FEECEC] border border-[#E53E3E]/40 rounded-lg p-3 text-xs text-[#7F1D1D] flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>
+                      Có mã nhân viên xuất hiện ở <b>nhiều dòng trong cùng file</b> — các dòng này bị bỏ qua vì không thể xác định dòng nào đúng. Hãy sửa lại file (mỗi mã chỉ giữ 1 dòng) rồi import lại riêng các dòng đó.
+                    </span>
+                  </div>
+                )}
+
+                {(importPreview.toReuse > 0) && (
+                  <div className="bg-[#FFF7ED] border border-[#F6AD37]/40 rounded-lg p-3 text-xs text-[#92400E] flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>
+                      Các dòng "Tái sử dụng" bên dưới sẽ <b>mở khóa và ghi đè</b> lên tài khoản đã bị khóa của nhân viên cũ (tên nhân viên cũ được ghi rõ ở từng dòng). Hãy kiểm tra kỹ trước khi xác nhận.
+                    </span>
+                  </div>
+                )}
+
+                {importPreview.departments?.length > 0 && (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-50 text-sm font-semibold text-slate-700 flex items-center justify-between gap-2">
+                      <span>Phòng ban trong file ({importPreview.departments.length})</span>
+                      {importPreview.departmentsNeedingCode > 0 && (
+                        <span className="text-xs font-medium text-amber-600">{importPreview.departmentsNeedingCode} phòng cần nhập mã</span>
+                      )}
                     </div>
-                  )}
-                  <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto" data-lenis-prevent>
-                    {importPreview.departments.map((d) => (
-                      <div key={d.key} className="p-3 text-sm flex flex-col sm:flex-row sm:items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-slate-800 truncate">{d.name}</div>
-                          <div className="text-xs text-slate-500">
-                            {d.isNew ? 'Phòng ban MỚI — sẽ được tạo' : d.willReactivate ? 'Đã ngừng hoạt động — sẽ được khôi phục' : 'Đã có trong hệ thống'}
-                            {' · '}
-                            {[d.primaryCount > 0 && `phòng chính: ${d.primaryCount} dòng`, d.extraCount > 0 && `kiêm nhiệm: ${d.extraCount} dòng`].filter(Boolean).join(', ')}
-                          </div>
-                          {importDeptProblems[d.key] && (
-                            <div className="text-xs text-[#E53E3E] mt-0.5">{importDeptProblems[d.key]}</div>
-                          )}
-                          {!importDeptProblems[d.key] && d.needsCode && importDeptCodes[d.key] === d.suggestedCode && d.issues?.map((msg) => (
-                            <div key={msg} className="text-xs text-[#E53E3E] mt-0.5">{msg}</div>
-                          ))}
-                        </div>
-                        <div className="sm:w-44 shrink-0">
-                          {d.needsCode ? (
-                            <input
-                              type="text"
-                              value={importDeptCodes[d.key] ?? ''}
-                              onChange={(e) => setImportDeptCodes((prev) => ({ ...prev, [d.key]: e.target.value.toUpperCase() }))}
-                              placeholder="Nhập mã phòng ban"
-                              className={`w-full px-3 py-1.5 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#008BC5] ${importDeptProblems[d.key] ? 'border-[#E53E3E]' : 'border-slate-300'}`}
-                            />
-                          ) : (
-                            <span className="inline-block px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">Mã: {d.currentCode}</span>
-                          )}
-                        </div>
+                    {importPreview.departments.some((d) => d.isNew) && (
+                      <div className="px-3 py-2 bg-[#FFF7ED] border-b border-[#F6AD37]/30 text-xs text-[#92400E] flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>Có phòng ban <b>MỚI</b> sẽ được tạo khi xác nhận — hãy kiểm tra tên không bị gõ sai chính tả (tên sai sẽ thành một phòng ban riêng).</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-72 overflow-y-auto" data-lenis-prevent>
-                {importPreview.rows.map((r) => (
-                  <div key={r.rowIndex} className="p-3 text-sm flex items-start gap-2">
-                    <span className="text-slate-400 w-14 shrink-0">Dòng {r.rowIndex}</span>
-                    <div className="flex-1 min-w-0">
-                      {r.action === 'create' && (
-                        <span className="text-[#22C55E] font-medium">Tạo mới — {r.fullname} ({r.employeeCode})</span>
-                      )}
-                      {r.action === 'reuse' && (
-                        <span className="text-[#F6AD37] font-medium">
-                          Tái sử dụng — {r.fullname} ({r.employeeCode}), ghi đè lên tài khoản "{r.reuseTarget?.username}" hiện là "{r.reuseTarget?.fullname}"
-                        </span>
-                      )}
-                      {r.action === 'update' && (
-                        <span className="text-[#008BC5] font-medium">
-                          Cập nhật hồ sơ — {r.fullname} ({r.employeeCode}), tài khoản "{r.updateTarget?.username}"
-                        </span>
-                      )}
-                      {r.action === 'conflict' && (
-                        <span className="text-[#E53E3E] font-medium">
-                          Trùng tài khoản đang hoạt động "{r.conflictWith?.username}" ({r.conflictWith?.fullname || r.conflictWith?.employeeCode}) — bỏ qua, hãy sửa lại file
-                        </span>
-                      )}
-                      {r.action === 'duplicate_in_file' && (
-                        <span className="text-[#E53E3E] font-medium">
-                          Trùng mã trong file — {r.fullname} ({r.employeeCode}), trùng với dòng {r.duplicateRows?.join(', ')} — bỏ qua, hãy sửa lại file
-                        </span>
-                      )}
-                      {r.action === 'error' && (
-                        <span className="text-[#E53E3E] font-medium">Lỗi — {r.message}</span>
-                      )}
-                      {['create', 'reuse', 'update'].includes(r.action) && (
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Phòng chính: <b>{r.departmentName}</b>
-                          {r.extraDepartments?.length > 0 && (
-                            <> · Kiêm nhiệm: <b>{r.extraDepartments.map((e) => e.name).join('; ')}</b></>
-                          )}
-                          {r.action === 'update' && !r.extrasProvided && ' · (giữ nguyên phòng kiêm nhiệm hiện có)'}
-                        </p>
-                      )}
-                      {r.warnings?.map((w) => (
-                        <p key={w} className="text-xs text-amber-600 mt-0.5 flex items-start gap-1">
-                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {w}
-                        </p>
+                    )}
+                    <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto" data-lenis-prevent>
+                      {importPreview.departments.map((d) => (
+                        <div key={d.key} className="p-3 text-sm flex flex-col sm:flex-row sm:items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-slate-800 truncate">{d.name}</div>
+                            <div className="text-xs text-slate-500">
+                              {d.isNew ? 'Phòng ban MỚI — sẽ được tạo' : d.willReactivate ? 'Đã ngừng hoạt động — sẽ được khôi phục' : 'Đã có trong hệ thống'}
+                              {' · '}
+                              {[d.primaryCount > 0 && `phòng chính: ${d.primaryCount} dòng`, d.extraCount > 0 && `kiêm nhiệm: ${d.extraCount} dòng`].filter(Boolean).join(', ')}
+                            </div>
+                            {importDeptProblems[d.key] && (
+                              <div className="text-xs text-[#E53E3E] mt-0.5">{importDeptProblems[d.key]}</div>
+                            )}
+                            {!importDeptProblems[d.key] && d.needsCode && importDeptCodes[d.key] === d.suggestedCode && d.issues?.map((msg) => (
+                              <div key={msg} className="text-xs text-[#E53E3E] mt-0.5">{msg}</div>
+                            ))}
+                          </div>
+                          <div className="sm:w-44 shrink-0">
+                            {d.needsCode ? (
+                              <input
+                                type="text"
+                                value={importDeptCodes[d.key] ?? ''}
+                                onChange={(e) => setImportDeptCodes((prev) => ({ ...prev, [d.key]: e.target.value.toUpperCase() }))}
+                                placeholder="Nhập mã phòng ban"
+                                className={`w-full px-3 py-1.5 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#008BC5] ${importDeptProblems[d.key] ? 'border-[#E53E3E]' : 'border-slate-300'}`}
+                              />
+                            ) : (
+                              <span className="inline-block px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">Mã: {d.currentCode}</span>
+                            )}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
-                ))}
-              </div>
+                )}
 
-              <div className="flex gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setImportPreview(null)}
-                  disabled={importConfirming}
-                  className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmImport}
-                  disabled={importConfirming || (importPreview.toCreate + importPreview.toReuse + importPreview.toUpdate === 0) || Object.keys(importDeptProblems).length > 0}
-                  className="flex-1 py-2.5 bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {importConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Xác nhận nhập ({importPreview.toCreate + importPreview.toReuse + importPreview.toUpdate} dòng)
-                </button>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-72 overflow-y-auto" data-lenis-prevent>
+                  {importPreview.rows.map((r) => (
+                    <div key={r.rowIndex} className="p-3 text-sm flex items-start gap-2">
+                      <span className="text-slate-400 w-14 shrink-0">Dòng {r.rowIndex}</span>
+                      <div className="flex-1 min-w-0">
+                        {r.action === 'create' && (
+                          <span className="text-[#22C55E] font-medium">Tạo mới — {r.fullname} ({r.employeeCode})</span>
+                        )}
+                        {r.action === 'reuse' && (
+                          <span className="text-[#F6AD37] font-medium">
+                            Tái sử dụng — {r.fullname} ({r.employeeCode}), ghi đè lên tài khoản "{r.reuseTarget?.username}" hiện là "{r.reuseTarget?.fullname}"
+                          </span>
+                        )}
+                        {r.action === 'update' && (
+                          <span className="text-[#008BC5] font-medium">
+                            Cập nhật hồ sơ — {r.fullname} ({r.employeeCode}), tài khoản "{r.updateTarget?.username}"
+                          </span>
+                        )}
+                        {r.action === 'conflict' && (
+                          <span className="text-[#E53E3E] font-medium">
+                            Trùng tài khoản đang hoạt động "{r.conflictWith?.username}" ({r.conflictWith?.fullname || r.conflictWith?.employeeCode}) — bỏ qua, hãy sửa lại file
+                          </span>
+                        )}
+                        {r.action === 'duplicate_in_file' && (
+                          <span className="text-[#E53E3E] font-medium">
+                            Trùng mã trong file — {r.fullname} ({r.employeeCode}), trùng với dòng {r.duplicateRows?.join(', ')} — bỏ qua, hãy sửa lại file
+                          </span>
+                        )}
+                        {r.action === 'error' && (
+                          <span className="text-[#E53E3E] font-medium">Lỗi — {r.message}</span>
+                        )}
+                        {['create', 'reuse', 'update'].includes(r.action) && (
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Phòng chính: <b>{r.departmentName}</b>
+                            {r.extraDepartments?.length > 0 && (
+                              <> · Kiêm nhiệm: <b>{r.extraDepartments.map((e) => e.name).join('; ')}</b></>
+                            )}
+                            {r.action === 'update' && !r.extrasProvided && ' · (giữ nguyên phòng kiêm nhiệm hiện có)'}
+                          </p>
+                        )}
+                        {r.warnings?.map((w) => (
+                          <p key={w} className="text-xs text-amber-600 mt-0.5 flex items-start gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {w}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setImportPreview(null)}
+                    disabled={importConfirming}
+                    className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmImport}
+                    disabled={importConfirming || (importPreview.toCreate + importPreview.toReuse + importPreview.toUpdate === 0) || Object.keys(importDeptProblems).length > 0}
+                    className="flex-1 py-2.5 bg-[#008BC5] text-white rounded-lg font-semibold hover:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {importConfirming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Xác nhận nhập ({importPreview.toCreate + importPreview.toReuse + importPreview.toUpdate} dòng)
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* IMPORT EXCEL — KẾT QUẢ MODAL (bước 2/2, sau khi đã ghi thật) */}
       {importResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-              <h3 className="font-bold text-lg text-[#0F172A] flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-[#008BC5]" /> Kết quả import
-              </h3>
-              <button onClick={() => setImportResult(null)} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div className="bg-[#F0FDF4] rounded-lg p-3">
-                  <div className="text-2xl font-bold text-[#22C55E]">{importResult.created}</div>
-                  <div className="text-sm text-slate-500">Tạo mới</div>
-                </div>
-                <div className="bg-[#FFF7ED] rounded-lg p-3">
-                  <div className="text-2xl font-bold text-[#F6AD37]">{importResult.reused}</div>
-                  <div className="text-sm text-slate-500">Tái sử dụng</div>
-                </div>
-                <div className="bg-[#EAF6FF] rounded-lg p-3">
-                  <div className="text-2xl font-bold text-[#008BC5]">{importResult.updated}</div>
-                  <div className="text-sm text-slate-500">Cập nhật</div>
-                </div>
-                <div className="bg-[#FEECEC] rounded-lg p-3">
-                  <div className="text-2xl font-bold text-[#E53E3E]">{importResult.failed}</div>
-                  <div className="text-sm text-slate-500">Lỗi</div>
-                </div>
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
+              <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
+                <h3 className="font-bold text-lg text-[#0F172A] flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-[#008BC5]" /> Kết quả import
+                </h3>
+                <button onClick={() => setImportResult(null)} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-
-              {importResult.failed > 0 && (
-                <div className="bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg p-3 text-xs text-[#92400E] max-h-32 overflow-y-auto space-y-1" data-lenis-prevent>
-                  <p className="flex items-center gap-1 font-semibold"><AlertTriangle className="w-3.5 h-3.5" /> Các dòng lỗi:</p>
-                  {importResult.results.filter(r => r.status === 'error').map(r => (
-                    <p key={r.row}>Dòng {r.row}: {r.message}</p>
-                  ))}
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="bg-[#F0FDF4] rounded-lg p-3">
+                    <div className="text-2xl font-bold text-[#22C55E]">{importResult.created}</div>
+                    <div className="text-sm text-slate-500">Tạo mới</div>
+                  </div>
+                  <div className="bg-[#FFF7ED] rounded-lg p-3">
+                    <div className="text-2xl font-bold text-[#F6AD37]">{importResult.reused}</div>
+                    <div className="text-sm text-slate-500">Tái sử dụng</div>
+                  </div>
+                  <div className="bg-[#EAF6FF] rounded-lg p-3">
+                    <div className="text-2xl font-bold text-[#008BC5]">{importResult.updated}</div>
+                    <div className="text-sm text-slate-500">Cập nhật</div>
+                  </div>
+                  <div className="bg-[#FEECEC] rounded-lg p-3">
+                    <div className="text-2xl font-bold text-[#E53E3E]">{importResult.failed}</div>
+                    <div className="text-sm text-slate-500">Lỗi</div>
+                  </div>
                 </div>
-              )}
 
-              <button
-                type="button"
-                onClick={() => downloadImportResultsCsv(importResult.results)}
-                className="w-full py-2.5 bg-[#0F172A] text-white rounded-lg font-semibold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
-              >
-                <Upload className="w-4 h-4 rotate-180" /> Tải file kết quả (username + mật khẩu)
-              </button>
-              <p className="text-xs text-slate-400 text-center">
-                File chứa mật khẩu tạm — chỉ tải được 1 lần từ đây, hãy lưu lại cẩn thận.
-              </p>
+                {importResult.failed > 0 && (
+                  <div className="bg-[#FFFBEB] border border-[#F6AD37]/40 rounded-lg p-3 text-xs text-[#92400E] max-h-32 overflow-y-auto space-y-1" data-lenis-prevent>
+                    <p className="flex items-center gap-1 font-semibold"><AlertTriangle className="w-3.5 h-3.5" /> Các dòng lỗi:</p>
+                    {importResult.results.filter(r => r.status === 'error').map(r => (
+                      <p key={r.row}>Dòng {r.row}: {r.message}</p>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => downloadImportResultsCsv(importResult.results)}
+                  className="w-full py-2.5 bg-[#0F172A] text-white rounded-lg font-semibold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Upload className="w-4 h-4 rotate-180" /> Tải file kết quả (username + mật khẩu)
+                </button>
+                <p className="text-xs text-slate-400 text-center">
+                  File chứa mật khẩu tạm — chỉ tải được 1 lần từ đây, hãy lưu lại cẩn thận.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

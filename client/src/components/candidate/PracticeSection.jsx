@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
 } from 'lucide-react';
 import { useConfirm } from '../ConfirmDialog';
+import { useToast } from '../ToastContext';
 import {
   fetchPracticeTopics,
   fetchPracticeProgress,
@@ -133,6 +134,7 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   // Bài dở đã quá giờ khi thí sinh rời đi: tự nộp và báo cho thí sinh biết
   const [autoSubmitNotice, setAutoSubmitNotice] = useState(false);
   const confirmAction = useConfirm();
+  const { showToast } = useToast();
 
   // Ref để tránh nộp bài 2 lần khi hết giờ và người dùng bấm nộp cùng lúc
   const submittedRef = useRef(false);
@@ -355,12 +357,25 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
     );
   };
 
+  // Cuộn đưa khối chọn chủ đề lên gần đầu màn hình, chừa chỗ cho Header cố định (~72px).
+  // Tự tính vị trí thay vì scrollIntoView({ block: 'center' }) để tiêu đề "1. Chọn chủ đề"
+  // không bị Header che và không phụ thuộc chiều cao khối.
+  const scrollToTopics = () => {
+    const el = topicSectionRef.current;
+    if (!el) return;
+    const HEADER_OFFSET = 96;
+    const top = el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET;
+    window.scrollTo({ top: Math.max(0, top), behavior: getScrollBehavior() });
+  };
+
   const handleStart = async () => {
     if (selectedTopicIds.length === 0) {
-      // Trên điện thoại, khu vực chọn chủ đề nằm xa nút Bắt đầu: cuộn tới đó và báo lỗi ngay tại chỗ
+      // Nút Bắt đầu nằm cuối form, xa khu vực chọn chủ đề: báo bằng toast nổi (luôn thấy dù đang ở đâu)
+      // đồng thời cuộn tới khu vực chọn chủ đề và đánh dấu đỏ ngay tại chỗ.
       setError(null);
       setTopicError(true);
-      topicSectionRef.current?.scrollIntoView({ behavior: getScrollBehavior(), block: 'center' });
+      showToast('Vui lòng chọn ít nhất một chủ đề để bắt đầu.', 'warning');
+      scrollToTopics();
       return;
     }
     setTopicError(false);

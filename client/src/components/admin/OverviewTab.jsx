@@ -1,17 +1,27 @@
 import { useState, useEffect } from 'react';
-import { Users, Shield, FileCheck, ClipboardList, GraduationCap, Cloud, Loader2, CheckCircle, ServerCrash } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  LabelList,
-} from 'recharts';
+  Users,
+  Shield,
+  FileCheck,
+  ClipboardList,
+  GraduationCap,
+  Cloud,
+  Loader2,
+  CheckCircle,
+  CheckCircle2,
+  AlertTriangle,
+  ServerCrash,
+  ChevronRight,
+  RefreshCw,
+} from 'lucide-react';
 import { fetchOverviewStats, triggerBackup } from '../../services/admin.service';
+
+// Tab Tổng quan cho Quản trị viên — cùng khung với tab Tổng quan của Người ra đề: "việc cần xử lý trước, số liệu sau".
+//  1. Việc cần xử lý: thiếu vai trò thiết yếu (không ai ra đề / duyệt đề / dự thi), chỉ có 1 quản trị viên.
+//  2. Tài khoản: tổng + thanh phân bổ theo vai trò + từng vai trò bấm được để sang tab Tài khoản.
+//  3. Kỳ thi đang diễn ra.
+//  4. Sao lưu dữ liệu (kèm kết quả và lối tắt sang tab Sao lưu & Phục hồi).
+// Chỉ dùng lại fetchOverviewStats / triggerBackup đã có, không thêm API mới. Bỏ recharts vì thẻ vai trò đã nói đủ.
 
 const ROLE_META = {
   admin: { label: 'Quản trị viên', icon: Shield, color: 'purple' },
@@ -27,32 +37,95 @@ const COLOR_CLASSES = {
   green: 'bg-[#22C55E]/10 text-[#22C55E]',
 };
 
-// Biểu đồ dùng 1 màu cột duy nhất (xanh chính) theo design-system.md.
-const CHART_BAR_COLOR = '#008BC5';
+const BAR_CLASSES = {
+  purple: 'bg-purple-500',
+  blue: 'bg-[#008BC5]',
+  amber: 'bg-amber-500',
+  green: 'bg-[#22C55E]',
+};
 
-export const OverviewTab = () => {
+function formatTime(date) {
+  if (!date) return '';
+  return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Khung thẻ dùng chung: tiêu đề + mô tả ngắn + nội dung
+const Panel = ({ title, hint, children, className = '' }) => (
+  <section className={`bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 ${className}`}>
+    <div className="mb-3">
+      <h3 className="text-base font-bold text-[#0F172A]">{title}</h3>
+      {hint && <p className="text-sm text-slate-500 mt-0.5">{hint}</p>}
+    </div>
+    {children}
+  </section>
+);
+
+// Một dòng việc cần xử lý; nếu có onClick thì cả dòng bấm được
+const ActionRow = ({ icon: Icon, tone, title, detail, cta, onClick }) => {
+  const toneClass = tone === 'danger' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600';
+  const content = (
+    <>
+      <span className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${toneClass}`}>
+        <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
+      </span>
+      <span className="flex-1 min-w-0 text-left">
+        <span className="block text-sm font-semibold text-[#0F172A] break-words">{title}</span>
+        {detail && <span className="block text-sm text-slate-500 mt-0.5 line-clamp-2 break-words">{detail}</span>}
+      </span>
+      {onClick && (
+        <span className="hidden sm:flex items-center gap-1 text-sm font-semibold text-[#008BC5] shrink-0">
+          {cta}
+          <ChevronRight className="w-4 h-4" aria-hidden="true" />
+        </span>
+      )}
+    </>
+  );
+  return onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-[#008BC5]/50 hover:bg-slate-50 transition-colors min-h-[56px]"
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="w-full flex items-center gap-3 p-3 rounded-lg border border-slate-200 min-h-[56px]">{content}</div>
+  );
+};
+
+export const OverviewTab = ({ onNavigate }) => {
   const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // chỉ true ở lần tải đầu
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupResult, setBackupResult] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setRefreshing(true);
     setError(false);
     fetchOverviewStats()
-      .then(data => {
-        if (!cancelled) setStats(data);
+      .then((data) => {
+        if (cancelled) return;
+        setStats(data);
+        setUpdatedAt(new Date());
       })
       .catch(() => {
         if (!cancelled) setError(true);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setLoading(false);
+        setRefreshing(false);
       });
-    return () => { cancelled = true; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   const handleBackup = async () => {
     setBackupLoading(true);
@@ -67,183 +140,299 @@ export const OverviewTab = () => {
     }
   };
 
+  const reload = () => setReloadKey((k) => k + 1);
+
   if (loading) {
     return (
-      <div className="space-y-6" role="status" aria-label="Đang tải dữ liệu tổng quan">
-        <div className="h-6 w-40 bg-slate-200 rounded animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[1, 2].map(i => (
-            <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm animate-pulse">
-              <div className="h-10 w-10 bg-slate-200 rounded-lg mb-3" />
-              <div className="h-4 w-24 bg-slate-200 rounded mb-2" />
-              <div className="h-8 w-16 bg-slate-200 rounded" />
-            </div>
-          ))}
+      <div className="space-y-4" role="status" aria-busy="true" aria-label="Đang tải dữ liệu tổng quan">
+        <div className="h-8 w-48 bg-slate-200 rounded animate-pulse" />
+        <div className="h-28 bg-white rounded-xl border border-slate-200 animate-pulse" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="h-64 bg-white rounded-xl border border-slate-200 animate-pulse" />
+          <div className="h-64 bg-white rounded-xl border border-slate-200 animate-pulse" />
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (!stats) {
     return (
-      <div role="alert" className="bg-[#FEECEC] border border-[#E53E3E]/30 text-[#0F172A] rounded-lg p-4 flex items-center gap-3">
-        <ServerCrash className="w-5 h-5 shrink-0 text-[#E53E3E]" aria-hidden="true" />
-        <p className="font-medium">Không tải được dữ liệu tổng quan. Vui lòng thử lại.</p>
+      <div role="alert" className="bg-[#FEECEC] border border-[#E53E3E]/30 text-[#0F172A] rounded-xl p-4 sm:p-5 flex flex-wrap items-center gap-4">
+        <div className="w-11 h-11 rounded-xl bg-[#E53E3E]/10 flex items-center justify-center shrink-0">
+          <ServerCrash className="w-5 h-5 text-[#E53E3E]" aria-hidden="true" />
+        </div>
+        <p className="font-medium flex-1 min-w-[200px]">Không tải được dữ liệu tổng quan. Vui lòng thử lại.</p>
+        <button
+          type="button"
+          onClick={reload}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 px-4 h-11 bg-[#008BC5] hover:bg-[#0693E3] text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-70"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+          Thử lại
+        </button>
       </div>
     );
   }
+
+  const canGo = Boolean(onNavigate);
+  const go = (tab) => (canGo ? () => onNavigate(tab) : undefined);
+
+  const totalUsers = stats.totalUsers || 0;
+  const hasUsers = totalUsers > 0;
+  const activeExam = stats.activeExam;
 
   const roleEntries = Object.entries(ROLE_META).map(([code, meta]) => ({
     code,
     ...meta,
     count: stats.usersByRole?.[code] || 0,
   }));
+  const countOf = (code) => roleEntries.find((r) => r.code === code)?.count ?? 0;
 
-  const chartData = roleEntries.map((r) => ({ label: r.label, count: r.count }));
-  const hasUsers = stats.totalUsers > 0;
-
-  const activeExam = stats.activeExam;
+  // Việc cần xử lý, theo mức khẩn: thiếu người ra đề / duyệt đề -> chưa có người dự thi -> chỉ 1 quản trị viên
+  const actions = [];
+  if (countOf('examiner') === 0) {
+    actions.push({
+      key: 'no-examiner',
+      icon: AlertTriangle,
+      tone: 'danger',
+      title: 'Chưa có Người ra đề nào',
+      detail: 'Không ai có thể soạn câu hỏi và tạo đề xuất kỳ thi. Hãy tạo hoặc gán vai trò này cho một tài khoản.',
+      cta: 'Quản lý tài khoản',
+      tab: 'accounts',
+    });
+  }
+  if (countOf('leader') === 0) {
+    actions.push({
+      key: 'no-leader',
+      icon: AlertTriangle,
+      tone: 'danger',
+      title: 'Chưa có Người duyệt đề nào',
+      detail: 'Đề xuất kỳ thi sẽ không có ai duyệt nên không thể phát hành.',
+      cta: 'Quản lý tài khoản',
+      tab: 'accounts',
+    });
+  }
+  if (countOf('candidate') === 0) {
+    actions.push({
+      key: 'no-candidate',
+      icon: GraduationCap,
+      tone: 'warn',
+      title: 'Chưa có Người dự thi nào',
+      detail: 'Kỳ thi có phát hành cũng chưa có ai tham gia.',
+      cta: 'Quản lý tài khoản',
+      tab: 'accounts',
+    });
+  }
+  if (countOf('admin') === 1) {
+    actions.push({
+      key: 'single-admin',
+      icon: Shield,
+      tone: 'warn',
+      title: 'Chỉ có 1 quản trị viên',
+      detail: 'Nếu tài khoản này bị khóa hoặc mất mật khẩu thì không còn ai quản trị hệ thống.',
+      cta: 'Quản lý tài khoản',
+      tab: 'accounts',
+    });
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Tiêu đề + nút backup. Mobile: nút chiếm trọn chiều ngang để dễ bấm */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h3 className="text-lg font-bold text-[#0F172A]">Thống kê nhanh</h3>
-
-        <div className="flex flex-col items-stretch sm:items-end w-full sm:w-auto">
+    <div className="animate-fade-in-up space-y-4 sm:space-y-5" style={{ '--stagger-delay': '0ms' }}>
+      {/* Đầu trang: tiêu đề + mốc cập nhật + làm mới */}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-bold text-[#0F172A]">Tổng quan hệ thống</h2>
+        <div className="flex items-center gap-2 shrink-0">
+          {updatedAt && <span className="hidden sm:inline text-xs text-slate-500 tabular-nums">Cập nhật lúc {formatTime(updatedAt)}</span>}
           <button
-            onClick={handleBackup}
-            disabled={backupLoading}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-[#F6AD37] text-white rounded-lg font-semibold hover:bg-[#B45309] transition-colors disabled:opacity-70 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#008BC5]"
+            type="button"
+            onClick={reload}
+            disabled={refreshing}
+            aria-label="Làm mới dữ liệu tổng quan"
+            className="inline-flex items-center justify-center gap-2 px-3 h-11 min-w-[44px] rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#008BC5] transition-colors disabled:opacity-70"
           >
-            {backupLoading ? <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" /> : <Cloud className="w-5 h-5" aria-hidden="true" />}
-            <span>Backup dữ liệu</span>
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            <span className="hidden sm:inline">Làm mới</span>
           </button>
-          <span className="text-xs text-slate-500 mt-1.5 sm:text-right">Demo: lưu tạm trên Google Drive</span>
         </div>
       </div>
 
-      {/* Kết quả backup — 2 màu chức năng (xanh lá/đỏ), luôn kèm icon + chữ mô tả */}
-      {backupResult && (
-        <div
-          role={backupResult.success ? 'status' : 'alert'}
-          className={`p-4 rounded-lg flex items-start gap-3 border ${
-            backupResult.success
-              ? 'bg-[#F0FDF4] border-[#22C55E]/40 text-[#0F172A]'
-              : 'bg-[#FEECEC] border-[#E53E3E]/40 text-[#0F172A]'
-          }`}
-        >
-          {backupResult.success ? (
-            <CheckCircle className="w-5 h-5 shrink-0 text-[#16A34A]" aria-hidden="true" />
-          ) : (
-            <ServerCrash className="w-5 h-5 shrink-0 text-[#C53030]" aria-hidden="true" />
-          )}
-          <div className="min-w-0">
-            <p className="font-medium break-words">{backupResult.message}</p>
-            {backupResult.downloadUrl && (
-              <a
-                href={backupResult.downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm underline mt-1 inline-block py-1 text-[#16A34A] hover:text-[#22C55E]"
-              >
-                Xem file trên Google Drive
-              </a>
-            )}
-          </div>
+      {/* Lần làm mới thất bại nhưng vẫn còn số liệu cũ */}
+      {error && (
+        <div role="alert" className="bg-[#FEECEC] border border-[#E53E3E]/30 text-[#0F172A] rounded-lg p-3 flex items-center gap-3 text-sm">
+          <ServerCrash className="w-4 h-4 shrink-0 text-[#E53E3E]" aria-hidden="true" />
+          <p className="font-medium">Làm mới thất bại, đang hiển thị số liệu cũ{updatedAt ? ` (lúc ${formatTime(updatedAt)})` : ''}.</p>
         </div>
       )}
 
-      {/* Tổng số tài khoản + kỳ thi đang diễn ra */}
-      <div className="animate-fade-in-up grid grid-cols-1 md:grid-cols-2 gap-4" style={{ '--stagger-delay': '0ms' }}>
-        <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-z176 flex items-center gap-4">
-          <div className="w-12 h-12 bg-[#008BC5]/10 text-[#008BC5] rounded-xl flex items-center justify-center shrink-0">
-            <Users className="w-6 h-6" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm text-[#334155] font-medium">Tổng số tài khoản</p>
-            <p className="text-3xl font-bold text-[#0F172A] tabular-nums">{stats.totalUsers}</p>
-          </div>
+      {/* 1. Việc cần xử lý */}
+      <section
+        className={`bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 border-l-4 ${
+          actions.length > 0 ? 'border-l-[#F6AD37]' : 'border-l-[#22C55E]'
+        }`}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          {actions.length > 0 ? (
+            <AlertTriangle className="w-5 h-5 text-[#F6AD37]" aria-hidden="true" />
+          ) : (
+            <CheckCircle2 className="w-5 h-5 text-[#22C55E]" aria-hidden="true" />
+          )}
+          <h3 className="text-base font-bold text-[#0F172A]">
+            {actions.length > 0 ? `Việc cần xử lý (${actions.length})` : 'Hệ thống ổn định'}
+          </h3>
         </div>
-
-        <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-z176 flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${activeExam ? 'bg-[#22C55E]/10 text-[#22C55E]' : 'bg-slate-100 text-slate-400'}`}>
-            <FileCheck className="w-6 h-6" aria-hidden="true" />
+        {actions.length > 0 ? (
+          <div className="space-y-2">
+            {actions.map((a) => (
+              <ActionRow key={a.key} icon={a.icon} tone={a.tone} title={a.title} detail={a.detail} cta={a.cta} onClick={go(a.tab)} />
+            ))}
           </div>
-          <div className="min-w-0">
-            <p className="text-sm text-[#334155] font-medium">Kỳ thi đang diễn ra</p>
-            {activeExam ? (
-              <p className="text-base font-bold text-[#0F172A] truncate" title={activeExam.title}>
-                {activeExam.title}
-              </p>
-            ) : (
-              <p className="text-base font-medium text-slate-400">Không có kỳ thi nào</p>
-            )}
-          </div>
-        </div>
-      </div>
+        ) : (
+          <p className="text-sm text-slate-500">Đã có đủ các vai trò cần thiết để vận hành: ra đề, duyệt đề và dự thi.</p>
+        )}
+      </section>
 
-      {/* Phân bổ tài khoản theo vai trò */}
-      <div className="animate-fade-in-up" style={{ '--stagger-delay': '120ms' }}>
-        <p className="text-sm font-semibold text-[#334155] mb-3">Tài khoản theo vai trò</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-          {roleEntries.map(({ code, label, icon: Icon, color, count }) => (
-            <div key={code} className="bg-white p-4 rounded-xl border border-slate-200 shadow-z176">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${COLOR_CLASSES[color]}`}>
-                <Icon className="w-5 h-5" aria-hidden="true" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+        {/* 2. Tài khoản theo vai trò */}
+        <Panel title="Tài khoản" hint="Phân bổ theo vai trò. Bấm vào một vai trò để quản lý tài khoản.">
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="w-11 h-11 rounded-xl bg-[#008BC5]/10 text-[#008BC5] flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Tổng số tài khoản</p>
+                <p className="text-3xl font-bold text-[#0F172A] leading-none mt-1 tabular-nums">{totalUsers}</p>
               </div>
-              <p className="text-sm text-[#334155] font-medium leading-tight">{label}</p>
-              <p className="text-2xl font-bold text-[#0F172A] mt-1 tabular-nums">{count}</p>
-              {hasUsers && (
-                <p className="text-xs text-[#64748B] mt-0.5 tabular-nums">
-                  {((count / stats.totalUsers) * 100).toFixed(0)}% tổng tài khoản
-                </p>
+            </div>
+          </div>
+
+          {hasUsers ? (
+            <div
+              className="flex h-2.5 rounded-full bg-slate-200 overflow-hidden mt-4"
+              role="img"
+              aria-label={`Phân bổ ${totalUsers} tài khoản: ${roleEntries.map((r) => `${r.label} ${r.count}`).join(', ')}`}
+            >
+              {roleEntries.map((r) =>
+                r.count > 0 ? (
+                  <div key={r.code} className={BAR_CLASSES[r.color]} style={{ width: `${(r.count / totalUsers) * 100}%` }} />
+                ) : null,
               )}
             </div>
-          ))}
-        </div>
-      </div>
+          ) : (
+            <p className="text-sm text-slate-400 py-6 text-center">Chưa có tài khoản nào trong hệ thống.</p>
+          )}
 
-      {/* Biểu đồ phân bổ — dạng cột ngang để nhãn vai trò không bị chồng chữ trên mobile */}
-      <div className="animate-fade-in-up bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-z176" style={{ '--stagger-delay': '240ms' }}>
-        <p className="text-base font-semibold text-[#0F172A] mb-3">Phân bổ tài khoản theo vai trò</p>
-        {!hasUsers ? (
-          <div className="py-10 text-center text-slate-500 text-sm">Chưa có tài khoản nào trong hệ thống.</div>
-        ) : (
-          <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 32, bottom: 4, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                <XAxis
-                  type="number"
-                  allowDecimals={false}
-                  tick={{ fill: '#334155', fontSize: 13 }}
-                  axisLine={{ stroke: '#E2E8F0' }}
-                  tickLine={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="label"
-                  width={104}
-                  tick={{ fill: '#334155', fontSize: 13 }}
-                  axisLine={{ stroke: '#E2E8F0' }}
-                  tickLine={false}
-                />
-                <Tooltip
-                  cursor={{ fill: '#F1F5F9' }}
-                  contentStyle={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 8 }}
-                  formatter={(value) => [`${value} tài khoản`, 'Số lượng']}
-                />
-                <Bar dataKey="count" name="Số tài khoản" radius={[0, 6, 6, 0]} barSize={26}>
-                  {chartData.map((entry, index) => (
-                    <Cell key={index} fill={CHART_BAR_COLOR} />
-                  ))}
-                  <LabelList dataKey="count" position="right" fill="#0F172A" fontSize={13} fontWeight={600} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+          <ul className="mt-3 divide-y divide-slate-100">
+            {roleEntries.map(({ code, label, icon: Icon, color, count }) => {
+              const pct = hasUsers ? Math.round((count / totalUsers) * 100) : 0;
+              const row = (
+                <>
+                  <span className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${COLOR_CLASSES[color]}`}>
+                    <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
+                  </span>
+                  <span className="flex-1 min-w-0 text-left text-sm font-medium text-[#334155] truncate">{label}</span>
+                  <span className="text-xs text-slate-500 tabular-nums w-10 text-right">{pct}%</span>
+                  <span className={`w-10 text-right text-base font-bold tabular-nums ${count === 0 ? 'text-slate-300' : 'text-[#0F172A]'}`}>{count}</span>
+                </>
+              );
+              return (
+                <li key={code}>
+                  {canGo ? (
+                    <button
+                      type="button"
+                      onClick={go('accounts')}
+                      className="w-full flex items-center gap-3 py-2 px-1 rounded-lg hover:bg-slate-50 transition-colors min-h-[52px]"
+                    >
+                      {row}
+                    </button>
+                  ) : (
+                    <div className="w-full flex items-center gap-3 py-2 px-1 min-h-[52px]">{row}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
+
+        <div className="space-y-4 sm:space-y-5">
+          {/* 3. Kỳ thi đang diễn ra */}
+          <Panel title="Kỳ thi đang diễn ra">
+            <div className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 min-h-[56px]">
+              <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+                {activeExam && <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22C55E] opacity-60" />}
+                <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${activeExam ? 'bg-[#22C55E]' : 'bg-slate-300'}`} />
+              </span>
+              {activeExam ? (
+                <p className="flex-1 min-w-0 text-sm font-semibold text-[#0F172A] truncate" title={activeExam.title}>
+                  {activeExam.title}
+                </p>
+              ) : (
+                <p className="text-sm text-slate-500">Hiện không có kỳ thi nào đang diễn ra.</p>
+              )}
+              <span
+                className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  activeExam ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {activeExam ? 'Đang diễn ra' : 'Trống'}
+              </span>
+            </div>
+          </Panel>
+
+          {/* 4. Sao lưu dữ liệu */}
+          <Panel title="Sao lưu dữ liệu" hint="Demo: lưu tạm trên Google Drive.">
+            <button
+              type="button"
+              onClick={handleBackup}
+              disabled={backupLoading}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 min-h-[44px] bg-[#008BC5] hover:bg-[#0693E3] text-white rounded-lg font-semibold transition-colors disabled:opacity-70 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#008BC5]"
+            >
+              {backupLoading ? <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" /> : <Cloud className="w-5 h-5" aria-hidden="true" />}
+              <span>{backupLoading ? 'Đang sao lưu…' : 'Backup dữ liệu'}</span>
+            </button>
+
+            {backupResult && (
+              <div
+                role={backupResult.success ? 'status' : 'alert'}
+                className={`mt-3 p-3 rounded-lg flex items-start gap-3 border border-l-4 ${
+                  backupResult.success
+                    ? 'bg-[#F0FDF4] border-[#22C55E]/40 border-l-[#22C55E] text-[#0F172A]'
+                    : 'bg-[#FEECEC] border-[#E53E3E]/40 border-l-[#E53E3E] text-[#0F172A]'
+                }`}
+              >
+                {backupResult.success ? (
+                  <CheckCircle className="w-5 h-5 shrink-0 text-[#16A34A]" aria-hidden="true" />
+                ) : (
+                  <ServerCrash className="w-5 h-5 shrink-0 text-[#C53030]" aria-hidden="true" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium break-words">{backupResult.message}</p>
+                  {backupResult.downloadUrl && (
+                    <a
+                      href={backupResult.downloadUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm underline mt-1 inline-block py-1 text-[#16A34A] hover:text-[#22C55E]"
+                    >
+                      Xem file trên Google Drive
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {canGo && (
+              <button
+                type="button"
+                onClick={go('backup')}
+                className="mt-3 flex items-center gap-1 text-sm font-semibold text-[#008BC5] hover:underline min-h-[44px]"
+              >
+                Mở Sao lưu &amp; Phục hồi
+                <ChevronRight className="w-4 h-4" aria-hidden="true" />
+              </button>
+            )}
+          </Panel>
+        </div>
       </div>
     </div>
   );

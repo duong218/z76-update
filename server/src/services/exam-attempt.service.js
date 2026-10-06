@@ -815,7 +815,7 @@ export const examAttemptService = {
 
 // MỚI — Nộp và chấm mọi lượt thi chính thức đang làm dở của các kỳ thi `examIds`, bằng các đáp án đã tự lưu, đánh dấu
 // `autoSubmitReason`. Một lượt lỗi không làm hỏng cả đợt (chỉ ghi log và đếm vào `failed`).
-async function finalizeInProgressAttempts(examIds, autoSubmitReason) {
+async function finalizeInProgressAttempts(examIds, autoSubmitReason, attemptFilter = {}) {
   if (!examIds?.length) return { finalized: 0, failed: 0 };
 
   const exams = await Exam.find({ _id: { $in: examIds } });
@@ -828,6 +828,7 @@ async function finalizeInProgressAttempts(examIds, autoSubmitReason) {
     examCandidateId: { $in: candidates.map((c) => c._id) },
     attemptType: ATTEMPT_TYPE.OFFICIAL,
     status: ATTEMPT_STATUS.IN_PROGRESS,
+    ...attemptFilter,
   });
 
   let finalized = 0;
@@ -863,4 +864,27 @@ export function finalizeAttemptsForReplacedExams(examIds) {
 // nộp và chấm các lượt thi còn dở dang đã quá giờ làm bài / bị bỏ dở.
 export function finalizeAttemptsForEndedExams(examIds) {
   return finalizeInProgressAttempts(examIds, 'exam_ended');
+}
+
+// Lượt thi in_progress không có hoạt động (heartbeat/answer/my-exam) quá ngưỡng này, hoặc đã quá hạn làm bài từng ấy thời gian,
+// được coi là BỊ BỎ RƠI. Bằng cửa sổ "còn sống" ATTEMPT_ALIVE_WINDOW_MS trong user.service.js (gấp đôi INACTIVITY_TIMEOUT_MS)
+// nên thí sinh đang làm thật (heartbeat 15 giây) không bao giờ bị quét nhầm, và client đang online sẽ tự nộp trước khi tới ngưỡng.
+const ABANDONED_ATTEMPT_WINDOW_MS = 2 * 60_000;
+
+// MỚI — Dành cho scheduler (abandoned-attempt.scheduler.js): nộp và chấm các lượt thi bị bỏ rơi (thí sinh tắt tab/máy giữa bài
+// và không quay lại) bằng các đáp án đã tự lưu, đánh dấu autoSubmitReason = 'inactive_timeout'. Nếu thí sinh quay lại đúng lúc
+// đang quét thì gradeAndSubmitAttempt chiếm lượt thi nguyên tử nên chỉ 1 bên chấm, không tạo Result trùng.
+export async function finalizeAbandonedAttempts() {
+  const cutoff = new Date(Date.now() - ABANDONED_ATTEMPT_WINDOW_MS);
+  const abandonedFilter = { $or: [{ lastActiveAt: { $lt: cutoff } }, { expiresAt: { $lt: cutoff } }] };
+
+  const candidateIds = await ExamAttempt.find({
+    attemptType: ATTEMPT_TYPE.OFFICIAL,
+    status: ATTEMPT_STATUS.IN_PROGRESS,
+    ...abandonedFilter,
+  }).distinct('examCandidateId');
+  if (candidateIds.length === 0) return { finalized: 0, failed: 0 };
+
+  const examIds = await ExamCandidate.find({ _id: { $in: candidateIds } }).distinct('examId');
+  return finalizeInProgressAttempts(examIds, 'inactive_timeout', abandonedFilter);
 }

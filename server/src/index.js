@@ -11,6 +11,7 @@ import { runStartupSeed } from './services/seed.service.js';
 import { initBackupScheduler } from './services/backup.scheduler.js';
 import { initUploadCleanupScheduler } from './services/upload-cleanup.scheduler.js';
 import { initAccountPurgeScheduler } from './services/account-purge.scheduler.js';
+import { initAbandonedAttemptScheduler } from './services/abandoned-attempt.scheduler.js';
 
 async function main() {
   // --- Khởi tạo kết nối & Môi trường ---
@@ -40,6 +41,9 @@ async function main() {
 
   // 3. Xóa cứng tài khoản bị khóa liên tục > 6 tháng không có lịch sử hoạt động lúc 4h sáng
   initAccountPurgeScheduler();
+
+  // 4. Mỗi phút nộp và chấm các lượt thi bị bỏ rơi (thí sinh tắt tab/máy giữa bài, không quay lại)
+  initAbandonedAttemptScheduler();
 
   // --- Khởi chạy HTTP Server ---
   const app = createApp();

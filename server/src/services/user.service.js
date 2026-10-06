@@ -21,6 +21,11 @@ import {
   summarizeImportDepartments,
 } from '../utils/import-departments.js';
 
+// Lượt thi in_progress chỉ được coi là "còn sống" nếu có hoạt động (heartbeat/answer/my-exam) trong khoảng này.
+// Gấp đôi INACTIVITY_TIMEOUT_MS (1 phút) của exam-attempt.service.js; client gửi heartbeat mỗi 15 giây nên lượt thi đang được làm thật luôn mới hơn nhiều.
+// Hệ thống không có scheduler dọn lượt thi: thí sinh tắt máy giữa bài thì lượt thi nằm in_progress mãi, không được chặn đổi vai trò vĩnh viễn.
+const ATTEMPT_ALIVE_WINDOW_MS = 2 * 60_000;
+
 // Lấy danh sách toàn bộ người dùng kèm thông tin vai trò (Role) và hồ sơ nhân sự (Employee)
 export async function listUsers() {
   const users = await User.find().populate('roleId', 'code name').sort({ createdAt: -1 }).lean();
@@ -314,13 +319,17 @@ export async function updateUserRole({ adminId, userId, newRoleId, ipAddress }) 
     );
   }
 
-  // Đang có lượt thi dở thì không đổi vai trò: mọi API làm bài yêu cầu vai trò candidate nên bài sẽ ngừng lưu/nộp được.
+  // Đang có lượt thi CÒN HOẠT ĐỘNG thì không đổi vai trò: mọi API làm bài yêu cầu vai trò candidate nên bài sẽ ngừng lưu/nộp được.
+  // Chỉ tính lượt thi in_progress chưa hết giờ và có hoạt động trong ATTEMPT_ALIVE_WINDOW_MS gần nhất; lượt thi bị bỏ rơi thì không chặn.
   const currentEmployee = await Employee.findOne({ userId }).select('_id');
   if (currentEmployee) {
     const candidateIds = await ExamCandidate.find({ employeeId: currentEmployee._id }).distinct('_id');
+    const now = new Date();
     const inProgress = await ExamAttempt.exists({
       examCandidateId: { $in: candidateIds },
       status: ATTEMPT_STATUS.IN_PROGRESS,
+      expiresAt: { $gt: now },
+      lastActiveAt: { $gte: new Date(now.getTime() - ATTEMPT_ALIVE_WINDOW_MS) },
     });
     if (inProgress) {
       throw new ApiError(

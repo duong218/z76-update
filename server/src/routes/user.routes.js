@@ -45,6 +45,7 @@ router.post('/import/confirm', userController.confirmImportExcel);
 router.post('/', userController.create);
 router.patch('/:id/role', userController.updateRole);
 router.patch('/:id/lock', userController.toggleLock);
+router.patch('/:id/profile', userController.updateProfile);
 // MỚI: sửa phòng ban chính / phòng kiêm nhiệm của 1 nhân viên (tài khoản thí sinh)
 router.patch('/:id/departments', userController.updateDepartments);
 router.post('/:id/reset-password', userController.resetPassword);

@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Edit2, Lock, Unlock, KeyRound, Loader2, X, Eye, Copy, Check, Upload, FileSpreadsheet, AlertTriangle, AlertCircle, Columns3, ChevronDown, Info, Download, Building2 } from 'lucide-react';
-import { fetchUsers, fetchRoles, createUser, updateUserRole, toggleUserLock, resetUserPassword, previewImportEmployeesExcel, confirmImportEmployeesExcel, downloadImportResultsCsv, downloadSingleAccountCredential, exportCandidateCredentialsExcel, updateEmployeeDepartments } from '../../services/admin.service';
+import { Search, Plus, Edit2, Lock, Unlock, KeyRound, Loader2, X, Eye, Copy, Check, Upload, FileSpreadsheet, AlertTriangle, AlertCircle, Columns3, ChevronDown, Info, Download, UserCog } from 'lucide-react';
+import { fetchUsers, fetchRoles, createUser, updateUserRole, toggleUserLock, resetUserPassword, previewImportEmployeesExcel, confirmImportEmployeesExcel, downloadImportResultsCsv, downloadSingleAccountCredential, exportCandidateCredentialsExcel, updateUserProfile } from '../../services/admin.service';
 // Dùng lại đúng fetchDepartments()/createDepartment() đã có sẵn ở tab "Phòng ban"
 // (examiner/DepartmentTab.jsx) — không viết API mới, không gọi apiRequest trực tiếp nữa.
 import { fetchDepartments, createDepartment } from '../../services/examiner.service';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
+
+const PROFILE_KEYS = ['fullname', 'employeeCode', 'dob', 'gender', 'phone', 'address', 'position'];
+// DB lưu ngày sinh dạng 'dd/mm/yyyy' (giống file Excel); <input type=date> dùng 'yyyy-mm-dd'.
+const dobToInput = (s) => {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s ?? '').trim());
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
+};
+const dobFromInput = (s) => (s ? s.split('-').reverse().join('/') : '');
+const PROFILE_INPUT_CLASS = 'w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white';
 
 // Render modal thẳng vào <body>. Nếu để modal nằm trong cây DOM của tab thì khi tổ tiên có
 // transform (vd. animate-fade-in-up) hoặc overflow-hidden, `fixed inset-0` sẽ bị bó trong vùng đó
@@ -145,6 +154,7 @@ export const AccountTab = ({ currentUser }) => {
   const [editDeptUser, setEditDeptUser] = useState(null);
   const [editPrimaryDeptId, setEditPrimaryDeptId] = useState('');
   const [editExtraDeptIds, setEditExtraDeptIds] = useState([]);
+  const [editProfile, setEditProfile] = useState({}); // thông tin cá nhân (modal bút)
   const [editingUser, setEditingUser] = useState(null);
   const [editingRoleId, setEditingRoleId] = useState('');
 
@@ -435,6 +445,7 @@ export const AccountTab = ({ currentUser }) => {
     setEditDeptUser(user);
     setEditPrimaryDeptId(String(user.departmentId ?? ''));
     setEditExtraDeptIds((user.extraDepartments ?? []).map((d) => String(d._id)));
+    setEditProfile({ ...Object.fromEntries(PROFILE_KEYS.map((k) => [k, user[k] ?? ''])), dob: dobToInput(user.dob) });
     setIsEditDeptOpen(true);
   };
 
@@ -447,16 +458,18 @@ export const AccountTab = ({ currentUser }) => {
     if (!editDeptUser || !editPrimaryDeptId) return;
     setActionLoading(true);
     try {
-      await updateEmployeeDepartments(editDeptUser._id, {
+      await updateUserProfile(editDeptUser._id, {
+        ...editProfile,
+        dob: dobFromInput(editProfile.dob),
         departmentId: editPrimaryDeptId,
         extraDepartmentIds: editExtraDeptIds,
       });
       setIsEditDeptOpen(false);
       setEditDeptUser(null);
-      showToast('Đã cập nhật phòng ban', 'success');
+      showToast('Đã cập nhật thông tin cá nhân', 'success');
       await loadData();
     } catch (err) {
-      showToast(err.message || 'Không thể cập nhật phòng ban', 'error');
+      showToast(err.message || 'Không thể cập nhật thông tin cá nhân', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -723,18 +736,16 @@ export const AccountTab = ({ currentUser }) => {
                     className="p-2 text-slate-500 hover:text-[#008BC5] hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                     title={isSelf(user) ? "Không thể đổi quyền của chính mình" : "Sửa phân quyền"}
                   >
+                    <UserCog className="w-4 h-4" />
+                  </button>
+                  <button
+                    disabled={actionLoading}
+                    onClick={() => openEditDepartments(user)}
+                    className="p-2 text-slate-500 hover:text-[#008BC5] hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30"
+                    title="Sửa thông tin cá nhân"
+                  >
                     <Edit2 className="w-4 h-4" />
                   </button>
-                  {user.departmentId && (
-                    <button
-                      disabled={actionLoading}
-                      onClick={() => openEditDepartments(user)}
-                      className="p-2 text-slate-500 hover:text-[#008BC5] hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30"
-                      title="Sửa phòng ban / phòng kiêm nhiệm"
-                    >
-                      <Building2 className="w-4 h-4" />
-                    </button>
-                  )}
                   <button
                     disabled={actionLoading}
                     onClick={() => handleResetPassword(user)}
@@ -820,15 +831,13 @@ export const AccountTab = ({ currentUser }) => {
               >
                 Sửa quyền
               </button>
-              {user.departmentId && (
-                <button
-                  disabled={actionLoading}
-                  onClick={() => openEditDepartments(user)}
-                  className="flex-1 min-h-[44px] text-sm font-medium text-[#008BC5] bg-blue-50 rounded-lg disabled:opacity-30"
-                >
-                  Phòng ban
-                </button>
-              )}
+              <button
+                disabled={actionLoading}
+                onClick={() => openEditDepartments(user)}
+                className="flex-1 min-h-[44px] text-sm font-medium text-[#008BC5] bg-blue-50 rounded-lg disabled:opacity-30"
+              >
+                Thông tin
+              </button>
               <button
                 disabled={actionLoading}
                 onClick={() => handleResetPassword(user)}
@@ -1061,19 +1070,27 @@ export const AccountTab = ({ currentUser }) => {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-hidden border border-slate-100 flex flex-col my-auto" data-lenis-prevent>
               <div className="p-4 sm:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50 shrink-0">
-                <h3 className="font-bold text-lg text-[#0F172A]">Sửa phòng ban</h3>
+                <h3 className="font-bold text-lg text-[#0F172A]">Sửa thông tin cá nhân</h3>
                 <button onClick={() => { setIsEditDeptOpen(false); setEditDeptUser(null); }} className="text-slate-400 hover:text-slate-600 p-2 -mr-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <form onSubmit={handleUpdateDepartments} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-500">Nhân viên</label>
-                  <p className="text-base font-bold text-[#0F172A] mt-0.5">
-                    {editDeptUser?.fullname || editDeptUser?.username}
-                    {editDeptUser?.employeeCode ? <span className="text-slate-400 font-normal"> ({editDeptUser.employeeCode})</span> : null}
-                  </p>
+                  <label className="block text-sm font-semibold text-slate-500">Tài khoản</label>
+                  <p className="text-base font-bold text-[#0F172A] mt-0.5">{editDeptUser?.username}</p>
                 </div>
+                {[['fullname', 'Họ tên', true], ['employeeCode', 'Mã nhân viên']].map(([key, label, required]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">{label}</label>
+                    <input
+                      required={required}
+                      value={editProfile[key] ?? ''}
+                      onChange={(e) => setEditProfile((p) => ({ ...p, [key]: e.target.value }))}
+                      className={PROFILE_INPUT_CLASS}
+                    />
+                  </div>
+                ))}
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Phòng ban chính</label>
                   <select
@@ -1085,6 +1102,7 @@ export const AccountTab = ({ currentUser }) => {
                     }}
                     className="w-full px-3.5 py-2 min-h-[44px] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008BC5] bg-white"
                   >
+                    <option value="" disabled>-- Chọn phòng ban --</option>
                     {departments.map((dept) => (
                       <option key={dept._id} value={dept._id}>{dept.name}</option>
                     ))}
@@ -1112,6 +1130,38 @@ export const AccountTab = ({ currentUser }) => {
                     ))}
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Giới tính</label>
+                  <select
+                    value={editProfile.gender ?? ''}
+                    onChange={(e) => setEditProfile((p) => ({ ...p, gender: e.target.value }))}
+                    className={PROFILE_INPUT_CLASS}
+                  >
+                    <option value="">—</option>
+                    <option value="Nam">Nam</option>
+                    <option value="Nữ">Nữ</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Ngày sinh</label>
+                  <input
+                    type="date"
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={editProfile.dob ?? ''}
+                    onChange={(e) => setEditProfile((p) => ({ ...p, dob: e.target.value }))}
+                    className={PROFILE_INPUT_CLASS}
+                  />
+                </div>
+                {[['phone', 'Số điện thoại'], ['address', 'Địa chỉ'], ['position', 'Chức vụ']].map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">{label}</label>
+                    <input
+                      value={editProfile[key] ?? ''}
+                      onChange={(e) => setEditProfile((p) => ({ ...p, [key]: e.target.value }))}
+                      className={PROFILE_INPUT_CLASS}
+                    />
+                  </div>
+                ))}
                 <div className="pt-2 flex gap-3 pb-1">
                   <button
                     type="button"

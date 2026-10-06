@@ -301,11 +301,72 @@ export async function updateUserRole({ adminId, userId, newRoleId, ipAddress }) 
   const user = await User.findById(userId);
   if (!user) throw new ApiError(404, 'Không tìm thấy người dùng', 'USER_NOT_FOUND');
 
-  const oldRoleId = user.roleId;
+  const role = await Role.findById(newRoleId).select('code');
+  if (!role) throw new ApiError(400, 'Vai trò không hợp lệ', 'ROLE_NOT_FOUND');
+
+  const isCandidate = role.code === 'candidate';
+  const employee = isCandidate ? await Employee.findOne({ userId }) : null;
+  if (isCandidate && !employee) {
+    throw new ApiError(
+      400,
+      'Tài khoản chưa có thông tin cá nhân. Bấm biểu tượng bút để nhập họ tên và phòng ban trước khi chuyển thành thí sinh',
+      'EMPLOYEE_PROFILE_REQUIRED',
+    );
+  }
+
   user.roleId = newRoleId;
   await user.save();
+  // Hồ sơ Employee của non-candidate luôn inactive -> không bị tính là thí sinh khi sinh mã đề / gán kỳ thi.
+  await Employee.updateOne({ userId }, { isActive: isCandidate });
+  if (employee) {
+    employee.isActive = true;
+    await assignEmployeeToActiveExamIfAny(employee).catch(() => {}); // vào ngay kỳ thi đang phát hành (nếu có); lỗi gán không làm hỏng việc đổi role
+  }
 
   return user;
+}
+
+// Sửa thông tin cá nhân của MỌI role; chưa có hồ sơ Employee thì tạo (inactive nếu không phải candidate).
+export async function updateUserProfile({ userId, profile }) {
+  const user = await User.findById(userId).populate('roleId', 'code');
+  if (!user) throw new ApiError(404, 'Không tìm thấy người dùng', 'USER_NOT_FOUND');
+
+  const { fullname, departmentId, extraDepartmentIds, employeeCode, dob, gender, phone, address, position } = profile;
+  if (!fullname?.trim() || !departmentId) {
+    throw new ApiError(400, 'Bắt buộc phải có họ tên và phòng ban', 'MISSING_EMPLOYEE_FIELDS');
+  }
+  if (!mongoose.isValidObjectId(departmentId)) {
+    throw new ApiError(400, 'departmentId không hợp lệ', 'INVALID_FIELD');
+  }
+  const dept = await Department.findOne({ _id: departmentId, isActive: true });
+  if (!dept) throw new ApiError(400, 'Phòng ban chính không tồn tại hoặc đã ngừng hoạt động', 'DEPARTMENT_NOT_FOUND');
+  if (dob && !/^\d{2}\/\d{2}\/\d{4}$/.test(dob)) {
+    throw new ApiError(400, 'Ngày sinh phải có dạng dd/mm/yyyy', 'INVALID_FIELD');
+  }
+
+  const employee =
+    (await Employee.findOne({ userId })) ??
+    new Employee({ userId, isActive: user.roleId?.code === 'candidate' });
+  employee.set({
+    fullname,
+    departmentId: dept._id,
+    extraDepartmentIds: await normalizeExtraDepartmentIds(dept._id, extraDepartmentIds),
+    employeeCode: employeeCode?.trim() || undefined,
+    dob: dob ?? '',
+    gender: gender ?? '',
+    phone: phone ?? '',
+    address: address ?? '',
+    position: position ?? '',
+  });
+  try {
+    await employee.save();
+  } catch (err) {
+    if (err?.code === 11000) {
+      throw new ApiError(409, `Mã nhân viên "${employeeCode}" đã được dùng cho tài khoản khác`, 'EMPLOYEE_CODE_DUPLICATE');
+    }
+    throw err;
+  }
+  return { username: user.username, fullname: employee.fullname };
 }
 
 // Khóa hoặc Mở khóa tài khoản (lưu mốc lockedAt và tăng tokenVersion để thu hồi phiên đăng nhập)
@@ -502,6 +563,26 @@ function usernameFromEmployeeCode(code) {
     .replace(/[^a-z0-9]/g, '');
 }
 
+// Chuẩn hóa ngày sinh từ ô Excel về 'dd/mm/yyyy'. Ô kiểu Date của Excel đến dạng số (serial) -> đổi lại.
+// Không hiểu được / ngày không tồn tại (31/02) -> '' để không lưu dữ liệu rác.
+function normalizeDob(v) {
+  let d;
+  let m;
+  let y;
+  if (typeof v === 'number') {
+    const p = XLSX.SSF.parse_date_code(v);
+    if (!p) return '';
+    ({ d, m, y } = p);
+  } else {
+    const t = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(v ?? '').trim());
+    if (!t) return '';
+    [d, m, y] = [Number(t[1]), Number(t[2]), Number(t[3])];
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return '';
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+}
+
 // Đọc và parse dữ liệu 1 dòng nhân viên từ Excel. KHÔNG ghi gì vào DB (kể cả phòng ban):
 // phòng ban chính + kiêm nhiệm chỉ được TRA CỨU trên bản chụp `departmentSnapshot`, việc tạo phòng/gán mã
 // diễn ra ở bước xác nhận (confirmEmployeeImportRows) sau khi admin đã nhập mã ở bước xem trước.
@@ -549,7 +630,7 @@ function buildEmployeeImportRow(row, rowIndex, departmentSnapshot) {
     // phòng kiêm nhiệm hiện có của nhân viên (tránh xóa mất phần admin đã gán thủ công).
     extrasProvided: depts.extrasProvided,
     warnings: depts.warnings,
-    dob: String(dob ?? '').trim(),
+    dob: normalizeDob(dob),
     gender: String(gender ?? '').trim(),
     phone: String(phone ?? '').trim(),
     address: String(address ?? '').trim(),

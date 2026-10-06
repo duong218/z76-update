@@ -73,6 +73,16 @@ export async function updateUserRole(userId, roleId) {
   return res.data;
 }
 
+// Sửa thông tin cá nhân (họ tên, mã NV, phòng ban, kiêm nhiệm, ngày sinh, giới tính, SĐT, địa chỉ, chức vụ)
+export async function updateUserProfile(userId, payload) {
+  const res = await apiRequest(`/users/${userId}/profile`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
 export async function toggleUserLock(userId, isActive) {
   const res = await apiRequest(`/users/${userId}/lock`, {
     method: 'PATCH',

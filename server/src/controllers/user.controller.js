@@ -79,6 +79,22 @@ export const updateRole = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Cập nhật phân quyền thành công', code: 'ROLE_UPDATED', data });
 });
 
+// Sửa thông tin cá nhân (hồ sơ nhân sự) của bất kỳ tài khoản nào
+export const updateProfile = asyncHandler(async (req, res) => {
+  const data = await userService.updateUserProfile({ userId: req.params.id, profile: req.body ?? {} });
+
+  await writeAudit({
+    actorUserId: req.auth.userId,
+    action: 'UPDATE_USER_PROFILE',
+    resourceType: 'User',
+    resourceId: req.params.id,
+    metadata: { detail: `Cập nhật thông tin cá nhân của tài khoản ${data.username}` },
+    ipAddress: req.ip,
+  });
+
+  res.json({ success: true, message: 'Cập nhật thông tin cá nhân thành công', code: 'USER_PROFILE_UPDATED', data });
+});
+
 // Khóa hoặc Mở khóa tài khoản người dùng
 export const toggleLock = asyncHandler(async (req, res) => {
   const { id } = req.params;

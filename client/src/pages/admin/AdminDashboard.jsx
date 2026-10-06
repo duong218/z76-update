@@ -1,3 +1,4 @@
+import { UserInfoCard } from '../../components/UserInfoCard';
 import { OverviewTab } from '../../components/admin/OverviewTab';
 import { AccountTab } from '../../components/admin/AccountTab';
 import { AuditLogTab } from '../../components/admin/AuditLogTab';
@@ -88,6 +89,7 @@ export const AdminDashboard = ({ currentUser, activeTab, onTabChange }) => {
           className="animate-fade-in-up p-3 sm:p-4 md:p-6 bg-[#F8FAFC] min-h-[400px]"
           style={{ '--stagger-delay': '0ms' }}
         >
+          {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'accounts' && <AccountTab currentUser={currentUser} />}
           {activeTab === 'audit' && <AuditLogTab />}

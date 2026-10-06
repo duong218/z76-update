@@ -6,10 +6,25 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { Role, User } from '../models/index.js';
+import { Employee, Role, User } from '../models/index.js';
 import { ApiError, assertFound } from '../utils/api-error.js';
 
 const REFRESH_COOKIE = 'refreshToken';
+
+// Payload user trả về client (login/refresh/me). Kèm họ tên + mã NV từ hồ sơ Employee (nếu có;
+// admin/examiner/leader chưa có hồ sơ thì để chuỗi rỗng) để giao diện hiển thị "Họ tên - Mã NV".
+async function buildUserPayload(user, role) {
+  const emp = await Employee.findOne({ userId: user._id }).select('fullname employeeCode').lean();
+  return {
+    id: user._id.toString(),
+    username: user.username,
+    fullname: emp?.fullname ?? '',
+    employeeCode: emp?.employeeCode ?? '',
+    roleCode: role?.code,
+    roleName: role?.name,
+    mustChangePassword: user.mustChangePassword,
+  };
+}
 
 // Cấu hình Cookie an toàn cho Refresh Token
 export function refreshCookieOptions() {
@@ -117,13 +132,7 @@ export async function loginWithUsernamePassword(username, password) {
   return {
     accessToken,
     refreshToken,
-    user: {
-      id: user._id.toString(),
-      username: user.username,
-      roleCode: role.code,
-      roleName: role.name,
-      mustChangePassword: user.mustChangePassword,
-    },
+    user: await buildUserPayload(user, role),
   };
 }
 
@@ -166,13 +175,7 @@ export async function refreshAccessToken(refreshToken) {
   return {
     accessToken,
     refreshToken: newRefreshToken,
-    user: {
-      id: user._id.toString(),
-      username: user.username,
-      roleCode: role.code,
-      roleName: role.name,
-      mustChangePassword: user.mustChangePassword,
-    },
+    user: await buildUserPayload(user, role),
   };
 }
 
@@ -193,13 +196,7 @@ export async function getAuthProfile(userId) {
     throw new ApiError(403, 'Tài khoản đã bị vô hiệu', 'AUTH_INACTIVE');
   }
   const role = user.roleId;
-  return {
-    id: user._id.toString(),
-    username: user.username,
-    roleCode: role?.code,
-    roleName: role?.name,
-    mustChangePassword: user.mustChangePassword,
-  };
+  return buildUserPayload(user, role);
 }
 
 // Đổi mật khẩu tài khoản và thu hồi tất cả các phiên đăng nhập cũ

@@ -1,3 +1,4 @@
+import { UserInfoCard } from '../../components/UserInfoCard';
 import { LayoutDashboard, Building2, FileBarChart, PieChart, CheckCircle, BookOpen } from 'lucide-react';
 import { OverviewTab } from '../../components/leader/OverviewTab';
 import { DepartmentReportTab } from '../../components/leader/DepartmentReportTab';
@@ -18,7 +19,7 @@ export const LEADER_DASHBOARD_TABS = [
 
 // activeTab/onTabChange là props từ App.jsx — để Header.jsx (menu 3 gạch ở
 // mobile) đọc/đổi được đúng tab đang chọn ở đây.
-export const LeaderDashboard = ({ activeTab, onTabChange }) => {
+export const LeaderDashboard = ({ currentUser, activeTab, onTabChange }) => {
   const activeLabel = LEADER_DASHBOARD_TABS.find((t) => t.id === activeTab)?.label;
 
   return (
@@ -88,6 +89,7 @@ export const LeaderDashboard = ({ activeTab, onTabChange }) => {
           className="animate-fade-in-up p-3 sm:p-4 md:p-6 bg-[#F8FAFC] min-h-[400px]"
           style={{ '--stagger-delay': '0ms' }}
         >
+          {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'department' && <DepartmentReportTab />}
           {activeTab === 'exam' && <ExamReportTab />}

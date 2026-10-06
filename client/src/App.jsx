@@ -162,8 +162,15 @@ function App() {
 
     const checkSession = () => {
       fetchMe()
-        .then(() => {
-          /* vẫn hợp lệ, không cần làm gì */
+        .then((user) => {
+          // Phiên vẫn hợp lệ. Nếu thông tin tài khoản vừa đổi (họ tên, mã NV, vai trò...)
+          // thì cập nhật currentUser; không đổi thì giữ nguyên để khỏi render thừa.
+          if (cancelled) return;
+          setCurrentUser((prev) => {
+            if (!prev) return prev;
+            const keys = ['username', 'fullname', 'employeeCode', 'roleCode', 'roleName', 'mustChangePassword'];
+            return keys.some((k) => prev[k] !== user?.[k]) ? { ...prev, ...user } : prev;
+          });
         })
         .catch((err) => {
           if (cancelled) return;
@@ -431,13 +438,14 @@ function App() {
           <AdminDashboard currentUser={currentUser} activeTab={adminSubTab} onTabChange={setAdminSubTab} />
         ) : activeTab === 'examiner-dashboard' && currentUser?.roleCode === 'examiner' ? (
           <ExaminerDashboard
+            currentUser={currentUser}
             activeTab={examinerSubTab}
             onTabChange={setExaminerSubTab}
             highlightExam={examinerHighlight}
             onHighlightConsumed={() => setExaminerHighlight(null)}
           />
         ) : activeTab === 'leader-dashboard' && currentUser?.roleCode === 'leader' ? (
-          <LeaderDashboard onLogout={handleLogout} activeTab={leaderSubTab} onTabChange={setLeaderSubTab} />
+          <LeaderDashboard currentUser={currentUser} onLogout={handleLogout} activeTab={leaderSubTab} onTabChange={setLeaderSubTab} />
         ) : activeTab === 'candidate-dashboard' && currentUser?.roleCode === 'candidate' ? (
           <CandidateDashboard
             currentUser={currentUser}

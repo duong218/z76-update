@@ -146,7 +146,7 @@ export const Header = ({
                   <Shield className="w-4 h-4 text-[#38BDF8]" />
                 </div>
                 <div className="flex flex-col leading-tight min-w-0">
-                  <span className="text-sm font-semibold text-white truncate">{currentUser.username}</span>
+                  <span className="text-sm font-semibold text-white truncate">{currentUser.fullname ? `${currentUser.fullname}${currentUser.employeeCode ? ` - ${currentUser.employeeCode}` : ''}` : currentUser.username}</span>
                   <span className="hidden xl:block text-xs text-[#64748B] whitespace-nowrap">{roleLabel}</span>
                 </div>
               </div>
@@ -281,7 +281,7 @@ export const Header = ({
                         <Shield className="w-4.5 h-4.5 text-[#38BDF8]" />
                       </div>
                       <div className="flex flex-col leading-tight">
-                        <span className="text-sm font-semibold text-white">{currentUser.username}</span>
+                        <span className="text-sm font-semibold text-white">{currentUser.fullname ? `${currentUser.fullname}${currentUser.employeeCode ? ` - ${currentUser.employeeCode}` : ''}` : currentUser.username}</span>
                         <span className="text-xs text-[#64748B]">{roleLabel}</span>
                       </div>
                     </div>

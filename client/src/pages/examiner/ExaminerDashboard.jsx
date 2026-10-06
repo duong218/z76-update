@@ -1,3 +1,4 @@
+import { UserInfoCard } from '../../components/UserInfoCard';
 import { useState } from 'react';
 import { QuestionBankTab } from '../../components/examiner/QuestionBankTab';
 import { TopicTab } from '../../components/examiner/TopicTab';
@@ -21,7 +22,7 @@ export const EXAMINER_DASHBOARD_TABS = [
 // activeTab/onTabChange giờ là props từ App.jsx (thay vì state nội bộ) — để
 // Header.jsx (menu 3 gạch ở mobile) đọc/đổi được đúng tab đang chọn ở đây.
 // highlightExam/onHighlightConsumed: yêu cầu tô sáng 1 đề xuất khi mở từ chuông thông báo (xem App.jsx).
-export const ExaminerDashboard = ({ activeTab, onTabChange, highlightExam, onHighlightConsumed }) => {
+export const ExaminerDashboard = ({ currentUser, activeTab, onTabChange, highlightExam, onHighlightConsumed }) => {
   // Khi bấm "Xem câu hỏi" trên 1 thẻ chủ đề ở tab Chủ đề, hoặc trên 1 thẻ bộ
   // phận ở tab Bộ phận/Phòng ban, lưu filter tương ứng + mốc thời gian
   // (seed) vào đây rồi chuyển sang tab Ngân hàng câu hỏi. Kèm seed để nếu
@@ -72,6 +73,7 @@ export const ExaminerDashboard = ({ activeTab, onTabChange, highlightExam, onHig
         {/* Tab Content */}
         <div className="p-3 sm:p-4 md:p-6 bg-slate-50/50 min-h-[400px]">
           {/* onNavigate: để các mục "Việc cần xử lý", "Đề xuất gần đây"... trong Tổng quan chuyển thẳng sang tab tương ứng */}
+          {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
           {activeTab === 'overview' && <OverviewTab onNavigate={onTabChange} />}
           {activeTab === 'questions' && <QuestionBankTab initialFilter={questionsFilterSeed} />}
           {activeTab === 'topics' && <TopicTab onViewQuestions={handleViewQuestionsByTopic} />}

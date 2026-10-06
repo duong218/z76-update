@@ -114,8 +114,12 @@ function App() {
           setActiveTab(dashboardTab);
         }
       })
-      .catch(() => {
-        /* token hết hạn hoặc lỗi — bỏ qua, user sẽ thấy nút đăng nhập */
+      .catch((err) => {
+        // Token hết hạn hoặc lỗi — bỏ qua, user sẽ thấy nút đăng nhập.
+        // Riêng trường hợp admin vừa đổi vai trò thì phải báo rõ lý do (không đăng xuất im lặng).
+        if (err?.code === 'AUTH_ROLE_CHANGED') {
+          setSessionRevokedMessage('Quản trị viên đã thay đổi quyền của bạn. Vui lòng đăng nhập lại để tiếp tục.');
+        }
       })
       .finally(() => setAuthLoading(false));
   }, []);
@@ -174,7 +178,9 @@ function App() {
         })
         .catch((err) => {
           if (cancelled) return;
-          if (err?.code === 'AUTH_ACCESS_REVOKED') {
+          if (err?.code === 'AUTH_ROLE_CHANGED') {
+            forceLogout('Quản trị viên đã thay đổi quyền của bạn. Vui lòng đăng nhập lại để tiếp tục.');
+          } else if (err?.code === 'AUTH_ACCESS_REVOKED') {
             forceLogout(
               'Tài khoản của bạn đang được đăng nhập ở một trình duyệt/thiết bị khác. Vui lòng đăng nhập lại để tiếp tục.',
             );
@@ -188,9 +194,19 @@ function App() {
     };
 
     const intervalId = setInterval(checkSession, SESSION_CHECK_INTERVAL_MS);
+
+    // Trình duyệt làm chậm bộ đếm của tab nền (có thể tới ~1 phút), nên kiểm tra ngay khi tab được xem lại.
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') checkSession();
+    };
+    document.addEventListener('visibilitychange', handleVisible);
+    window.addEventListener('focus', handleVisible);
+
     return () => {
       cancelled = true;
       clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisible);
+      window.removeEventListener('focus', handleVisible);
     };
   }, [currentUser]);
 

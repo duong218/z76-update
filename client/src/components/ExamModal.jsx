@@ -162,9 +162,12 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
   }, [step]);
 
   // ── Tải dữ liệu khi mở modal ─────────────────────────────
+  // Chỉ phụ thuộc id (không phải cả object currentUser): App.jsx có thể cập nhật currentUser
+  // giữa chừng (vd admin sửa họ tên) và việc đó KHÔNG được reset bài thi đang làm.
+  const currentUserId = currentUser?.id ?? null;
   useEffect(() => {
     if (!isOpen) return;
-    if (!currentUser) {
+    if (!currentUserId) {
       setStep('confirm');
       return;
     }
@@ -209,7 +212,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUserId]);
 
   // ── Bắt đầu / tiếp tục lượt thi ────────────────────────────
   const handleStartExam = async () => {

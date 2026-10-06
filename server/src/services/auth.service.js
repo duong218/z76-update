@@ -14,7 +14,11 @@ const REFRESH_COOKIE = 'refreshToken';
 // Payload user trả về client (login/refresh/me). Kèm họ tên + mã NV từ hồ sơ Employee (nếu có;
 // admin/examiner/leader chưa có hồ sơ thì để chuỗi rỗng) để giao diện hiển thị "Họ tên - Mã NV".
 async function buildUserPayload(user, role) {
-  const emp = await Employee.findOne({ userId: user._id }).select('fullname employeeCode').lean();
+  // Lỗi khi tra hồ sơ (DB chập chờn...) không được làm hỏng đăng nhập/refresh/me: trả chuỗi rỗng, client tự dùng username.
+  const emp = await Employee.findOne({ userId: user._id })
+    .select('fullname employeeCode')
+    .lean()
+    .catch(() => null);
   return {
     id: user._id.toString(),
     username: user.username,

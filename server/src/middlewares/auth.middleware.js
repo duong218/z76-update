@@ -29,11 +29,15 @@ export async function authenticate(req, _res, next) {
     if (!user || !user.isActive) {
       throw new ApiError(401, 'Phiên không hợp lệ', 'AUTH_ACCESS_INVALID');
     }
+    const role = user.roleId;
     if ((user.tokenVersion ?? 0) !== (payload.tv ?? 0)) {
+      // Token cũ mang vai trò khác vai trò hiện tại -> admin vừa đổi vai trò (khác với đăng nhập nơi khác / đổi mật khẩu)
+      if (payload.roleCode && role?.code && payload.roleCode !== role.code) {
+        throw new ApiError(401, 'Quản trị viên đã thay đổi quyền của bạn', 'AUTH_ROLE_CHANGED');
+      }
       throw new ApiError(401, 'Phiên đã bị thu hồi', 'AUTH_ACCESS_REVOKED');
     }
 
-    const role = user.roleId;
     if (!role || !role.isActive) {
       throw new ApiError(403, 'Vai trò không hợp lệ', 'AUTH_ROLE_INACTIVE');
     }
@@ -82,4 +86,3 @@ export async function attachProfileIfAuthenticated(req, _res, next) {
   }
   next();
 }
-

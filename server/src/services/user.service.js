@@ -9,7 +9,7 @@ import fs from 'fs';
 import XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import mongoose from 'mongoose';
-import { User, Role, Employee, Department } from '../models/index.js';
+import { User, Role, Employee, Department, ExamCandidate, ExamAttempt, ATTEMPT_STATUS } from '../models/index.js';
 import { normalizeDeptName } from '../models/department.model.js';
 import { ApiError } from '../utils/api-error.js';
 import * as auditService from './audit.service.js';
@@ -314,7 +314,25 @@ export async function updateUserRole({ adminId, userId, newRoleId, ipAddress }) 
     );
   }
 
+  // Đang có lượt thi dở thì không đổi vai trò: mọi API làm bài yêu cầu vai trò candidate nên bài sẽ ngừng lưu/nộp được.
+  const currentEmployee = await Employee.findOne({ userId }).select('_id');
+  if (currentEmployee) {
+    const candidateIds = await ExamCandidate.find({ employeeId: currentEmployee._id }).distinct('_id');
+    const inProgress = await ExamAttempt.exists({
+      examCandidateId: { $in: candidateIds },
+      status: ATTEMPT_STATUS.IN_PROGRESS,
+    });
+    if (inProgress) {
+      throw new ApiError(
+        409,
+        'Người dùng đang có lượt thi chưa nộp. Hãy đợi họ nộp bài xong rồi mới đổi vai trò',
+        'ATTEMPT_IN_PROGRESS',
+      );
+    }
+  }
+
   user.roleId = newRoleId;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1; // thu hồi phiên cũ: người dùng phải đăng nhập lại với vai trò mới
   await user.save();
   // Hồ sơ Employee của non-candidate luôn inactive -> không bị tính là thí sinh khi sinh mã đề / gán kỳ thi.
   await Employee.updateOne({ userId }, { isActive: isCandidate });

@@ -145,6 +145,9 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
   const leaveActiveRef = useRef(false);
 
   const [resultData, setResultData] = useState(null);
+  // Lý do bài bị hệ thống tự nộp ('inactive_timeout' | 'exam_replaced') và điểm (nếu server trả kèm) — để hiện đúng thông báo
+  const [autoSubmitReason, setAutoSubmitReason] = useState(null);
+  const [autoSubmitResult, setAutoSubmitResult] = useState(null);
 
   const finishingRef = useRef(false);
   // Giữ attemptId mới nhất trong ref để heartbeat/interval luôn đọc đúng giá
@@ -170,6 +173,8 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     setStep('loading');
     setLoadError(null);
     setResultData(null);
+    setAutoSubmitReason(null);
+    setAutoSubmitResult(null);
     setAttemptId(null);
     setExpiresAt(null);
     setSelectedAnswers({});
@@ -250,11 +255,24 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     try {
       const data = await submitExamAttempt(attemptId, answers);
       clearDraftAnswers(attemptId);
-      setResultData(data);
-      setStep('result');
+      if (['exam_replaced', 'exam_ended'].includes(data?.autoSubmitReason)) {
+        // Bài đã được hệ thống nộp trước đó (kỳ thi bị thay thế / hết hạn) -> báo đúng lý do kèm điểm đã lưu
+        setAutoSubmitReason(data.autoSubmitReason);
+        setAutoSubmitResult(data);
+        setStep('auto-submitted');
+      } else {
+        setResultData(data);
+        setStep('result');
+      }
     } catch (err) {
-      setSubmitError(err?.message || 'Nộp bài thất bại, vui lòng thử lại.');
-      setStep('testing');
+      if ((err?.code === 'EXAM_REPLACED' || err?.code === 'EXAM_CLOSED')) {
+        clearDraftAnswers(attemptId);
+        setAutoSubmitReason(err.code === 'EXAM_CLOSED' ? 'exam_ended' : 'exam_replaced');
+        setStep('auto-submitted');
+      } else {
+        setSubmitError(err?.message || 'Nộp bài thất bại, vui lòng thử lại.');
+        setStep('testing');
+      }
     } finally {
       finishingRef.current = false;
     }
@@ -322,9 +340,16 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
         if (cancelled) return;
         if (data?.autoSubmitReason) {
           clearDraftAnswers(currentAttemptId);
+          setAutoSubmitReason(data.autoSubmitReason);
+          if (data.result) setAutoSubmitResult(data.result);
           setStep('auto-submitted');
         }
-      } catch {
+      } catch (err) {
+        if (!cancelled && (err?.code === 'EXAM_REPLACED' || err?.code === 'EXAM_CLOSED')) {
+          clearDraftAnswers(currentAttemptId);
+          setAutoSubmitReason(err.code === 'EXAM_CLOSED' ? 'exam_ended' : 'exam_replaced');
+          setStep('auto-submitted');
+        }
         // Lỗi mạng tạm thời khi heartbeat — bỏ qua, thử lại ở lần kế tiếp,
         // không làm gián đoạn bài thi vì 1 lần heartbeat lỡ nhịp.
       }
@@ -447,9 +472,17 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
         if (seq !== answerRequestSeqRef.current) return;
         if (data?.autoSubmitReason) {
           clearDraftAnswers(currentAttemptId);
+          setAutoSubmitReason(data.autoSubmitReason);
           setStep('auto-submitted');
         }
       } catch (err) {
+        // Kỳ thi bị thay thế (Người duyệt đề đăng kỳ thi mới) giữa lúc đang gửi câu trả lời.
+        if ((err?.code === 'EXAM_REPLACED' || err?.code === 'EXAM_CLOSED')) {
+          clearDraftAnswers(currentAttemptId);
+          setAutoSubmitReason(err.code === 'EXAM_CLOSED' ? 'exam_ended' : 'exam_replaced');
+          setStep('auto-submitted');
+          return;
+        }
         // Backend trả lỗi ATTEMPT_INVALID_STATUS nếu lượt thi vừa bị tự nộp
         // ngay giữa lúc client đang gửi câu trả lời — coi như đã tự nộp.
         if (err?.code === 'ATTEMPT_INVALID_STATUS') {
@@ -1102,16 +1135,51 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
             <div className="w-16 h-16 rounded-full bg-[#F6AD37] flex items-center justify-center shadow-z176">
               <AlertCircle className="w-10 h-10 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-[#0F172A]">Bài thi đã bị tự động nộp</h3>
-            <p className="text-sm text-[#334155] max-w-sm">
-              Hệ thống ghi nhận bạn <strong>không có thao tác nào trên trang thi trong hơn 1 phút</strong> — có thể do
-              chuyển sang tab/ứng dụng khác, khoá màn hình, đóng trình duyệt, hoặc mất kết nối mạng. Để đảm bảo tính
-              nghiêm túc của kỳ thi, hệ thống đã tự động nộp bài với các đáp án bạn đã chọn gần nhất trước khi rời đi.
-            </p>
-            <p className="text-sm text-[#334155] max-w-sm">
-              Nếu đây là sự cố ngoài ý muốn (mất mạng, rớt nguồn...) và cần thi lại, vui lòng liên hệ Người duyệt đề
-              để được xem xét cấp phép cho lượt thi mới.
-            </p>
+            {autoSubmitReason === 'exam_ended' ? (
+              <>
+                <h3 className="text-xl font-bold text-[#0F172A]">Kỳ thi đã kết thúc</h3>
+                <p className="text-sm text-[#334155] max-w-sm">
+                  Thời gian của kỳ thi đã kết thúc. Hệ thống đã <strong>tự động nộp và chấm bài</strong> với các đáp án bạn đã
+                  chọn; kết quả đã được lưu.
+                </p>
+                {autoSubmitResult && (
+                  <p className="text-sm font-semibold text-[#0F172A] max-w-sm">
+                    Điểm của bạn: {autoSubmitResult.score}/100 ({autoSubmitResult.correctCount}/{autoSubmitResult.totalQuestions} câu đúng) —{' '}
+                    {autoSubmitResult.passed ? 'Đạt' : 'Chưa đạt'}.
+                  </p>
+                )}
+              </>
+            ) : autoSubmitReason === 'exam_replaced' ? (
+              <>
+                <h3 className="text-xl font-bold text-[#0F172A]">Kỳ thi đã được thay thế</h3>
+                <p className="text-sm text-[#334155] max-w-sm">
+                  <strong>Người duyệt đề vừa đăng một kỳ thi mới</strong> nên kỳ thi bạn đang làm đã kết thúc. Hệ thống đã
+                  tự động nộp và chấm bài với các đáp án bạn đã chọn tính đến thời điểm này; kết quả đã được lưu.
+                </p>
+                {autoSubmitResult && (
+                  <p className="text-sm font-semibold text-[#0F172A] max-w-sm">
+                    Điểm của bạn: {autoSubmitResult.score}/100 ({autoSubmitResult.correctCount}/{autoSubmitResult.totalQuestions} câu đúng) —{' '}
+                    {autoSubmitResult.passed ? 'Đạt' : 'Chưa đạt'}.
+                  </p>
+                )}
+                <p className="text-sm text-[#334155] max-w-sm">
+                  Nếu bạn cần thi lại, vui lòng liên hệ Người duyệt đề để được xem xét.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-xl font-bold text-[#0F172A]">Bài thi đã bị tự động nộp</h3>
+                <p className="text-sm text-[#334155] max-w-sm">
+                  Hệ thống ghi nhận bạn <strong>không có thao tác nào trên trang thi trong hơn 1 phút</strong> — có thể do
+                  chuyển sang tab/ứng dụng khác, khoá màn hình, đóng trình duyệt, hoặc mất kết nối mạng. Để đảm bảo tính
+                  nghiêm túc của kỳ thi, hệ thống đã tự động nộp bài với các đáp án bạn đã chọn gần nhất trước khi rời đi.
+                </p>
+                <p className="text-sm text-[#334155] max-w-sm">
+                  Nếu đây là sự cố ngoài ý muốn (mất mạng, rớt nguồn...) và cần thi lại, vui lòng liên hệ Người duyệt đề
+                  để được xem xét cấp phép cho lượt thi mới.
+                </p>
+              </>
+            )}
             <button
               onClick={onClose}
               className="mt-2 px-6 py-3 bg-[#334155] text-white font-bold text-base rounded-lg hover:bg-[#1e293b] transition-colors min-touch-target"

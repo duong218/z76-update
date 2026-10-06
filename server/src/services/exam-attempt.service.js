@@ -138,6 +138,185 @@ async function resolveCandidateContext(userId) {
   return { employee, exam, examCandidate };
 }
 
+// MỚI — Xác định ngữ cảnh THEO CHÍNH LƯỢT THI (autosave / heartbeat / nộp bài), không phụ thuộc kỳ thi đang published.
+// Trước đây các thao tác này tìm "kỳ thi đang published" nên khi Người duyệt đề đăng kỳ thi mới (kỳ thi cũ bị lưu trữ),
+// thí sinh đang làm dở bị báo ATTEMPT_NOT_FOUND và không nộp được bài. Quyền sở hữu vẫn được kiểm tra: lượt thi phải
+// thuộc ExamCandidate của chính nhân viên đang đăng nhập.
+async function resolveAttemptContext(userId, attemptId) {
+  const employee = await Employee.findOne({ userId });
+  if (!employee) {
+    throw new ApiError(404, 'Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên nào', 'EMPLOYEE_NOT_FOUND');
+  }
+
+  const attempt = await ExamAttempt.findById(attemptId);
+  const examCandidate = attempt
+    ? await ExamCandidate.findOne({ _id: attempt.examCandidateId, employeeId: employee._id })
+    : null;
+  if (!attempt || !examCandidate) {
+    throw new ApiError(404, 'Không tìm thấy lượt thi', 'ATTEMPT_NOT_FOUND');
+  }
+
+  const exam = await Exam.findById(examCandidate.examId);
+  if (!exam) {
+    throw new ApiError(404, 'Không tìm thấy kỳ thi của lượt thi này', 'EXAM_NOT_FOUND');
+  }
+
+  return { employee, exam, examCandidate, attempt };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Chờ luồng khác (thí sinh bấm nộp / hệ thống tự nộp) ghi xong Result của lượt thi.
+async function waitForResult(attemptId, tries = 10, delayMs = 150) {
+  for (let i = 0; i < tries; i += 1) {
+    const result = await Result.findOne({ examAttemptId: attemptId });
+    if (result) return result;
+    await sleep(delayMs);
+  }
+  return null;
+}
+
+function toResultPayload(result, autoSubmitReason) {
+  return {
+    score: result.score,
+    correctCount: result.correctCount,
+    totalQuestions: result.totalQuestions,
+    passed: result.passed,
+    autoSubmitReason: autoSubmitReason ?? null,
+  };
+}
+
+// Chấm điểm và nộp một lượt thi (dùng chung cho thí sinh tự nộp, tự nộp do rời ca thi và tự nộp khi kỳ thi bị thay thế).
+// Chiếm lượt thi bằng 1 lệnh nguyên tử (IN_PROGRESS/EXPIRED -> SUBMITTED): nếu nhiều luồng cùng nộp (vd thí sinh bấm nộp
+// đúng lúc Người duyệt đề đăng kỳ thi mới) thì chỉ 1 luồng chấm và tạo Result, các luồng còn lại trả lại kết quả đã lưu.
+async function gradeAndSubmitAttempt({ attempt, exam, answersPayload = null, autoSubmitReason = null }) {
+  // Nếu đã nộp trước đó thì trả về kết quả đã lưu (Idempotent)
+  if (attempt.status === ATTEMPT_STATUS.SUBMITTED) {
+    const existing = await Result.findOne({ examAttemptId: attempt._id });
+    if (existing) return toResultPayload(existing, attempt.autoSubmitReason);
+  }
+
+  if (![ATTEMPT_STATUS.IN_PROGRESS, ATTEMPT_STATUS.EXPIRED].includes(attempt.status)) {
+    throw new ApiError(400, 'Lượt thi không ở trạng thái hợp lệ để nộp bài', 'ATTEMPT_INVALID_STATUS');
+  }
+
+  const snapshot = await AttemptQuestion.find({ examAttemptId: attempt._id });
+  const questionIds = snapshot.map((s) => s.questionId);
+
+  const correctAnswers = await Answer.find({ questionId: { $in: questionIds }, isCorrect: true }).select(
+    '_id questionId',
+  );
+  const correctByQuestion = new Map();
+  for (const a of correctAnswers) {
+    const key = a.questionId.toString();
+    if (!correctByQuestion.has(key)) correctByQuestion.set(key, new Set());
+    correctByQuestion.get(key).add(a._id.toString());
+  }
+
+  // Lấy đáp án từ payload client gửi lên hoặc fallback từ CandidateAnswer đã autosave
+  const answersMap = new Map();
+  if (Array.isArray(answersPayload)) {
+    for (const item of answersPayload) {
+      if (!item?.questionId) continue;
+      const selected = Array.isArray(item.selectedAnswerIds) ? item.selectedAnswerIds.map(String) : [];
+      answersMap.set(String(item.questionId), selected);
+    }
+  } else {
+    const saved = await CandidateAnswer.find({ examAttemptId: attempt._id }).select(
+      'questionId selectedAnswerIds',
+    );
+    for (const s of saved) {
+      answersMap.set(s.questionId.toString(), s.selectedAnswerIds.map(String));
+    }
+  }
+
+  // So khớp đáp án và tính điểm
+  let correctCount = 0;
+  const candidateAnswerDocs = [];
+  for (const s of snapshot) {
+    const qid = s.questionId.toString();
+    const selected = answersMap.get(qid) || [];
+    const selectedSet = new Set(selected);
+    const correctSet = correctByQuestion.get(qid) || new Set();
+    const isCorrect =
+      selectedSet.size === correctSet.size && [...selectedSet].every((id) => correctSet.has(id));
+    if (isCorrect) correctCount += 1;
+
+    candidateAnswerDocs.push({
+      examAttemptId: attempt._id,
+      questionId: s.questionId,
+      selectedAnswerIds: selected,
+      isCorrect,
+    });
+  }
+
+  const totalQuestions = snapshot.length;
+  const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+  const passed = score >= (exam.passThresholdPercent ?? 70);
+
+  // Chiếm lượt thi (nguyên tử). Không chiếm được = luồng khác vừa nộp -> trả về kết quả của luồng đó.
+  const previousStatus = attempt.status;
+  const claimed = await ExamAttempt.findOneAndUpdate(
+    { _id: attempt._id, status: { $in: [ATTEMPT_STATUS.IN_PROGRESS, ATTEMPT_STATUS.EXPIRED] } },
+    {
+      $set: {
+        status: ATTEMPT_STATUS.SUBMITTED,
+        submittedAt: new Date(),
+        ...(autoSubmitReason ? { autoSubmitReason } : {}),
+      },
+    },
+    { new: true },
+  );
+  if (!claimed) {
+    const existing = await waitForResult(attempt._id);
+    if (existing) {
+      const latest = await ExamAttempt.findById(attempt._id).select('autoSubmitReason');
+      return toResultPayload(existing, latest?.autoSubmitReason);
+    }
+    throw new ApiError(400, 'Lượt thi không ở trạng thái hợp lệ để nộp bài', 'ATTEMPT_INVALID_STATUS');
+  }
+
+  try {
+    await CandidateAnswer.deleteMany({ examAttemptId: attempt._id });
+    if (candidateAnswerDocs.length > 0) {
+      await CandidateAnswer.insertMany(candidateAnswerDocs);
+    }
+
+    const result = await Result.create({
+      examAttemptId: attempt._id,
+      score,
+      correctCount,
+      totalQuestions,
+      passed,
+    });
+    return toResultPayload(result, claimed.autoSubmitReason);
+  } catch (err) {
+    // Ghi kết quả lỗi: trả lượt thi về trạng thái cũ để có thể nộp lại, không để lượt "đã nộp" mà thiếu Result.
+    await ExamAttempt.updateOne(
+      { _id: attempt._id, status: ATTEMPT_STATUS.SUBMITTED },
+      {
+        $set: { status: previousStatus },
+        $unset: { submittedAt: 1, ...(autoSubmitReason ? { autoSubmitReason: 1 } : {}) },
+      },
+    ).catch((revertErr) => console.error('revert attempt claim failed:', revertErr));
+    throw err;
+  }
+}
+
+// MỚI — Kỳ thi của lượt thi đã không còn published (bị thay thế khi Người duyệt đề đăng kỳ thi mới) mà lượt thi vẫn đang
+// làm dở -> nộp và chấm ngay với các đáp án đã tự lưu, đánh dấu autoSubmitReason = 'exam_replaced'.
+async function finalizeIfExamReplaced(attempt, exam) {
+  if (exam.status === EXAM_STATUS.PUBLISHED) return attempt;
+  if (attempt.status !== ATTEMPT_STATUS.IN_PROGRESS) return attempt;
+  // Kỳ thi đã QUÁ HẠN (endDate) thì không phải bị "thay thế": thí sinh vẫn được làm hết giờ làm bài của mình, không cắt ngang.
+  if (exam.endDate && new Date(exam.endDate).getTime() <= Date.now()) return attempt;
+  await gradeAndSubmitAttempt({ attempt, exam, autoSubmitReason: 'exam_replaced' });
+  return ExamAttempt.findById(attempt._id);
+}
+
+const EXAM_REPLACED_MESSAGE =
+  'Người duyệt đề vừa đăng một kỳ thi mới nên kỳ thi này đã kết thúc. Hệ thống đã tự động nộp bài với các đáp án bạn đã chọn.';
+
 // Lấy danh sách các lượt thi chính thức của thí sinh
 async function getOfficialAttempts(examCandidateId) {
   return ExamAttempt.find({
@@ -350,6 +529,25 @@ export const examAttemptService = {
       };
     }
 
+    // MỚI — Chỉ cho BẮT ĐẦU lượt thi mới trong khung giờ kỳ thi (startDate..endDate). Lượt đang dở (resume ở trên) vẫn được làm tiếp
+    // và nộp sau endDate; lượt bắt đầu sát giờ kết thúc vẫn được làm đủ thời gian làm bài (expiresAt = lúc bắt đầu + thời lượng).
+    const nowMs = Date.now();
+    const fmtVN = (d) => new Date(d).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    if (exam.startDate && nowMs < new Date(exam.startDate).getTime()) {
+      throw new ApiError(
+        403,
+        `Kỳ thi "${exam.title}" chưa bắt đầu. Thời gian bắt đầu: ${fmtVN(exam.startDate)}.`,
+        'EXAM_NOT_STARTED',
+      );
+    }
+    if (exam.endDate && nowMs > new Date(exam.endDate).getTime()) {
+      throw new ApiError(
+        403,
+        `Kỳ thi "${exam.title}" đã kết thúc lúc ${fmtVN(exam.endDate)}, không thể bắt đầu lượt thi mới.`,
+        'EXAM_ENDED',
+      );
+    }
+
     const finishedCount = attempts.filter((a) => a.status !== ATTEMPT_STATUS.IN_PROGRESS).length;
     if (finishedCount >= maxAttempts) {
       throw new ApiError(
@@ -436,17 +634,23 @@ export const examAttemptService = {
       throw new ApiError(400, 'Thiếu questionId', 'QUESTION_ID_REQUIRED');
     }
 
-    const { examCandidate } = await resolveCandidateContext(userId);
+    const { exam, attempt: found } = await resolveAttemptContext(userId, attemptId);
 
-    let attempt = await ExamAttempt.findOne({ _id: attemptId, examCandidateId: examCandidate._id });
-    if (!attempt) {
-      throw new ApiError(404, 'Không tìm thấy lượt thi', 'ATTEMPT_NOT_FOUND');
-    }
-
-    attempt = await expireIfNeeded(attempt);
+    let attempt = await expireIfNeeded(found);
+    attempt = await finalizeIfExamReplaced(attempt, exam);
     attempt = await checkAndAutoSubmitIfInactive(attempt, userId);
 
     if (attempt.status !== ATTEMPT_STATUS.IN_PROGRESS) {
+      if (attempt.autoSubmitReason === 'exam_replaced') {
+        throw new ApiError(409, EXAM_REPLACED_MESSAGE, 'EXAM_REPLACED');
+      }
+      if (attempt.autoSubmitReason === 'exam_ended') {
+        throw new ApiError(
+          409,
+          'Kỳ thi đã kết thúc. Hệ thống đã tự động nộp bài với các đáp án bạn đã chọn.',
+          'EXAM_CLOSED',
+        );
+      }
       throw new ApiError(
         400,
         attempt.autoSubmitReason === 'inactive_timeout'
@@ -470,14 +674,10 @@ export const examAttemptService = {
 
   // Heartbeat định kỳ duy trì trạng thái hoạt động của ca thi
   async heartbeat(userId, attemptId) {
-    const { examCandidate } = await resolveCandidateContext(userId);
+    const { exam, attempt: found } = await resolveAttemptContext(userId, attemptId);
 
-    let attempt = await ExamAttempt.findOne({ _id: attemptId, examCandidateId: examCandidate._id });
-    if (!attempt) {
-      throw new ApiError(404, 'Không tìm thấy lượt thi', 'ATTEMPT_NOT_FOUND');
-    }
-
-    attempt = await expireIfNeeded(attempt);
+    let attempt = await expireIfNeeded(found);
+    attempt = await finalizeIfExamReplaced(attempt, exam);
     attempt = await checkAndAutoSubmitIfInactive(attempt, userId);
 
     if (attempt.status === ATTEMPT_STATUS.IN_PROGRESS) {
@@ -485,120 +685,29 @@ export const examAttemptService = {
       await attempt.save();
     }
 
-    return {
+    const response = {
       status: attempt.status,
       autoSubmitReason: attempt.autoSubmitReason ?? null,
     };
+    // Kỳ thi bị thay thế: trả kèm điểm đã chấm để thí sinh thấy ngay kết quả của mình trong thông báo.
+    if (['exam_replaced', 'exam_ended'].includes(attempt.autoSubmitReason)) {
+      const saved = await Result.findOne({ examAttemptId: attempt._id });
+      if (saved) {
+        response.result = {
+          score: saved.score,
+          correctCount: saved.correctCount,
+          totalQuestions: saved.totalQuestions,
+          passed: saved.passed,
+        };
+      }
+    }
+    return response;
   },
 
   // Nộp bài và chấm điểm phía Server (tự động so khớp với đáp án đúng trong CSDL)
   async submitAttempt(userId, attemptId, answersPayload, autoSubmitReason = null) {
-    const { exam, examCandidate } = await resolveCandidateContext(userId);
-
-    const attempt = await ExamAttempt.findOne({ _id: attemptId, examCandidateId: examCandidate._id });
-    if (!attempt) {
-      throw new ApiError(404, 'Không tìm thấy lượt thi', 'ATTEMPT_NOT_FOUND');
-    }
-
-    // Nếu đã nộp trước đó thì trả về kết quả đã lưu (Idempotent)
-    if (attempt.status === ATTEMPT_STATUS.SUBMITTED) {
-      const existing = await Result.findOne({ examAttemptId: attempt._id });
-      if (existing) {
-        return {
-          score: existing.score,
-          correctCount: existing.correctCount,
-          totalQuestions: existing.totalQuestions,
-          passed: existing.passed,
-          autoSubmitReason: attempt.autoSubmitReason ?? null,
-        };
-      }
-    }
-
-    if (![ATTEMPT_STATUS.IN_PROGRESS, ATTEMPT_STATUS.EXPIRED].includes(attempt.status)) {
-      throw new ApiError(400, 'Lượt thi không ở trạng thái hợp lệ để nộp bài', 'ATTEMPT_INVALID_STATUS');
-    }
-
-    const snapshot = await AttemptQuestion.find({ examAttemptId: attempt._id });
-    const questionIds = snapshot.map((s) => s.questionId);
-
-    const correctAnswers = await Answer.find({ questionId: { $in: questionIds }, isCorrect: true }).select(
-      '_id questionId',
-    );
-    const correctByQuestion = new Map();
-    for (const a of correctAnswers) {
-      const key = a.questionId.toString();
-      if (!correctByQuestion.has(key)) correctByQuestion.set(key, new Set());
-      correctByQuestion.get(key).add(a._id.toString());
-    }
-
-    // Lấy đáp án từ payload client gửi lên hoặc fallback từ CandidateAnswer đã autosave
-    const answersMap = new Map();
-    if (Array.isArray(answersPayload)) {
-      for (const item of answersPayload) {
-        if (!item?.questionId) continue;
-        const selected = Array.isArray(item.selectedAnswerIds) ? item.selectedAnswerIds.map(String) : [];
-        answersMap.set(String(item.questionId), selected);
-      }
-    } else {
-      const saved = await CandidateAnswer.find({ examAttemptId: attempt._id }).select(
-        'questionId selectedAnswerIds',
-      );
-      for (const s of saved) {
-        answersMap.set(s.questionId.toString(), s.selectedAnswerIds.map(String));
-      }
-    }
-
-    // So khớp đáp án và tính điểm
-    let correctCount = 0;
-    const candidateAnswerDocs = [];
-    for (const s of snapshot) {
-      const qid = s.questionId.toString();
-      const selected = answersMap.get(qid) || [];
-      const selectedSet = new Set(selected);
-      const correctSet = correctByQuestion.get(qid) || new Set();
-      const isCorrect =
-        selectedSet.size === correctSet.size && [...selectedSet].every((id) => correctSet.has(id));
-      if (isCorrect) correctCount += 1;
-
-      candidateAnswerDocs.push({
-        examAttemptId: attempt._id,
-        questionId: s.questionId,
-        selectedAnswerIds: selected,
-        isCorrect,
-      });
-    }
-
-    await CandidateAnswer.deleteMany({ examAttemptId: attempt._id });
-    if (candidateAnswerDocs.length > 0) {
-      await CandidateAnswer.insertMany(candidateAnswerDocs);
-    }
-
-    const totalQuestions = snapshot.length;
-    const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
-    const passed = score >= (exam.passThresholdPercent ?? 70);
-
-    attempt.status = ATTEMPT_STATUS.SUBMITTED;
-    attempt.submittedAt = new Date();
-    if (autoSubmitReason) {
-      attempt.autoSubmitReason = autoSubmitReason;
-    }
-    await attempt.save();
-
-    const result = await Result.create({
-      examAttemptId: attempt._id,
-      score,
-      correctCount,
-      totalQuestions,
-      passed,
-    });
-
-    return {
-      score: result.score,
-      correctCount: result.correctCount,
-      totalQuestions: result.totalQuestions,
-      passed: result.passed,
-      autoSubmitReason: attempt.autoSubmitReason ?? null,
-    };
+    const { exam, attempt } = await resolveAttemptContext(userId, attemptId);
+    return gradeAndSubmitAttempt({ attempt, exam, answersPayload, autoSubmitReason });
   },
 
   // MỚI — Người duyệt đề xem các vai trò (phòng ban) của 1 thí sinh để chọn khi cấp thêm lượt thi.
@@ -703,3 +812,55 @@ export const examAttemptService = {
     };
   },
 };
+
+// MỚI — Nộp và chấm mọi lượt thi chính thức đang làm dở của các kỳ thi `examIds`, bằng các đáp án đã tự lưu, đánh dấu
+// `autoSubmitReason`. Một lượt lỗi không làm hỏng cả đợt (chỉ ghi log và đếm vào `failed`).
+async function finalizeInProgressAttempts(examIds, autoSubmitReason) {
+  if (!examIds?.length) return { finalized: 0, failed: 0 };
+
+  const exams = await Exam.find({ _id: { $in: examIds } });
+  const examById = new Map(exams.map((e) => [e._id.toString(), e]));
+  const candidates = await ExamCandidate.find({ examId: { $in: examIds } }).select('_id examId').lean();
+  if (candidates.length === 0) return { finalized: 0, failed: 0 };
+
+  const examIdByCandidate = new Map(candidates.map((c) => [c._id.toString(), c.examId.toString()]));
+  const attempts = await ExamAttempt.find({
+    examCandidateId: { $in: candidates.map((c) => c._id) },
+    attemptType: ATTEMPT_TYPE.OFFICIAL,
+    status: ATTEMPT_STATUS.IN_PROGRESS,
+  });
+
+  let finalized = 0;
+  let failed = 0;
+  const BATCH = 10;
+  for (let i = 0; i < attempts.length; i += BATCH) {
+    const batch = attempts.slice(i, i + BATCH);
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.all(
+      batch.map(async (attempt) => {
+        const exam = examById.get(examIdByCandidate.get(attempt.examCandidateId.toString()));
+        if (!exam) return;
+        try {
+          await gradeAndSubmitAttempt({ attempt, exam, autoSubmitReason });
+          finalized += 1;
+        } catch (err) {
+          failed += 1;
+          console.error(`finalize attempt (${autoSubmitReason}) failed:`, attempt._id.toString(), err);
+        }
+      }),
+    );
+  }
+  return { finalized, failed };
+}
+
+// Gọi khi Người duyệt đề đăng kỳ thi mới (xem publishExam trong exam.service.js), TRƯỚC khi lưu trữ kỳ thi cũ: để kết quả
+// được lưu kể cả khi thí sinh đã đóng trình duyệt. Lượt nào sót sẽ được nộp tiếp ở lần heartbeat / autosave kế tiếp.
+export function finalizeAttemptsForReplacedExams(examIds) {
+  return finalizeInProgressAttempts(examIds, 'exam_replaced');
+}
+
+// MỚI — Gọi khi kỳ thi hết hạn (quá endDate) và sắp được tự động lưu trữ (xem archiveExpiredExams trong exam.service.js):
+// nộp và chấm các lượt thi còn dở dang đã quá giờ làm bài / bị bỏ dở.
+export function finalizeAttemptsForEndedExams(examIds) {
+  return finalizeInProgressAttempts(examIds, 'exam_ended');
+}

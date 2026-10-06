@@ -14,15 +14,32 @@ import {
   assertScopeQuestionsSufficient,
 } from './exam-code-generation.service.js';
 import { notificationService } from './notification.service.js';
+import { finalizeAttemptsForReplacedExams, finalizeAttemptsForEndedExams } from './exam-attempt.service.js';
 
 // ───────────── Chống xung đột khi nhiều người thao tác cùng lúc ─────────────
 // Mọi bước chuyển trạng thái đều là MỘT lệnh findOneAndUpdate có điều kiện trạng thái (nguyên tử): chỉ đúng 1 request thắng,
 // các request còn lại nhận lỗi rõ ràng và KHÔNG ghi thông báo / audit log. Không còn kiểu "đọc -> kiểm tra -> save()" dễ bị ghi đè.
 const PUBLISH_LOCK_TTL_MS = 10 * 60 * 1000;
+const APPROVE_START_TOLERANCE_MS = 5 * 60 * 1000;
 
 // Thí sinh được coi là "đang làm bài" nếu lượt thi chính thức còn in_progress, chưa hết giờ và có hoạt động trong khoảng này
 // (bằng INACTIVITY_TIMEOUT_MS trong exam-attempt.service.js: rời ca thi quá 1 phút thì hệ thống tự nộp, nên không tính là đang thi).
 const ACTIVE_ATTEMPT_WINDOW_MS = 60_000;
+
+// Đếm lượt thi chính thức đang làm bài thật sự (còn in_progress, chưa hết giờ, có hoạt động gần đây) của các kỳ thi `examIds`.
+async function countActiveOfficialAttempts(examIds) {
+  if (!examIds.length) return 0;
+  const candidateIds = await ExamCandidate.find({ examId: { $in: examIds } }).distinct('_id');
+  if (!candidateIds.length) return 0;
+  const now = Date.now();
+  return ExamAttempt.countDocuments({
+    examCandidateId: { $in: candidateIds },
+    attemptType: ATTEMPT_TYPE.OFFICIAL,
+    status: ATTEMPT_STATUS.IN_PROGRESS,
+    expiresAt: { $gt: new Date(now) },
+    $or: [{ lastActiveAt: null }, { lastActiveAt: { $gte: new Date(now - ACTIVE_ATTEMPT_WINDOW_MS) } }],
+  });
+}
 
 // Đếm thí sinh đang làm bài ở (các) kỳ thi đang published, trừ kỳ thi `excludeExamId`.
 // Đăng kỳ thi mới sẽ lưu trữ các kỳ thi này; khi đó autosave/heartbeat/nộp bài của họ không còn tìm thấy kỳ thi đang mở.
@@ -32,17 +49,7 @@ async function getActiveAttemptImpact(excludeExamId) {
     .lean();
   if (currentExams.length === 0) return { activeAttemptCount: 0, currentExams: [] };
 
-  const candidateIds = await ExamCandidate.find({ examId: { $in: currentExams.map((e) => e._id) } }).distinct('_id');
-  const now = Date.now();
-  const activeAttemptCount = candidateIds.length
-    ? await ExamAttempt.countDocuments({
-        examCandidateId: { $in: candidateIds },
-        attemptType: ATTEMPT_TYPE.OFFICIAL,
-        status: ATTEMPT_STATUS.IN_PROGRESS,
-        expiresAt: { $gt: new Date(now) },
-        $or: [{ lastActiveAt: null }, { lastActiveAt: { $gte: new Date(now - ACTIVE_ATTEMPT_WINDOW_MS) } }],
-      })
-    : 0;
+  const activeAttemptCount = await countActiveOfficialAttempts(currentExams.map((e) => e._id));
 
   return {
     activeAttemptCount,
@@ -377,8 +384,16 @@ export const examService = {
     }
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new ApiError(400, 'Ngày giờ bắt đầu hoặc kết thúc không hợp lệ', 'EXAM_DATES_INVALID');
+    }
     if (end <= start) {
       throw new ApiError(400, 'Ngày kết thúc phải sau ngày bắt đầu', 'EXAM_DATES_INVALID');
+    }
+    // Ngày bắt đầu phải từ thời điểm hiện tại trở đi. Cho lệch tối đa 5 phút vì ô chọn ngày giờ chỉ chính xác tới phút
+    // (chọn "bây giờ" lúc 07:46 thì tới server đã là 07:46:40) và để bù độ trễ mạng.
+    if (start.getTime() < Date.now() - APPROVE_START_TOLERANCE_MS) {
+      throw new ApiError(400, 'Ngày bắt đầu phải từ thời điểm hiện tại trở đi', 'EXAM_DATES_INVALID');
     }
 
     // Nguyên tử: chỉ 1 Người duyệt đề thắng khi nhiều người cùng bấm; người đến sau nhận EXAM_INVALID_STATUS.
@@ -457,7 +472,17 @@ export const examService = {
     let warnings;
     let published;
     let forcedOverActiveAttempts = 0;
+    let finalizedAttempts = { finalized: 0, failed: 0 };
     try {
+      // Đề đã duyệt từ trước nhưng đến lúc đăng thì đã quá thời gian kết thúc -> không thể thi được nữa.
+      if (claimed.endDate && claimed.endDate.getTime() <= Date.now()) {
+        throw new ApiError(
+          400,
+          'Kỳ thi này đã quá thời gian kết thúc nên không thể đăng chính thức. Vui lòng chọn "Bỏ qua" và tạo đề xuất mới với thời gian phù hợp.',
+          'EXAM_DATES_EXPIRED',
+        );
+      }
+
       const impact = await getActiveAttemptImpact(claimed._id);
       if (impact.activeAttemptCount > 0) {
         if (force !== true) {
@@ -476,6 +501,10 @@ export const examService = {
 
       // Sinh mã đề và gán thí sinh
       await generateExamCodesAndAssignCandidates(claimed);
+
+      // Kỳ thi cũ sắp bị lưu trữ: nộp và chấm các lượt thi còn làm dở của nó (đáp án đã tự lưu) để KHÔNG mất kết quả.
+      // Làm sau khi mã đề của kỳ thi mới đã sinh xong, ngay trước khi lưu trữ, nên nếu các bước trên lỗi thì kỳ thi cũ vẫn chạy bình thường.
+      finalizedAttempts = await finalizeAttemptsForReplacedExams(impact.currentExams.map((e) => e._id));
 
       // Lưu trữ kỳ thi đang published trước đó rồi đặt kỳ thi này thành published (nguyên tử, có index chặn trùng)
       published = await finalizePublish(claimed._id, lockToken);
@@ -496,6 +525,7 @@ export const examService = {
     const result = published.toObject();
     if (warnings) result.warnings = warnings;
     if (forcedOverActiveAttempts > 0) result.forcedOverActiveAttempts = forcedOverActiveAttempts;
+    if (finalizedAttempts.finalized > 0 || finalizedAttempts.failed > 0) result.finalizedAttempts = finalizedAttempts;
     return result;
   },
 
@@ -522,6 +552,34 @@ export const examService = {
       );
     }
     return exam;
+  },
+
+  // MỚI — Tự động LƯU TRỮ kỳ thi đã hết hạn (quá endDate). Scheduler gọi định kỳ (mỗi phút).
+  // - Còn thí sinh đang làm bài trong giờ làm bài của họ -> CHƯA lưu trữ, đợi lần chạy sau (cho họ làm hết bài và lưu kết quả).
+  // - Hết người đang làm -> nộp & chấm nốt các lượt bị bỏ dở (đáp án đã tự lưu, lý do 'exam_ended') rồi mới lưu trữ.
+  async archiveExpiredExams() {
+    const expired = await Exam.find({ status: EXAM_STATUS.PUBLISHED, endDate: { $lte: new Date() } })
+      .select('_id title')
+      .lean();
+
+    const archived = [];
+    for (const exam of expired) {
+      // eslint-disable-next-line no-await-in-loop
+      if ((await countActiveOfficialAttempts([exam._id])) > 0) continue;
+
+      // eslint-disable-next-line no-await-in-loop
+      await finalizeAttemptsForEndedExams([exam._id]);
+
+      // Điều kiện trạng thái: nếu giữa chừng kỳ thi đã bị thay thế (Người duyệt đề đăng đề mới) thì bỏ qua, không ghi đè.
+      // eslint-disable-next-line no-await-in-loop
+      const updated = await Exam.findOneAndUpdate(
+        { _id: exam._id, status: EXAM_STATUS.PUBLISHED, endDate: { $lte: new Date() } },
+        { $set: { status: EXAM_STATUS.ARCHIVED }, $inc: { __v: 1 } },
+        { new: true },
+      );
+      if (updated) archived.push({ _id: updated._id, title: updated.title });
+    }
+    return archived;
   },
 
   // Lấy kỳ thi đang phát hành chính thức hiện tại

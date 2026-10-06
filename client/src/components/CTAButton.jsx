@@ -1,16 +1,26 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { PlayCircle, ArrowRight, Info } from 'lucide-react';
 
-// Kiểm tra kỳ thi có đang trong thời gian hiệu lực để cho phép bấm "Vào thi" hay không.
+const formatVN = (value) => new Date(value).toLocaleString('vi-VN');
+
+// Trạng thái cho phép bấm "Vào thi" kèm lý do khi chưa được vào:
 // - Chưa có activeExam (chưa publish kỳ thi nào) -> không cho vào thi.
-// - Đã có nhưng chưa tới startDate -> chưa bắt đầu, chưa cho vào thi.
-// - Đã quá endDate -> hết thời gian, không cho vào thi nữa.
-function isExamOpenForEntry(activeExam) {
-  if (!activeExam?.startDate || !activeExam?.endDate) return false;
+// - Chưa tới startDate -> báo giờ bắt đầu.
+// - Đã quá endDate -> báo đã kết thúc.
+export function getExamEntryState(activeExam) {
+  if (!activeExam?.startDate || !activeExam?.endDate) {
+    return { open: false, message: 'Hiện tại chưa có kỳ thi nào đang diễn ra.' };
+  }
   const now = Date.now();
   const start = new Date(activeExam.startDate).getTime();
   const end = new Date(activeExam.endDate).getTime();
-  return now >= start && now <= end;
+  if (now < start) {
+    return { open: false, message: `Kỳ thi "${activeExam.title}" chưa bắt đầu. Thời gian bắt đầu: ${formatVN(start)}.` };
+  }
+  if (now > end) {
+    return { open: false, message: `Kỳ thi "${activeExam.title}" đã kết thúc lúc ${formatVN(end)}.` };
+  }
+  return { open: true, message: '' };
 }
 
 export const CTAButton = ({ onClick, activeExam }) => {
@@ -24,7 +34,9 @@ export const CTAButton = ({ onClick, activeExam }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const isOpen = useMemo(() => isExamOpenForEntry(activeExam), [activeExam]);
+  // Tính lại ở MỖI lần render (bộ đếm 1 giây ở trên kích hoạt) để nút tự mờ đúng lúc hết giờ / sáng đúng lúc tới giờ bắt đầu.
+  const entry = getExamEntryState(activeExam);
+  const isOpen = entry.open;
 
   useEffect(() => {
     if (!showDisabledNotice) return;
@@ -59,7 +71,7 @@ export const CTAButton = ({ onClick, activeExam }) => {
           aria-label={
             isOpen
               ? 'Nhấn để bắt đầu vào thi trực tuyến'
-              : 'Hiện chưa có kỳ thi nào đang diễn ra'
+              : entry.message
           }
           className={`w-full min-h-[52px] font-bold text-[18px] sm:text-[20px] rounded-[999px] shadow-lg flex items-center justify-center gap-3 px-8 transition-all duration-200 focus:outline-none focus:ring-4 min-touch-target ${isOpen
               ? 'bg-[#008BC5] hover:bg-[#0077A8] active:scale-95 text-white shadow-[#008BC5]/20 cursor-pointer focus:ring-[#008BC5]/30'
@@ -78,7 +90,7 @@ export const CTAButton = ({ onClick, activeExam }) => {
         {showDisabledNotice && (
           <div className="mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-slate-800/90 backdrop-blur border border-slate-700 rounded-xl text-slate-100 text-sm font-medium animate-in fade-in">
             <Info className="w-4 h-4 text-[#008BC5] shrink-0" />
-            <span>Hiện tại chưa có kỳ thi nào đang diễn ra.</span>
+            <span>{entry.message}</span>
           </div>
         )}
       </div>

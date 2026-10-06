@@ -33,6 +33,7 @@ import {
 } from 'recharts';
 import { fetchMyResults } from '../../services/report.service';
 import { fetchMyExam } from '../../services/exam-attempt.service';
+import { getExamEntryState } from '../../components/CTAButton';
 import {
   fetchMyStudyDocuments,
   previewStudyDocument,
@@ -105,6 +106,12 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
   const [employee, setEmployee] = useState(null);
   const [results, setResults] = useState([]);
   const [refreshTick, setRefreshTick] = useState(0);
+  // MỚI — Nhịp 1 giây để nút "VÀO THI CHÍNH THỨC" tự khóa/mở đúng lúc tới giờ bắt đầu / hết giờ mà không cần F5.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Chế độ luyện tập: key để remount PracticeSection (reset cấu hình),
   // và danh sách chủ đề được chọn sẵn khi bấm "Luyện ngay".
@@ -302,8 +309,16 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
   const attemptsForActiveExam = examStatus?.attemptsUsed ?? 0;
   const attemptsLeft = examStatus ? Math.max(0, maxAttempts - attemptsForActiveExam) : 0;
   // MỚI — Kỳ thi TẮT bù câu chung mà không phòng ban nào của thí sinh đủ câu riêng thì không cho vào thi
+  // MỚI — Khóa nút theo khung giờ kỳ thi (startDate/endDate). Lượt đang làm dở (examStatus.attempt)
+  // luôn được vào lại để resume/nộp bài, kể cả khi đã quá endDate — đồng bộ với server (resume được xét trước giờ thi).
+  const hasResumableAttempt = Boolean(examStatus?.attempt);
+  const entryState = getExamEntryState(activeExam); // tính lại mỗi lần render; nhịp 1 giây ở trên kích hoạt render mỗi giây
+  const timeBlocked = Boolean(activeExam) && !entryState.open && !hasResumableAttempt;
   const canStartExam =
-    Boolean(activeExam) && Boolean(examStatus?.canTake) && examStatus?.role?.hasEligibleRole !== false;
+    Boolean(activeExam) &&
+    Boolean(examStatus?.canTake) &&
+    examStatus?.role?.hasEligibleRole !== false &&
+    !timeBlocked;
 
   // MỚI — Vai trò (phòng ban) sẽ dùng để thi trong kỳ thi đang mở (từ backend). null nếu chưa tải được.
   const examRole = examStatus?.role ?? null;
@@ -322,6 +337,7 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
     : '';
 
   const handleStartExam = () => {
+    if (!canStartExam) return;
     if (typeof onOpenExam === 'function') {
       onOpenExam();
     }
@@ -795,6 +811,8 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                           Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên nào. Vui lòng liên hệ
                           Quản trị viên để được cập nhật thông tin nhân viên.
                         </>
+                      ) : !examStatusErrorCode && timeBlocked ? (
+                        <>{entryState.message}</>
                       ) : examStatusErrorCode && examStatusErrorCode !== 'EXAM_NOT_ACTIVE' ? (
                         <>
                           Không thể tải trạng thái lượt thi ({examStatusErrorCode}). Vui lòng thử tải lại

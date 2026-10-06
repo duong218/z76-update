@@ -45,6 +45,15 @@ const STATUS_TEXT_LABELS = {
   archived: 'Đã lưu trữ',
 };
 
+// Ô chọn ngày giờ (datetime-local) cho phép chọn "bây giờ" lệch tối đa chừng này (chỉ chính xác tới phút); khớp với server.
+const START_TOLERANCE_MS = 5 * 60 * 1000;
+
+// Date -> chuỗi 'YYYY-MM-DDTHH:mm' theo GIỜ ĐỊA PHƯƠNG, đúng định dạng của <input type="datetime-local">.
+const toLocalInputValue = (date) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 export const ExamReviewTab = () => {
   const { showToast } = useToast();
   const confirmAction = useConfirm();
@@ -67,6 +76,9 @@ export const ExamReviewTab = () => {
   const [approveId, setApproveId] = useState(null);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  // Thông báo lỗi ngày giờ ngay trong hộp thoại duyệt + mốc "bây giờ" làm giá trị nhỏ nhất của ô chọn ngày bắt đầu
+  const [dateError, setDateError] = useState('');
+  const [minStart, setMinStart] = useState('');
 
   useScrollLock(isRejectModalOpen || isApproveModalOpen);
 
@@ -125,9 +137,28 @@ export const ExamReviewTab = () => {
   const handleApprove = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
+
+    // Chặn ngay ở giao diện: bắt đầu phải từ hiện tại trở đi, kết thúc phải sau bắt đầu (server cũng kiểm tra lại)
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (!startDate || !endDate || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      setDateError('Vui lòng chọn đầy đủ thời gian bắt đầu và kết thúc.');
+      return;
+    }
+    if (start.getTime() < Date.now() - START_TOLERANCE_MS) {
+      setDateError('Thời gian bắt đầu phải từ thời điểm hiện tại trở đi.');
+      return;
+    }
+    if (end <= start) {
+      setDateError('Thời gian kết thúc phải sau thời gian bắt đầu.');
+      return;
+    }
+    setDateError('');
+
     setIsSubmitting(true);
     try {
-      await approveExam(approveId, { startDate, endDate });
+      // Gửi mốc thời gian đã kèm múi giờ (ISO) để server hiểu đúng giờ đã chọn, không phụ thuộc múi giờ máy chủ.
+      await approveExam(approveId, { startDate: start.toISOString(), endDate: end.toISOString() });
       setIsApproveModalOpen(false);
       setStartDate('');
       setEndDate('');
@@ -137,6 +168,10 @@ export const ExamReviewTab = () => {
       if (error.code === 'EXAM_INVALID_STATUS') {
         setIsApproveModalOpen(false);
         await reportStaleStatusError(approveId, error.message || 'Lỗi khi duyệt kỳ thi');
+        return;
+      }
+      if (error.code === 'EXAM_DATES_INVALID' || error.code === 'EXAM_DATES_REQUIRED') {
+        setDateError(error.message);
         return;
       }
       showToast(error.message || 'Lỗi khi duyệt kỳ thi', 'error');
@@ -211,6 +246,11 @@ export const ExamReviewTab = () => {
         await reportStaleStatusError(id, error.message || 'Lỗi khi đăng chính thức');
         return;
       }
+      // Đề đã quá thời gian kết thúc (duyệt từ trước) -> báo rõ, không bảo bấm lại.
+      if (error.code === 'EXAM_DATES_EXPIRED') {
+        showToast(error.message, 'error');
+        return;
+      }
       // Đang có Người duyệt đề khác phát hành đúng kỳ thi này.
       if (error.code === 'EXAM_PUBLISH_IN_PROGRESS' || error.code === 'EXAM_CONFLICT' || error.code === 'EXAM_PUBLISH_CONFLICT') {
         showToast(error.message, 'warning');
@@ -261,6 +301,10 @@ export const ExamReviewTab = () => {
 
   const openApprove = (id) => {
     setApproveId(id);
+    setStartDate('');
+    setEndDate('');
+    setDateError('');
+    setMinStart(toLocalInputValue(new Date()));
     setIsApproveModalOpen(true);
   };
 
@@ -411,6 +455,9 @@ export const ExamReviewTab = () => {
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                           <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
+                          {new Date(exam.endDate).getTime() <= Date.now() && (
+                            <div className="font-semibold text-[#C53030]">Đã quá thời gian kết thúc</div>
+                          )}
                           <div>
                             Phạm vi:{' '}
                             <span className="font-medium text-slate-700">
@@ -460,6 +507,9 @@ export const ExamReviewTab = () => {
                   <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
                     <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                     <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
+                    {new Date(exam.endDate).getTime() <= Date.now() && (
+                      <div className="font-semibold text-[#C53030]">Đã quá thời gian kết thúc</div>
+                    )}
                     <div>
                       Phạm vi:{' '}
                       <span className="font-medium text-slate-700">
@@ -652,14 +702,15 @@ export const ExamReviewTab = () => {
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleApprove} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+            <form onSubmit={handleApprove} noValidate className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 overscroll-contain">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Thời gian bắt đầu</label>
                 <input
                   required
                   type="datetime-local"
+                  min={minStart}
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => { setStartDate(e.target.value); setDateError(''); }}
                   className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
                 />
               </div>
@@ -668,11 +719,17 @@ export const ExamReviewTab = () => {
                 <input
                   required
                   type="datetime-local"
+                  min={startDate || minStart}
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e) => { setEndDate(e.target.value); setDateError(''); }}
                   className="w-full p-2.5 text-base border border-slate-300 rounded-lg focus:border-[#008BC5] outline-none"
                 />
               </div>
+              {dateError && (
+                <p role="alert" className="text-sm font-medium text-[#C53030] bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg px-3 py-2">
+                  {dateError}
+                </p>
+              )}
               <div className="pt-2 flex gap-3 pb-1">
                 <button
                   type="button"

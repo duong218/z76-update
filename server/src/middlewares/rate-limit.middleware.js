@@ -6,11 +6,15 @@
 import rateLimit from 'express-rate-limit';
 import { env } from '../config/env.js';
 
-// Giới hạn tần suất đăng nhập (theo IP) để chống dò quét mật khẩu (brute-force)
+// Giới hạn tần suất đăng nhập SAI (theo IP + tên đăng nhập) để chống dò quét mật khẩu (brute-force).
+// Chỉ đếm lần đăng nhập thất bại và đếm riêng từng tài khoản: hàng chục máy trong cùng mạng công ty (chung 1 IP)
+// đăng nhập đúng cùng lúc không bị khóa, còn dò mật khẩu một tài khoản vẫn bị chặn sau loginRateLimitMax lần sai.
 export const loginRateLimiter = env.isProduction
   ? rateLimit({
       windowMs: env.loginRateLimitWindowMinutes * 60 * 1000,
       max: env.loginRateLimitMax,
+      skipSuccessfulRequests: true,
+      keyGenerator: (req) => `${req.ip}|${String(req.body?.username ?? '').trim().toLowerCase()}`,
       standardHeaders: true,
       legacyHeaders: false,
       message: {

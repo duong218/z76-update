@@ -385,6 +385,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
+    if (imageUploading) return;
     if (!topicId) {
       setError('Vui lòng chọn chủ đề liên kết');
       return;
@@ -1475,11 +1476,11 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
-                  className="px-8 py-3 min-h-[48px] bg-[#008BC5] hover:bg-[#007ba1] text-white rounded-xl font-bold text-base transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-75"
+                  disabled={actionLoading || imageUploading}
+                  className="px-8 py-3 min-h-[48px] bg-[#008BC5] hover:bg-[#007ba1] text-white rounded-xl font-bold text-base transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {actionLoading && <Loader2 className="w-5 h-5 animate-spin" />}
-                  Lưu câu hỏi
+                  {(actionLoading || imageUploading) && <Loader2 className="w-5 h-5 animate-spin" />}
+                  {imageUploading ? 'Đang tải ảnh...' : 'Lưu câu hỏi'}
                 </button>
               </div>
             </form>

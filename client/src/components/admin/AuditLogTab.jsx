@@ -15,6 +15,7 @@ const ACTION_LABELS = {
   UNLOCK_USER: 'Mở khóa tài khoản',
   RESET_PASSWORD: 'Đặt lại mật khẩu',
   CHANGE_PASSWORD: 'Đổi mật khẩu',
+  UPDATE_USER_PROFILE: 'Cập nhật thông tin cá nhân',
   EXPORT_CANDIDATE_CREDENTIALS: 'Xuất danh sách tài khoản nhân viên',
   // Đề thi
   CREATE_EXAM: 'Tạo đề thi',
@@ -285,7 +286,9 @@ export const AuditLogTab = () => {
     return parts.length ? parts.join(' · ') : null;
   };
 
-  const getDetailText = (log) => log.metadata?.detail || log.metadata?.questionId || '-';
+  // Bỏ mã lỗi kỹ thuật dạng "(TOPIC_HAS_ACTIVE_EXAM)" khỏi câu hiển thị cho người dùng
+  const getDetailText = (log) =>
+    String(log.metadata?.detail || log.metadata?.questionId || '-').replace(/\s*\([A-Z_]+\)(?=:)/, '');
 
   return (
     <div className="space-y-4">

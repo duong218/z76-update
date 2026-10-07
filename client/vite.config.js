@@ -1,4 +1,4 @@
-/*
+
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -24,10 +24,10 @@ export default defineConfig(() => {
     },
   };
 });
-*/
+
 
 //chạy test mạng nội bộ
-
+/*
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -59,3 +59,4 @@ export default defineConfig(() => {
     },
   };
 });
+*/

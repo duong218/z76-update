@@ -92,7 +92,18 @@ export const TopicTab = ({ onViewQuestions } = {}) => {
     setActionLoading(true);
     setError('');
     try {
-      await deleteTopic(topic._id);
+      try {
+        await deleteTopic(topic._id);
+      } catch (err) {
+        // Chủ đề có kỳ thi đã duyệt nhưng quá hạn (không đăng được nữa): báo trước cho người dùng, đồng ý thì ép ngừng sử dụng.
+        if (err.code !== 'TOPIC_HAS_EXPIRED_EXAM') throw err;
+        const proceed = await confirmAction(err.message, {
+          title: 'Kỳ thi đã duyệt nhưng quá hạn',
+          confirmLabel: 'Vẫn ngừng sử dụng',
+        });
+        if (!proceed) return;
+        await deleteTopic(topic._id, { force: true });
+      }
       await loadTopics();
     } catch (err) {
       const message = err.message || 'Lỗi khi ngừng sử dụng chủ đề';

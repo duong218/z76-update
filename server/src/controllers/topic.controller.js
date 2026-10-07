@@ -66,21 +66,27 @@ export const update = asyncHandler(async (req, res) => {
   });
 });
 
-// Ngừng sử dụng chủ đề (kiểm tra và chặn nếu chủ đề đang được dùng trong kỳ thi đã công bố)
+// Các mã lỗi chặn cứng khi ngừng sử dụng chủ đề (TOPIC_HAS_EXPIRED_EXAM chỉ là cảnh báo cần xác nhận nên không ghi nhật ký chặn)
+const BLOCKING_TOPIC_CODES = ['TOPIC_HAS_ACTIVE_EXAM', 'TOPIC_HAS_PENDING_EXAM', 'TOPIC_HAS_APPROVED_EXAM'];
+
+// Ngừng sử dụng chủ đề (chặn nếu đang có kỳ thi đang diễn ra / chờ duyệt / đã duyệt chưa đăng; cảnh báo nếu chỉ có kỳ thi đã duyệt quá hạn)
 export const remove = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
+  // force=true: người dùng đã xác nhận bỏ qua cảnh báo kỳ thi đã duyệt nhưng quá hạn
+  const force = req.query.force === 'true';
+
   let data;
   try {
-    data = await topicService.deactivateTopic(id);
+    data = await topicService.deactivateTopic(id, { force });
   } catch (err) {
-    if (err instanceof ApiError && err.code === 'TOPIC_HAS_ACTIVE_EXAM') {
+    if (err instanceof ApiError && BLOCKING_TOPIC_CODES.includes(err.code)) {
       await writeAudit({
         actorUserId: req.auth.userId,
         action: 'DEACTIVATE_TOPIC_BLOCKED',
         resourceType: 'Topic',
         resourceId: id,
-        metadata: { detail: `Bị chặn ngừng sử dụng chủ đề (đang có kỳ thi published): ${err.message}` },
+        metadata: { detail: `Bị chặn ngừng sử dụng chủ đề (${err.code}): ${err.message}` },
         ipAddress: req.ip,
       });
     }

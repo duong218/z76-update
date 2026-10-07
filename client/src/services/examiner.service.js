@@ -165,8 +165,9 @@ export async function updateTopic(id, payload) {
   return res.data;
 }
 
-export async function deleteTopic(id) {
-  const res = await apiRequest(`/topics/${id}`, {
+// force = true: đã xác nhận bỏ qua cảnh báo (chủ đề có kỳ thi đã duyệt nhưng quá hạn chưa đăng)
+export async function deleteTopic(id, { force = false } = {}) {
+  const res = await apiRequest(`/topics/${id}${force ? '?force=true' : ''}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });

@@ -202,6 +202,8 @@ export const ExamReviewTab = () => {
     }
   };
 
+  const isExpired = (exam) => new Date(exam.endDate).getTime() <= Date.now();
+
   const handlePublish = async (id) => {
     const ok = await confirmAction(
       'Bạn có chắc chắn muốn đăng chính thức kỳ thi này? Kỳ thi đang diễn ra (nếu có) sẽ bị lưu trữ.',
@@ -481,7 +483,8 @@ export const ExamReviewTab = () => {
                             </button>
                             <button
                               onClick={() => handlePublish(exam._id)}
-                              disabled={publishingId === exam._id || archivingId === exam._id}
+ title={isExpired(exam) ? 'Kỳ thi đã quá hạn, không thể đăng chính thức' : undefined}
+                              disabled={publishingId === exam._id || archivingId === exam._id || isExpired(exam)}
                               className="px-3 py-2 bg-[#008BC5] hover:bg-[#0693E3] text-white font-semibold rounded-lg transition-colors flex items-center gap-1.5 text-sm disabled:opacity-60 disabled:cursor-not-allowed min-touch-target"
                             >
                               <Globe className="w-4 h-4" />
@@ -532,7 +535,8 @@ export const ExamReviewTab = () => {
                     </button>
                     <button
                       onClick={() => handlePublish(exam._id)}
-                      disabled={publishingId === exam._id || archivingId === exam._id}
+ title={isExpired(exam) ? 'Kỳ thi đã quá hạn, không thể đăng chính thức' : undefined}
+                      disabled={publishingId === exam._id || archivingId === exam._id || isExpired(exam)}
                       className="flex-1 h-11 bg-[#008BC5] hover:bg-[#0693E3] text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 text-base disabled:opacity-60 disabled:cursor-not-allowed min-touch-target"
                     >
                       <Globe className="w-4 h-4" />

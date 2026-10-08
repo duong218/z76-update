@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, Users, Timer, Info, CheckCircle2, CircleSlash, Check } from 'lucide-react';
+import { ShieldAlert, Users, Timer, Info, CheckCircle2, CircleSlash, Check, Search, ChevronDown } from 'lucide-react';
 import { fetchAnomalies } from '../../services/analytics.service';
 import { Pagination } from '../Pagination';
 
@@ -8,6 +8,8 @@ const EXAM_PAGE_SIZE = 5;
 const label = (p) => p.name || p.code || 'Không rõ';
 const dur = (s) => (s < 60 ? `${s} giây` : `${Math.floor(s / 60)} phút ${s % 60} giây`);
 const dec = (n) => String(n).replace('.', ',');
+// bỏ dấu tiếng Việt + chữ thường để gõ "nghiep vu" vẫn tìm được "nghiệp vụ"
+const norm = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/g, 'd').toLowerCase();
 
 const Section = ({ icon, title, hint, count, children }) => (
   <section className="space-y-2.5">
@@ -49,6 +51,8 @@ export const AnomalyTab = () => {
   const [error, setError] = useState(null);
   const [examId, setExamId] = useState(null);
   const [examPage, setExamPage] = useState(1);
+  const [picking, setPicking] = useState(false);
+  const [query, setQuery] = useState('');
   const [pairPage, setPairPage] = useState(1);
   const [fastPage, setFastPage] = useState(1);
 
@@ -102,12 +106,17 @@ export const AnomalyTab = () => {
   const fastPages = Math.max(1, Math.ceil(fast.length / PAGE_SIZE));
   const pCur = Math.min(pairPage, pairPages);
   const fCur = Math.min(fastPage, fastPages);
-  const examPages = Math.max(1, Math.ceil(exams.length / EXAM_PAGE_SIZE));
+  const q = norm(query.trim());
+  const matched = q ? exams.filter((e) => norm(e.title).includes(q)) : exams;
+  const examPages = Math.max(1, Math.ceil(matched.length / EXAM_PAGE_SIZE));
   const eCur = Math.min(examPage, examPages);
   const pick = (id) => {
     setExamId(id);
     setPairPage(1);
     setFastPage(1);
+    setExamPage(1);
+    setQuery('');
+    setPicking(false);
   };
 
   return (
@@ -136,35 +145,6 @@ export const AnomalyTab = () => {
             <li>Số lần rời trang thi hiện chưa được ghi nhận nên chưa có trong danh sách này.</li>
           </ul>
         </details>
-
-        {exams.length > 1 && (
-          <nav aria-label="Chọn kỳ thi" className="space-y-2">
-            <p className="text-sm text-[#64748B]">Chọn kỳ thi cần xem ({exams.length} kỳ có dấu hiệu)</p>
-            <div className="bg-white rounded-xl border border-[#E2E8F0] divide-y divide-[#E2E8F0] overflow-hidden">
-              {exams.slice((eCur - 1) * EXAM_PAGE_SIZE, eCur * EXAM_PAGE_SIZE).map((e) => {
-                const active = e.examId === exam.examId;
-                return (
-                  <button
-                    key={e.examId}
-                    type="button"
-                    onClick={() => pick(e.examId)}
-                    aria-pressed={active}
-                    className={`w-full text-left px-4 py-3 flex items-center justify-between gap-3 min-touch-target border-l-4 ${
-                      active ? 'bg-[#E6F4FA] border-[#008BC5]' : 'border-transparent hover:bg-[#F8FAFC]'
-                    }`}
-                  >
-                    <span className={`min-w-0 break-words text-base ${active ? 'font-bold text-[#0F172A]' : 'text-[#334155]'}`}>{e.title}</span>
-                    <span className="shrink-0 flex items-center gap-1.5 text-sm font-semibold text-[#B7791F]">
-                      {e.sharedWrong.length + e.fast.length} dấu hiệu
-                      {active && <Check className="w-4 h-4 text-[#008BC5]" aria-hidden="true" />}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <Pagination page={eCur} pageCount={examPages} onChange={setExamPage} />
-          </nav>
-        )}
       </div>
 
       {!exam ? (
@@ -177,9 +157,80 @@ export const AnomalyTab = () => {
         </div>
       ) : (
         <>
-          <p className="text-base text-[#334155]">
-            Đang xem: <b className="break-words">{exam.title}</b> · {exam.attempts} lượt đã nộp
-          </p>
+          <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+            <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm text-[#64748B]">Đang xem kỳ thi</p>
+                <p className="text-base font-bold text-[#0F172A] break-words">{exam.title}</p>
+                <p className="text-sm text-[#64748B]">
+                  {exam.attempts} lượt đã nộp · {pairs.length + fast.length} dấu hiệu
+                </p>
+              </div>
+              {exams.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setPicking((v) => !v)}
+                  aria-expanded={picking}
+                  aria-controls="exam-picker"
+                  className="self-start sm:self-auto shrink-0 inline-flex items-center gap-2 px-4 rounded-lg border border-[#CBD5E1] bg-white hover:bg-[#F8FAFC] text-base font-semibold text-[#334155] min-touch-target"
+                >
+                  {picking ? 'Đóng danh sách' : `Đổi kỳ thi (${exams.length})`}
+                  <ChevronDown className={`w-4 h-4 transition-transform ${picking ? 'rotate-180' : ''}`} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+
+            {picking && (
+              <div id="exam-picker" className="border-t border-[#E2E8F0] bg-[#F8FAFC] p-3 space-y-3">
+                {exams.length > EXAM_PAGE_SIZE && (
+                  <div className="relative">
+                    <Search className="w-5 h-5 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setExamPage(1);
+                      }}
+                      aria-label="Tìm kỳ thi theo tên"
+                      placeholder="Tìm kỳ thi theo tên"
+                      className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-white text-base min-touch-target"
+                    />
+                  </div>
+                )}
+
+                {matched.length === 0 ? (
+                  <p className="text-base text-[#334155] px-1">Không có kỳ thi nào khớp với "{query}".</p>
+                ) : (
+                  <>
+                    <div className="bg-white rounded-xl border border-[#E2E8F0] divide-y divide-[#E2E8F0] overflow-hidden">
+                      {matched.slice((eCur - 1) * EXAM_PAGE_SIZE, eCur * EXAM_PAGE_SIZE).map((e) => {
+                        const active = e.examId === exam.examId;
+                        return (
+                          <button
+                            key={e.examId}
+                            type="button"
+                            onClick={() => pick(e.examId)}
+                            aria-pressed={active}
+                            className={`w-full text-left px-4 py-3 flex items-center justify-between gap-3 min-touch-target border-l-4 ${
+                              active ? 'bg-[#E6F4FA] border-[#008BC5]' : 'border-transparent hover:bg-[#F8FAFC]'
+                            }`}
+                          >
+                            <span className={`min-w-0 break-words text-base ${active ? 'font-bold text-[#0F172A]' : 'text-[#334155]'}`}>{e.title}</span>
+                            <span className="shrink-0 flex items-center gap-1.5 text-sm font-semibold text-[#B7791F]">
+                              {e.sharedWrong.length + e.fast.length} dấu hiệu
+                              {active && <Check className="w-4 h-4 text-[#008BC5]" aria-hidden="true" />}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <Pagination page={eCur} pageCount={examPages} onChange={setExamPage} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           <Section
             icon={<Users className="w-5 h-5 text-[#B7791F]" />}

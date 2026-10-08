@@ -81,6 +81,7 @@ client/
 │   │
 │   ├── components/leader/
 │   │   ├── CompetencyTab.jsx               # Tab năng lực theo phòng ban: phân tích tỷ lệ đúng theo chủ đề, sắp xếp/tìm kiếm phòng ban, ẩn số liệu phòng ban < 3 thí sinh để bảo vệ thông tin cá nhân, mở rộng xem chi tiết CompetencyView từng đơn vị
+│   │   ├── AnomalyTab.jsx                  # Tab dấu hiệu bất thường: so cặp đáp án sai trùng lặp (không phụ thuộc xáo đề), tốc độ làm bài nhanh bất thường. Chỉ gợi ý xem xét, không kết luận gian lận. Bộ chọn kỳ thi với tìm kiếm không dấu, phân trang, lọc không hiện kỳ thi 0 dấu hiệu
 │   │   ├── DepartmentReportTab.jsx         # Tab báo cáo phòng ban: thống kê số thí sinh, số lượt thi, tỷ lệ đạt/không đạt theo từng đơn vị
 │   │   ├── DetailedResultsTab.jsx          # Tab kết quả chi tiết: danh sách bảng điểm thí sinh, bộ lọc nâng cao, xuất Excel, cấp thêm lượt thi (hỗ trợ đổi lại phòng ban thi nếu chọn nhầm)
 │   │   ├── ExamReportTab.jsx               # Tab báo cáo kỳ thi: thống kê tổng hợp kết quả theo từng kỳ thi, xuất báo cáo Excel
@@ -91,11 +92,11 @@ client/
 │   │   ├── admin/AdminDashboard.jsx        # Dashboard Quản trị viên: điều phối các tab Admin (Overview, Account, AuditLog, Backup)
 │   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: hiển thị kỳ thi active, khối Bản đồ năng lực (CompetencyCard), tài liệu ôn tập theo phòng ban, luyện tập tự do & thành tích, lịch sử làm bài và biểu đồ điểm số
 │   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, QuestionAnalysis, Topic, Department, ExamProposal, StudyDocument)
-│   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, DepartmentReport, Competency, ExamReport, DetailedResults, ExamReview)
+│   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, DepartmentReport, Competency, Anomaly, ExamReport, DetailedResults, ExamReview)
 │   │
 │   └── services/
 │       ├── admin.service.js                # Service quản trị: fetchOverviewStats, CRUD user, updateEmployeeDepartments, import/export Excel nhân viên (kèm bóc tách phòng ban kiêm nhiệm), backup/restore API, audit log
-│       ├── analytics.service.js            # Service phân tích nâng cao: fetchQuestionAnalysis (chất lượng câu hỏi), fetchDepartmentCompetency (năng lực gộp theo đơn vị), fetchMyCompetency (bản đồ năng lực cá nhân)
+│       ├── analytics.service.js            # Service phân tích nâng cao: fetchQuestionAnalysis (chất lượng câu hỏi), fetchDepartmentCompetency (năng lực gộp theo đơn vị), fetchAnomalies (dấu hiệu bất thường theo kỳ thi: so cặp đáp án sai trùng lặp, tốc độ làm bài), fetchMyCompetency (bản đồ năng lực cá nhân)
 │       ├── api.js                          # HTTP client trung tâm: apiRequest(), gắn Bearer token, silent refresh token với queueing, xử lý 401 & SESSION_EXPIRED_EVENT
 │       ├── auth.service.js                 # Service xác thực: loginUser, refreshAccessToken, logoutUser, fetchMe, changePassword
 │       ├── exam-attempt.service.js         # Service làm bài thi: fetchMyExam, startExamAttempt (truyền departmentId chọn vai trò), submitExamAttempt, answerExamQuestion (autosave), sendExamHeartbeat
@@ -135,7 +136,7 @@ Dự án sử dụng chiến lược quản lý trạng thái phân tán, chủ 
 - **Tầng bảo vệ (Guards)**: `App.jsx` quyết định load trang chủ hay dashboard dựa vào role của `user` trả về từ `/api/auth/me`.
 - Dashboard của từng vai trò được tải dựa vào role code (`admin`, `examiner`, `leader`, `candidate`):
   - **Examiner**: Bổ sung tab `analysis` (`QuestionAnalysisTab`) phân tích câu hỏi thi chính thức (tỷ lệ đúng, độ phân biệt, cờ cảnh báo nghi sai đáp án).
-  - **Leader**: Bổ sung tab `competency` (`CompetencyTab`) theo dõi bản đồ năng lực gộp theo phòng ban (bảo mật cá nhân với phòng ban dưới 3 người).
+  - **Leader**: Bổ sung tab `competency` (`CompetencyTab`) theo dõi bản đồ năng lực gộp theo phòng ban (bảo mật cá nhân với phòng ban dưới 3 người) và tab `anomaly` (`AnomalyTab`) rà soát dấu hiệu bất thường theo kỳ thi (so cặp đáp án sai trùng lặp, tốc độ làm bài nhanh bất thường — chỉ gợi ý, không kết luận gian lận).
   - **Candidate**: Tích hợp khối `CompetencyCard` ngay trên màn hình chính để trực quan hóa năng lực các chủ đề (thi + luyện tập) và gợi ý luyện tập kịp thời.
 - Nếu user truy cập trái phép tab của người khác, UI mặc định sẽ không render component tab đó.
 

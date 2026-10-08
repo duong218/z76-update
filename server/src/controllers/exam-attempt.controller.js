@@ -99,6 +99,12 @@ export const examAttemptController = {
     res.json({ success: true, message: 'OK', data });
   }),
 
+  // Thí sinh báo vừa rời màn hình thi (chỉ đếm số lần để Người duyệt đề xem dấu hiệu bất thường)
+  leave: asyncHandler(async (req, res) => {
+    const data = await examAttemptService.recordLeave(req.auth.userId, req.params.id);
+    res.json({ success: true, message: 'OK', data });
+  }),
+
   // MỚI — Người duyệt đề lấy danh sách vai trò (phòng ban) của 1 thí sinh để chọn khi cấp thêm lượt thi
   getCandidateRoleOptions: asyncHandler(async (req, res) => {
     const data = await examAttemptService.getCandidateRoleOptions(req.params.examCandidateId);

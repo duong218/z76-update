@@ -80,3 +80,16 @@ export async function sendExamHeartbeat(attemptId) {
   });
   return result.data;
 }
+
+/**
+ * Báo server thí sinh vừa rời màn hình thi (đổi tab, chuyển ứng dụng, khóa màn hình...).
+ * Chỉ để đếm số lần cho Người duyệt đề xem dấu hiệu bất thường; nơi gọi (ExamModal) bỏ qua mọi lỗi
+ * vì việc đếm không được làm gián đoạn bài thi.
+ */
+export async function reportExamLeave(attemptId) {
+  const result = await apiRequest(`/exam-attempts/${attemptId}/leave`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  return result.data;
+}

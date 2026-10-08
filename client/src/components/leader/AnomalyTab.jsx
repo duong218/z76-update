@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, Users, Timer, Info, CheckCircle2, CircleSlash, Check, Search, ChevronDown } from 'lucide-react';
+import { ShieldAlert, Users, Timer, Info, CheckCircle2, CircleSlash, Check, Search, ChevronDown, EyeOff } from 'lucide-react';
 import { fetchAnomalies } from '../../services/analytics.service';
 import { Pagination } from '../Pagination';
 
@@ -8,8 +8,18 @@ const EXAM_PAGE_SIZE = 5;
 const label = (p) => p.name || p.code || 'Không rõ';
 const dur = (s) => (s < 60 ? `${s} giây` : `${Math.floor(s / 60)} phút ${s % 60} giây`);
 const dec = (n) => String(n).replace('.', ',');
+const fmt = (d) => new Date(d).toLocaleDateString('vi-VN');
+const total = (e) => e.sharedWrong.length + e.fast.length + e.leaves.length; // tổng số dấu hiệu của một kỳ thi
 // bỏ dấu tiếng Việt + chữ thường để gõ "nghiep vu" vẫn tìm được "nghiệp vụ"
 const norm = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/g, 'd').toLowerCase();
+
+// Màu luôn đi kèm chữ "Đang diễn ra" (không chỉ dựa vào màu xanh)
+const Live = () => (
+  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-sm font-semibold bg-[#E8F8EE] text-[#15803D]">
+    <span className="w-2 h-2 rounded-full bg-[#22C55E]" aria-hidden="true" />
+    Đang diễn ra
+  </span>
+);
 
 const Section = ({ icon, title, hint, count, children }) => (
   <section className="space-y-2.5">
@@ -55,6 +65,7 @@ export const AnomalyTab = () => {
   const [query, setQuery] = useState('');
   const [pairPage, setPairPage] = useState(1);
   const [fastPage, setFastPage] = useState(1);
+  const [leavePage, setLeavePage] = useState(1);
 
   const loadData = async () => {
     try {
@@ -97,15 +108,19 @@ export const AnomalyTab = () => {
   }
 
   const { thresholds: t } = data;
-  // Chỉ liệt kê kỳ thi có dấu hiệu (server đã xếp nhiều nhất lên đầu); kỳ thi 0 dấu hiệu làm danh sách dài vô ích.
-  const exams = data.exams.filter((e) => e.sharedWrong.length + e.fast.length > 0);
+  // Server xếp kỳ đang diễn ra lên đầu, rồi kỳ kết thúc gần nhất; mặc định mở kỳ đầu tiên.
+  // Chỉ liệt kê kỳ thi có dấu hiệu (kỳ 0 dấu hiệu làm danh sách dài vô ích), riêng kỳ đang diễn ra luôn được giữ.
+  const exams = data.exams.filter((e) => e.running || total(e) > 0);
   const exam = exams.find((e) => e.examId === examId) ?? exams[0];
   const pairs = exam?.sharedWrong ?? [];
   const fast = exam?.fast ?? [];
+  const leaves = exam?.leaves ?? [];
   const pairPages = Math.max(1, Math.ceil(pairs.length / PAGE_SIZE));
   const fastPages = Math.max(1, Math.ceil(fast.length / PAGE_SIZE));
+  const leavePages = Math.max(1, Math.ceil(leaves.length / PAGE_SIZE));
   const pCur = Math.min(pairPage, pairPages);
   const fCur = Math.min(fastPage, fastPages);
+  const lCur = Math.min(leavePage, leavePages);
   const q = norm(query.trim());
   const matched = q ? exams.filter((e) => norm(e.title).includes(q)) : exams;
   const examPages = Math.max(1, Math.ceil(matched.length / EXAM_PAGE_SIZE));
@@ -114,6 +129,7 @@ export const AnomalyTab = () => {
     setExamId(id);
     setPairPage(1);
     setFastPage(1);
+    setLeavePage(1);
     setExamPage(1);
     setQuery('');
     setPicking(false);
@@ -142,7 +158,10 @@ export const AnomalyTab = () => {
               Làm quá nhanh: trung bình dưới {t.fastSecPerQuestion} giây mỗi câu, xét từ {t.minAnsweredForSpeed} câu đã trả lời trở lên.
             </li>
             <li>Kỳ thi dưới {t.minAttemptsForPairs} lượt nộp thì không so cặp vì mẫu quá nhỏ. Bài bị hệ thống tự nộp không được xét.</li>
-            <li>Số lần rời trang thi hiện chưa được ghi nhận nên chưa có trong danh sách này.</li>
+            <li>
+              Rời màn hình thi nhiều: từ {t.minLeaves} lần trở lên (chuyển tab, chuyển ứng dụng, khoá màn hình). Chỉ có số liệu ở các lượt
+              thi sau khi tính năng này được bật, lượt thi cũ không có.
+            </li>
           </ul>
         </details>
       </div>
@@ -160,10 +179,14 @@ export const AnomalyTab = () => {
           <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
             <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-sm text-[#64748B]">Đang xem kỳ thi</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm text-[#64748B]">Đang xem kỳ thi</p>
+                  {exam.running && <Live />}
+                </div>
                 <p className="text-base font-bold text-[#0F172A] break-words">{exam.title}</p>
                 <p className="text-sm text-[#64748B]">
-                  {exam.attempts} lượt đã nộp · {pairs.length + fast.length} dấu hiệu
+                  {exam.attempts} lượt đã nộp · {total(exam)} dấu hiệu
+                  {!exam.running && exam.endsAt ? ` · Kết thúc ${fmt(exam.endsAt)}` : ''}
                 </p>
               </div>
               {exams.length > 1 && (
@@ -216,9 +239,18 @@ export const AnomalyTab = () => {
                               active ? 'bg-[#E6F4FA] border-[#008BC5]' : 'border-transparent hover:bg-[#F8FAFC]'
                             }`}
                           >
-                            <span className={`min-w-0 break-words text-base ${active ? 'font-bold text-[#0F172A]' : 'text-[#334155]'}`}>{e.title}</span>
+                            <span className="min-w-0">
+                              <span className={`block break-words text-base ${active ? 'font-bold text-[#0F172A]' : 'text-[#334155]'}`}>{e.title}</span>
+                              {e.running ? (
+                                <span className="mt-1 inline-flex">
+                                  <Live />
+                                </span>
+                              ) : (
+                                e.endsAt && <span className="block text-sm text-[#64748B]">Kết thúc {fmt(e.endsAt)}</span>
+                              )}
+                            </span>
                             <span className="shrink-0 flex items-center gap-1.5 text-sm font-semibold text-[#B7791F]">
-                              {e.sharedWrong.length + e.fast.length} dấu hiệu
+                              {total(e)} dấu hiệu
                               {active && <Check className="w-4 h-4 text-[#008BC5]" aria-hidden="true" />}
                             </span>
                           </button>
@@ -267,7 +299,7 @@ export const AnomalyTab = () => {
             count={fast.length}
           >
             {fast.length === 0 ? (
-              <Empty text="Không phát hiện trường hợp nào." />
+              <Empty skip={exam.attempts === 0} text={exam.attempts === 0 ? 'Chưa có lượt nộp nào để xét.' : 'Không phát hiện trường hợp nào.'} />
             ) : (
               <>
                 <Rows>
@@ -281,6 +313,26 @@ export const AnomalyTab = () => {
                   ))}
                 </Rows>
                 <Pagination page={fCur} pageCount={fastPages} onChange={setFastPage} />
+              </>
+            )}
+          </Section>
+
+          <Section
+            icon={<EyeOff className="w-5 h-5 text-[#B7791F]" />}
+            title="Rời màn hình thi nhiều"
+            hint="Số lần thí sinh chuyển tab hoặc thoát khỏi màn hình thi trong lúc làm bài."
+            count={leaves.length}
+          >
+            {leaves.length === 0 ? (
+              <Empty skip={exam.attempts === 0} text={exam.attempts === 0 ? 'Chưa có lượt nộp nào để xét.' : 'Không phát hiện trường hợp nào.'} />
+            ) : (
+              <>
+                <Rows>
+                  {leaves.slice((lCur - 1) * PAGE_SIZE, lCur * PAGE_SIZE).map((l) => (
+                    <Row key={l.attemptId} title={label(l)} sub={l.code} badge={`Rời ${l.leaveCount} lần`} />
+                  ))}
+                </Rows>
+                <Pagination page={lCur} pageCount={leavePages} onChange={setLeavePage} />
               </>
             )}
           </Section>

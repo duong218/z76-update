@@ -11,7 +11,8 @@ server/
 ├── package.json                                    # Quản lý dependencies, engines và scripts (dev, start, seed, backup)
 ├── package-lock.json                               # Lockfile quản lý phiên bản gói npm
 ├── test_rate_limit.js                              # Kịch bản kiểm thử tự động cơ chế Rate Limiting
-├── test-analytics.mjs                              # Kiểm thử service phân tích bằng dữ liệu giả lập (node test-analytics.mjs)
+├── test/
+│   └── test-analytics.mjs                          # Kiểm thử service phân tích bằng dữ liệu giả lập (node test/test-analytics.mjs): hàm thuần computeQuestionStats, tallyByTopic, buildTopicCompetency, pickWeakest, detectAnomalies và luồng DB giả lập getMyCompetency, getDepartmentCompetency, getQuestionAnalysis, getAnomalies
 └── src/
     ├── app.js                                      # Khởi tạo Express app: Helmet, CORS, cookie parser, JSON body, mount routes, global error handler
     ├── index.js                                    # Entry point máy chủ: validate biến môi trường, kết nối MongoDB, chạy seed khởi tạo, đăng ký cron schedulers, lắng nghe cổng
@@ -19,7 +20,7 @@ server/
     │   ├── db.js                                   # Thiết lập kết nối MongoDB qua Mongoose với auto reconnect & event loggers
     │   └── env.js                                  # Định nghĩa, validate và export cấu hình môi trường (port, JWT secrets/TTL, DB URI, CORS origin, Cloudinary, Google OAuth2...)
     ├── controllers/
-    │   ├── analytics.controller.js                 # Xử lý request phân tích: chất lượng câu hỏi (Người ra đề), năng lực theo phòng ban (Người duyệt đề), năng lực cá nhân (Thí sinh)
+    │   ├── analytics.controller.js                 # Xử lý request phân tích: chất lượng câu hỏi (Người ra đề), năng lực theo phòng ban (Người duyệt đề), dấu hiệu bất thường theo kỳ thi (Người duyệt đề), năng lực cá nhân (Thí sinh)
     │   ├── audit.controller.js                     # Xử lý request tra cứu nhật ký hệ thống (phân trang, lọc theo action/user/resource/thời gian)
     │   ├── auth.controller.js                      # Xử lý request xác thực: đăng nhập, refresh token, đăng xuất, lấy hồ sơ cá nhân (/me), đổi mật khẩu
     │   ├── backup.controller.js                    # Xử lý request sao lưu: danh sách bản lưu trên Drive, tạo sao lưu mới, tải về máy, khôi phục từ file .gz
@@ -66,7 +67,7 @@ server/
     │   ├── index.js                                # Router tổng: định tuyến tất cả sub-routers vào tiền tố /api/*
     │   ├── auth.routes.js                          # Tuyến API xác thực: /login, /refresh, /logout, /me, /change-password
     │   ├── backup.routes.js                        # Tuyến API sao lưu & phục hồi dữ liệu: danh sách, tạo backup, download, restore (Admin)
-    │   ├── analytics.routes.js                     # Tuyến API phân tích: /questions (Examiner, Admin), /department-competency (Leader, Admin), /my-competency (Candidate)
+    │   ├── analytics.routes.js                     # Tuyến API phân tích: /questions (Examiner, Admin), /department-competency (Leader, Admin), /anomalies (Leader, Admin), /my-competency (Candidate)
     │   ├── audit.routes.js                         # Tuyến API tra cứu audit log (Admin)
     │   ├── department.routes.js                    # Tuyến API CRUD phòng ban (Admin, Examiner)
     │   ├── exam.routes.js                          # Tuyến API kỳ thi: /active (Public), CRUD (tạo/sửa đề xuất), /publish-check và workflow phê duyệt (Examiner, Leader)
@@ -88,7 +89,7 @@ server/
     │   ├── account-purge.service.js                # Logic xóa cứng tài khoản: quét user khóa >6 tháng (lockedAt), loại trừ user có vết lịch sử thi/audit
     │   ├── account-purge.scheduler.js              # Cron scheduler: Tự động xóa cứng tài khoản khóa lâu lúc 04:00 hàng ngày (Asia/Ho_Chi_Minh)
     │   ├── abandoned-attempt.scheduler.js          # Cron scheduler: Tự động quét và nộp bài các lượt thi bị bỏ rơi (thí sinh rời tab >60s) mỗi 1 phút (* * * * *)
-    │   ├── analytics.service.js                    # Logic phân tích (chỉ đọc, không đổi schema): tỷ lệ đúng/độ phân biệt/đáp án nhiễu/cờ cảnh báo từng câu hỏi thi chính thức; bản đồ năng lực theo chủ đề (thi chính thức + luyện tập), gộp theo phòng ban có ngưỡng ẩn số liệu
+    │   ├── analytics.service.js                    # Logic phân tích (chỉ đọc, không đổi schema): tỷ lệ đúng/độ phân biệt/đáp án nhiễu/cờ cảnh báo từng câu hỏi thi chính thức; bản đồ năng lực theo chủ đề (thi chính thức + luyện tập), gộp theo phòng ban có ngưỡng ẩn số liệu; phát hiện bất thường theo kỳ thi (so cặp đáp án sai trùng lặp theo mã đáp án bất chấp xáo đề, phát hiện tốc độ làm bài nhanh bất thường) — chỉ gợi ý, không kết luận gian lận
     │   ├── audit.service.js                        # Ghi log vết hành động, truy vấn/lọc/phân trang nhật ký hệ thống (hỗ trợ tìm kiếm theo nhân viên/phòng ban)
     │   ├── auth.service.js                         # Logic xác thực: kiểm tra bcrypt, tạo JWT Access/Refresh tokens, set cookie, tăng tokenVersion
     │   ├── backup.service.js                       # Logic sao lưu: mongodump nén .gz, kết nối Google Drive API v3, upload, xoay vòng lưu trữ tối đa 5 bản, khôi phục mongorestore --drop
@@ -326,11 +327,12 @@ server/
 | `GET` | `/api/reports/export` | Leader, Admin | Xuất file Excel báo cáo kết quả chi tiết chuẩn định dạng bằng ExcelJS. |
 | `GET` | `/api/reports/export-by-exam` | Leader, Admin | Xuất file Excel báo cáo kết quả tổng hợp theo kỳ thi. |
 
-### 16. `/api/analytics` — Phân tích Chất lượng Câu hỏi & Năng lực
+### 16. `/api/analytics` — Phân tích Chất lượng Câu hỏi, Năng lực & Bất thường
 | Method | Endpoint | Quyền hạn | Chức năng |
 |---|---|---|---|
 | `GET` | `/api/analytics/questions` | Examiner, Admin | Phân tích từng câu hỏi từ kỳ thi chính thức đã nộp: tỷ lệ đúng, độ phân biệt (nhóm cao/thấp), tỷ lệ chọn từng đáp án, cờ cảnh báo (nghi sai đáp án, quá dễ/khó, lệch độ khó). Dưới 5 lượt trả lời: chưa đủ dữ liệu; từ 30 lượt mới gắn cờ. Lọc tùy chọn `examId`, `topicId`. |
 | `GET` | `/api/analytics/department-competency` | Leader, Admin | Năng lực theo chủ đề gộp theo phòng ban (thi chính thức, tính theo vai trò đã thi). Phòng ban dưới 3 thí sinh bị ẩn số liệu. Không trả về định danh cá nhân. |
+| `GET` | `/api/analytics/anomalies` | Leader, Admin | Dấu hiệu bất thường theo từng kỳ thi (CÓ định danh thí sinh để Leader xem xét). So cặp đáp án sai trùng lặp (theo mã đáp án, bất chấp xáo đề) khi kỳ thi ≥ 10 lượt; phát hiện tốc độ làm bài nhanh bất thường (< 8 giây/câu). Bài bị hệ thống tự nộp bị loại. Lọc tùy chọn `examId`. Chỉ là gợi ý, không kết luận gian lận. |
 | `GET` | `/api/analytics/my-competency` | Candidate | Bản đồ năng lực của chính thí sinh theo chủ đề (thi chính thức + luyện tập) kèm các chủ đề yếu. |
 
 ---

@@ -18,6 +18,7 @@ router.post('/start', requireRoleCodes('candidate'), examAttemptRateLimiter, exa
 router.post('/:id/submit', requireRoleCodes('candidate'), examAttemptRateLimiter, examAttemptController.submit);
 router.patch('/:id/answer', requireRoleCodes('candidate'), examAttemptRateLimiter, examAttemptController.answer);
 router.post('/:id/heartbeat', requireRoleCodes('candidate'), examAttemptRateLimiter, examAttemptController.heartbeat);
+router.post('/:id/leave', requireRoleCodes('candidate'), examAttemptRateLimiter, examAttemptController.leave);
 
 // MỚI — Người duyệt đề (leader) cấp thêm 1 lượt thi chính thức cho 1 thí sinh
 // cụ thể trong 1 kỳ thi cụ thể, xác định qua examCandidateId (lấy từ

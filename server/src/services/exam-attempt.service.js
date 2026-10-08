@@ -704,6 +704,19 @@ export const examAttemptService = {
     return response;
   },
 
+  // Ghi nhận 1 lần thí sinh rời màn hình thi. Chỉ đếm: KHÔNG đổi lastActiveAt, không tự nộp bài,
+  // nên không ảnh hưởng cơ chế heartbeat / tự nộp hiện có. Lượt thi đã nộp thì bỏ qua.
+  async recordLeave(userId, attemptId) {
+    const { attempt } = await resolveAttemptContext(userId, attemptId);
+    if (attempt.status === ATTEMPT_STATUS.IN_PROGRESS) {
+      await ExamAttempt.updateOne(
+        { _id: attempt._id, status: ATTEMPT_STATUS.IN_PROGRESS },
+        { $inc: { leaveCount: 1 } },
+      );
+    }
+    return { attemptId: attempt._id };
+  },
+
   // Nộp bài và chấm điểm phía Server (tự động so khớp với đáp án đúng trong CSDL)
   async submitAttempt(userId, attemptId, answersPayload, autoSubmitReason = null) {
     const { exam, attempt } = await resolveAttemptContext(userId, attemptId);

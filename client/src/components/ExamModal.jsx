@@ -27,6 +27,7 @@ import {
   submitExamAttempt,
   answerExamQuestion,
   sendExamHeartbeat,
+  reportExamLeave,
 } from '../services/exam-attempt.service';
 import { useScrollLock } from '../hooks/useScrollLock';
 
@@ -403,6 +404,8 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     if (stepRef.current !== 'testing') return;
     if (leaveActiveRef.current) return; // đã đang đếm rồi, không dựng lại
     leaveActiveRef.current = true;
+    // Báo server đếm 1 lần rời màn hình (chỉ để Người duyệt đề xem dấu hiệu). Lỗi mạng bỏ qua, không ảnh hưởng bài thi.
+    if (attemptIdRef.current) reportExamLeave(attemptIdRef.current).catch(() => {});
 
     const deadline = Date.now() + LEAVE_WARNING_SECONDS * 1000;
     leaveDeadlineRef.current = deadline;

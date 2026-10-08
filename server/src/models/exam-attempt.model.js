@@ -55,6 +55,12 @@ const examAttemptSchema = new mongoose.Schema(
       type: String,
       enum: ['inactive_timeout', 'exam_replaced', 'exam_ended'],
     },
+    /**
+     * Số lần thí sinh rời màn hình thi trong lúc làm bài (chuyển tab / ứng dụng, khóa màn hình...).
+     * Chỉ để Người duyệt đề xem dấu hiệu bất thường (AnomalyTab), KHÔNG ảnh hưởng điểm hay cơ chế tự nộp bài.
+     * Lượt thi cũ (trước khi có trường này) để trống -> coi như 0.
+     */
+    leaveCount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true },
 );

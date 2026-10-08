@@ -18,6 +18,7 @@ import {
   Topic,
   ATTEMPT_STATUS,
   ATTEMPT_TYPE,
+  EXAM_STATUS,
 } from '../models/index.js';
 import { Exam } from '../models/exam.model.js';
 import { PracticeSession } from '../models/practice-session.model.js';
@@ -42,6 +43,7 @@ const SHARED_WRONG_RATIO = 0.6; // ...và chiếm từ tỷ lệ này trong số
 const POPULAR_DISTRACTOR = 0.3; // đáp án sai có > 30% người chọn là "bẫy phổ biến": trùng nhau không có ý nghĩa
 const FAST_SEC_PER_QUESTION = 8; // trung bình dưới số giây này cho mỗi câu đã trả lời = quá nhanh
 const MIN_ANSWERED_FOR_SPEED = 10; // dưới số câu này không xét tốc độ
+const MIN_LEAVES = 3; // rời màn hình thi từ số lần này trở lên mới nêu (1-2 lần dễ do thao tác vô ý)
 
 const sid = (v) => String(v);
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -180,7 +182,7 @@ export function pickWeakest(topics, limit = 3) {
  * Chỉ nêu dấu hiệu để Người duyệt đề xem xét, không kết luận gian lận.
  * So đáp án theo MÃ đáp án (không theo vị trí A/B/C) nên việc xáo riêng từng lượt thi không che được trùng lặp.
  * ponytail: so cặp theo từng nhóm cùng chọn đáp án sai; đủ cho vài trăm thí sinh, lớn hơn thì cần lập chỉ mục khác.
- * @param attempts  [{ attemptId, employeeId, startedAt, submittedAt }] (đã loại bài bị hệ thống tự nộp)
+ * @param attempts  [{ attemptId, employeeId, startedAt, submittedAt, leaveCount? }] (đã loại bài bị hệ thống tự nộp)
  * @param responses [{ attemptId, questionId, selectedAnswerIds: string[], isCorrect }]
  */
 export function detectAnomalies(attempts, responses) {
@@ -237,7 +239,12 @@ export function detectAnomalies(attempts, responses) {
   }
   fast.sort((x, y) => x.secondsPerQuestion - y.secondsPerQuestion);
 
-  return { sharedWrong, fast };
+  const leaves = attempts
+    .filter((a) => (a.leaveCount ?? 0) >= MIN_LEAVES)
+    .map((a) => ({ attemptId: a.attemptId, leaveCount: a.leaveCount }))
+    .sort((x, y) => y.leaveCount - x.leaveCount);
+
+  return { sharedWrong, fast, leaves };
 }
 
 // ───────────────────────── Truy vấn DB ─────────────────────────
@@ -258,7 +265,7 @@ async function loadAttempts(candidateFilter) {
     attemptType: ATTEMPT_TYPE.OFFICIAL,
     status: ATTEMPT_STATUS.SUBMITTED,
   })
-    .select('_id examCandidateId departmentId autoSubmitReason startedAt submittedAt')
+    .select('_id examCandidateId departmentId autoSubmitReason startedAt submittedAt leaveCount')
     .lean();
   return { attempts, candById };
 }
@@ -474,8 +481,22 @@ export const analyticsService = {
       if (!byExam.has(k)) byExam.set(k, []);
       byExam.get(k).push(a);
     }
-    const examDocs = byExam.size ? await Exam.find({ _id: { $in: [...byExam.keys()] } }).select('_id title').lean() : [];
-    const titles = new Map(examDocs.map((e) => [sid(e._id), e.title]));
+    // Kèm kỳ thi ĐANG DIỄN RA (published, tối đa 1) dù chưa có lượt nộp nào, để màn hình luôn mở đúng kỳ hiện tại.
+    const keys = [...byExam.keys()];
+    const examDocs = await Exam.find(
+      examId ? { _id: { $in: keys } } : { $or: [{ _id: { $in: keys } }, { status: EXAM_STATUS.PUBLISHED }] },
+    )
+      .select('_id title status startDate endDate publishedAt createdAt')
+      .lean();
+    const docById = new Map(examDocs.map((e) => [sid(e._id), e]));
+    const meta = (id) => {
+      const d = docById.get(id);
+      return {
+        title: d?.title ?? id,
+        running: d?.status === EXAM_STATUS.PUBLISHED,
+        endsAt: d?.endDate ?? d?.publishedAt ?? d?.startDate ?? d?.createdAt ?? null,
+      };
+    };
 
     const exams = [];
     for (const [id, list] of byExam) {
@@ -489,13 +510,13 @@ export const analyticsService = {
           isCorrect: !!r.isCorrect,
         }));
       const found = detectAnomalies(
-        list.map((a) => ({ attemptId: sid(a._id), employeeId: empOf(a), startedAt: a.startedAt, submittedAt: a.submittedAt })),
+        list.map((a) => ({ attemptId: sid(a._id), employeeId: empOf(a), startedAt: a.startedAt, submittedAt: a.submittedAt, leaveCount: a.leaveCount ?? 0 })),
         responses
       );
       const byAttempt = new Map(list.map((a) => [sid(a._id), a]));
       exams.push({
         examId: id,
-        title: titles.get(id) ?? id,
+        ...meta(id),
         attempts: list.length,
         sharedWrong: found.sharedWrong.map((p) => ({
           people: p.attemptIds.map((x) => who(byAttempt.get(x))),
@@ -503,9 +524,21 @@ export const analyticsService = {
           ofWrong: p.ofWrong,
         })),
         fast: found.fast.map((f) => ({ ...who(byAttempt.get(f.attemptId)), ...f })),
+        leaves: found.leaves.map((l) => ({ ...who(byAttempt.get(l.attemptId)), ...l })),
       });
     }
-    exams.sort((a, b) => b.sharedWrong.length + b.fast.length - (a.sharedWrong.length + a.fast.length));
+    // Kỳ thi đang diễn ra có thể chưa có lượt nộp nào nên chưa nằm trong byExam: vẫn đưa vào để mở mặc định.
+    if (!examId) {
+      for (const d of examDocs) {
+        const id = sid(d._id);
+        if (d.status === EXAM_STATUS.PUBLISHED && !byExam.has(id)) {
+          exams.push({ examId: id, ...meta(id), attempts: 0, sharedWrong: [], fast: [], leaves: [] });
+        }
+      }
+    }
+    // Đang diễn ra lên đầu, sau đó kỳ thi kết thúc gần nhất; client mặc định mở kỳ đầu tiên.
+    const time = (e) => (e.endsAt ? new Date(e.endsAt).getTime() : 0);
+    exams.sort((a, b) => Number(b.running) - Number(a.running) || time(b) - time(a));
 
     return {
       thresholds: {
@@ -514,6 +547,7 @@ export const analyticsService = {
         sharedWrongRatio: SHARED_WRONG_RATIO,
         fastSecPerQuestion: FAST_SEC_PER_QUESTION,
         minAnsweredForSpeed: MIN_ANSWERED_FOR_SPEED,
+        minLeaves: MIN_LEAVES,
       },
       exams,
     };

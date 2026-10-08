@@ -1,11 +1,12 @@
 import { UserInfoCard } from '../../components/UserInfoCard';
-import { LayoutDashboard, Building2, FileBarChart, PieChart, CheckCircle, BookOpen, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, Building2, FileBarChart, PieChart, CheckCircle, BookOpen, TrendingUp, ShieldAlert } from 'lucide-react';
 import { OverviewTab } from '../../components/leader/OverviewTab';
 import { DepartmentReportTab } from '../../components/leader/DepartmentReportTab';
 import { ExamReportTab } from '../../components/leader/ExamReportTab';
 import { DetailedResultsTab } from '../../components/leader/DetailedResultsTab';
 import { ExamReviewTab } from '../../components/leader/ExamReviewTab';
 import { CompetencyTab } from '../../components/leader/CompetencyTab';
+import { AnomalyTab } from '../../components/leader/AnomalyTab';
 
 // Xuất ra ngoài để App.jsx dùng lại khi truyền xuống Header.jsx (hiển thị
 // trong menu 3 gạch ở mobile), cùng pattern đã áp dụng cho ADMIN_DASHBOARD_TABS
@@ -14,6 +15,7 @@ export const LEADER_DASHBOARD_TABS = [
   { id: 'overview', label: 'Tổng quan', icon: <PieChart className="w-5 h-5" /> },
   { id: 'department', label: 'Theo phòng ban', icon: <Building2 className="w-5 h-5" /> },
   { id: 'competency', label: 'Năng lực phòng ban', icon: <TrendingUp className="w-5 h-5" /> },
+  { id: 'anomaly', label: 'Dấu hiệu bất thường', icon: <ShieldAlert className="w-5 h-5" /> },
   { id: 'exam', label: 'Theo bài thi', icon: <BookOpen className="w-5 h-5" /> },
   { id: 'detailed', label: 'Kết quả chi tiết', icon: <FileBarChart className="w-5 h-5" /> },
   { id: 'review', label: 'Duyệt kỳ thi', icon: <CheckCircle className="w-5 h-5" /> },
@@ -95,6 +97,7 @@ export const LeaderDashboard = ({ currentUser, activeTab, onTabChange }) => {
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'department' && <DepartmentReportTab />}
           {activeTab === 'competency' && <CompetencyTab />}
+          {activeTab === 'anomaly' && <AnomalyTab />}
           {activeTab === 'exam' && <ExamReportTab />}
           {activeTab === 'detailed' && <DetailedResultsTab />}
           {activeTab === 'review' && <ExamReviewTab />}

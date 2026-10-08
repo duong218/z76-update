@@ -19,6 +19,7 @@ import {
   ATTEMPT_STATUS,
   ATTEMPT_TYPE,
 } from '../models/index.js';
+import { Exam } from '../models/exam.model.js';
 import { PracticeSession } from '../models/practice-session.model.js';
 import { ApiError } from '../utils/api-error.js';
 
@@ -33,6 +34,14 @@ const TOO_HARD = 0.1;
 const LOW_DISCRIMINATION = 0.2;
 const SUSPECT_DISCRIMINATION = -0.2; // nhóm điểm cao đúng ít hơn nhóm thấp rõ rệt -> nghi sai đáp án
 const UNKNOWN_TOPIC = 'Chưa phân loại';
+
+// ── Ngưỡng phát hiện bất thường (chỉ là gợi ý để xem xét, không kết luận gian lận) ──
+const MIN_ATTEMPTS_FOR_PAIRS = 10; // kỳ thi ít hơn số lượt này: không so cặp (mẫu quá nhỏ, dễ báo nhầm)
+const MIN_SHARED_WRONG = 5; // số câu cùng chọn đúng một đáp án sai tối thiểu để nêu cặp
+const SHARED_WRONG_RATIO = 0.6; // ...và chiếm từ tỷ lệ này trong số câu sai của người sai ít hơn
+const POPULAR_DISTRACTOR = 0.3; // đáp án sai có > 30% người chọn là "bẫy phổ biến": trùng nhau không có ý nghĩa
+const FAST_SEC_PER_QUESTION = 8; // trung bình dưới số giây này cho mỗi câu đã trả lời = quá nhanh
+const MIN_ANSWERED_FOR_SPEED = 10; // dưới số câu này không xét tốc độ
 
 const sid = (v) => String(v);
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -165,6 +174,72 @@ export function pickWeakest(topics, limit = 3) {
     .slice(0, limit);
 }
 
+// ───────────────────────── 3) Phát hiện bất thường (hàm thuần) ─────────────────────────
+
+/**
+ * Chỉ nêu dấu hiệu để Người duyệt đề xem xét, không kết luận gian lận.
+ * So đáp án theo MÃ đáp án (không theo vị trí A/B/C) nên việc xáo riêng từng lượt thi không che được trùng lặp.
+ * ponytail: so cặp theo từng nhóm cùng chọn đáp án sai; đủ cho vài trăm thí sinh, lớn hơn thì cần lập chỉ mục khác.
+ * @param attempts  [{ attemptId, employeeId, startedAt, submittedAt }] (đã loại bài bị hệ thống tự nộp)
+ * @param responses [{ attemptId, questionId, selectedAnswerIds: string[], isCorrect }]
+ */
+export function detectAnomalies(attempts, responses) {
+  const stat = new Map(); // attemptId -> { answered, wrong }
+  const responders = new Map(); // questionId -> số người đã trả lời
+  const groups = new Map(); // "câu|tập đáp án sai" -> { questionId, attemptIds }
+  for (const r of responses) {
+    if (!r.selectedAnswerIds.length) continue;
+    responders.set(r.questionId, (responders.get(r.questionId) ?? 0) + 1);
+    const s = stat.get(r.attemptId) ?? { answered: 0, wrong: 0 };
+    s.answered += 1;
+    stat.set(r.attemptId, s);
+    if (r.isCorrect) continue;
+    s.wrong += 1;
+    const key = `${r.questionId}|${[...r.selectedAnswerIds].sort().join(',')}`;
+    if (!groups.has(key)) groups.set(key, { questionId: r.questionId, attemptIds: [] });
+    groups.get(key).attemptIds.push(r.attemptId);
+  }
+
+  const employeeOf = new Map(attempts.map((a) => [a.attemptId, a.employeeId]));
+  const sharedWrong = [];
+  if (attempts.length >= MIN_ATTEMPTS_FOR_PAIRS) {
+    const pairs = new Map(); // "a|b" -> số câu cùng sai giống nhau
+    for (const g of groups.values()) {
+      const ids = g.attemptIds;
+      if (ids.length < 2 || ids.length / responders.get(g.questionId) > POPULAR_DISTRACTOR) continue;
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          if (employeeOf.get(ids[i]) === employeeOf.get(ids[j])) continue; // cùng một người thi nhiều lượt
+          const key = ids[i] < ids[j] ? `${ids[i]}|${ids[j]}` : `${ids[j]}|${ids[i]}`;
+          pairs.set(key, (pairs.get(key) ?? 0) + 1);
+        }
+      }
+    }
+    for (const [key, shared] of pairs) {
+      const [a, b] = key.split('|');
+      const base = Math.min(stat.get(a).wrong, stat.get(b).wrong);
+      if (shared >= MIN_SHARED_WRONG && shared / base >= SHARED_WRONG_RATIO) {
+        sharedWrong.push({ attemptIds: [a, b], shared, ofWrong: base });
+      }
+    }
+    sharedWrong.sort((x, y) => y.shared - x.shared || y.shared / y.ofWrong - x.shared / x.ofWrong);
+  }
+
+  const fast = [];
+  for (const a of attempts) {
+    const answered = stat.get(a.attemptId)?.answered ?? 0;
+    if (answered < MIN_ANSWERED_FOR_SPEED || !a.startedAt || !a.submittedAt) continue;
+    const totalSeconds = Math.round((new Date(a.submittedAt) - new Date(a.startedAt)) / 1000);
+    const secondsPerQuestion = round2(totalSeconds / answered);
+    if (secondsPerQuestion < FAST_SEC_PER_QUESTION) {
+      fast.push({ attemptId: a.attemptId, totalSeconds, answered, secondsPerQuestion });
+    }
+  }
+  fast.sort((x, y) => x.secondsPerQuestion - y.secondsPerQuestion);
+
+  return { sharedWrong, fast };
+}
+
 // ───────────────────────── Truy vấn DB ─────────────────────────
 
 const assertObjectId = (value, name) => {
@@ -175,7 +250,7 @@ const assertObjectId = (value, name) => {
 
 /** Lượt thi CHÍNH THỨC đã nộp của các thí sinh khớp candidateFilter. */
 async function loadAttempts(candidateFilter) {
-  const cands = await ExamCandidate.find(candidateFilter).select('_id employeeId').lean();
+  const cands = await ExamCandidate.find(candidateFilter).select('_id employeeId examId').lean();
   const candById = new Map(cands.map((c) => [sid(c._id), c]));
   if (candById.size === 0) return { attempts: [], candById };
   const attempts = await ExamAttempt.find({
@@ -183,7 +258,7 @@ async function loadAttempts(candidateFilter) {
     attemptType: ATTEMPT_TYPE.OFFICIAL,
     status: ATTEMPT_STATUS.SUBMITTED,
   })
-    .select('_id examCandidateId departmentId autoSubmitReason')
+    .select('_id examCandidateId departmentId autoSubmitReason startedAt submittedAt')
     .lean();
   return { attempts, candById };
 }
@@ -369,5 +444,78 @@ export const analyticsService = {
 
     departments.sort((a, b) => a.name.localeCompare(b.name, 'vi'));
     return { minCandidates: MIN_DEPT_CANDIDATES, departments };
+  },
+  /**
+   * Người duyệt đề: dấu hiệu bất thường theo từng kỳ thi (CÓ định danh thí sinh để Leader xem xét).
+   * Chỉ là gợi ý, không kết luận. Bài bị hệ thống tự nộp bị loại (thời gian bị cắt, không phản ánh tốc độ).
+   */
+  async getAnomalies({ examId } = {}) {
+    assertObjectId(examId, 'examId');
+    const { attempts, candById } = await loadAttempts(examId ? { examId } : {});
+    const usable = attempts.filter((a) => !a.autoSubmitReason);
+    const answers = await loadAnswers(usable.map((a) => sid(a._id)));
+
+    const examOf = (a) => sid(candById.get(sid(a.examCandidateId)).examId);
+    const empOf = (a) => sid(candById.get(sid(a.examCandidateId)).employeeId);
+
+    const employeeIds = [...new Set(usable.map(empOf))];
+    const employees = employeeIds.length
+      ? await Employee.find({ _id: { $in: employeeIds } }).select('_id fullname employeeCode').lean()
+      : [];
+    const empById = new Map(employees.map((e) => [sid(e._id), e]));
+    const who = (a) => {
+      const e = empById.get(empOf(a));
+      return { attemptId: sid(a._id), name: e?.fullname ?? null, code: e?.employeeCode ?? null };
+    };
+
+    const byExam = new Map();
+    for (const a of usable) {
+      const k = examOf(a);
+      if (!byExam.has(k)) byExam.set(k, []);
+      byExam.get(k).push(a);
+    }
+    const examDocs = byExam.size ? await Exam.find({ _id: { $in: [...byExam.keys()] } }).select('_id title').lean() : [];
+    const titles = new Map(examDocs.map((e) => [sid(e._id), e.title]));
+
+    const exams = [];
+    for (const [id, list] of byExam) {
+      const ids = new Set(list.map((a) => sid(a._id)));
+      const responses = answers
+        .filter((r) => ids.has(sid(r.examAttemptId)))
+        .map((r) => ({
+          attemptId: sid(r.examAttemptId),
+          questionId: sid(r.questionId),
+          selectedAnswerIds: (r.selectedAnswerIds ?? []).map(sid),
+          isCorrect: !!r.isCorrect,
+        }));
+      const found = detectAnomalies(
+        list.map((a) => ({ attemptId: sid(a._id), employeeId: empOf(a), startedAt: a.startedAt, submittedAt: a.submittedAt })),
+        responses
+      );
+      const byAttempt = new Map(list.map((a) => [sid(a._id), a]));
+      exams.push({
+        examId: id,
+        title: titles.get(id) ?? id,
+        attempts: list.length,
+        sharedWrong: found.sharedWrong.map((p) => ({
+          people: p.attemptIds.map((x) => who(byAttempt.get(x))),
+          shared: p.shared,
+          ofWrong: p.ofWrong,
+        })),
+        fast: found.fast.map((f) => ({ ...who(byAttempt.get(f.attemptId)), ...f })),
+      });
+    }
+    exams.sort((a, b) => b.sharedWrong.length + b.fast.length - (a.sharedWrong.length + a.fast.length));
+
+    return {
+      thresholds: {
+        minAttemptsForPairs: MIN_ATTEMPTS_FOR_PAIRS,
+        minSharedWrong: MIN_SHARED_WRONG,
+        sharedWrongRatio: SHARED_WRONG_RATIO,
+        fastSecPerQuestion: FAST_SEC_PER_QUESTION,
+        minAnsweredForSpeed: MIN_ANSWERED_FOR_SPEED,
+      },
+      exams,
+    };
   },
 };

@@ -20,6 +20,11 @@ export const analyticsController = {
     res.json({ success: true, message: 'OK', code: 'ANALYTICS_DEPARTMENT_COMPETENCY', data });
   }),
 
+  anomalies: asyncHandler(async (req, res) => {
+    const data = await analyticsService.getAnomalies({ examId: req.query.examId });
+    res.json({ success: true, message: 'OK', code: 'ANALYTICS_ANOMALIES', data });
+  }),
+
   myCompetency: asyncHandler(async (req, res) => {
     const data = await analyticsService.getMyCompetency(req.auth.userId);
     res.json({ success: true, message: 'OK', code: 'ANALYTICS_MY_COMPETENCY', data });

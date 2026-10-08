@@ -1,11 +1,19 @@
 // Test phân tích câu hỏi và bản đồ năng lực bằng DỮ LIỆU GIẢ LẬP (không dùng dữ liệu thật).
-// Chạy trong thư mục server: node test-analytics.mjs   (đổi SERVER thành đường dẫn tới server/src nếu cần)
+// Chạy: node server/test/test-analytics.mjs (hoặc từ thư mục server: node test/test-analytics.mjs)
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-const SERVER = pathToFileURL(process.env.SERVER_SRC || path.resolve('src')).href; // Windows cần dạng file:///D:/...
-const M = await import(`${SERVER}/models/index.js`);
-const { PracticeSession } = await import(`${SERVER}/models/practice-session.model.js`);
-const svc = await import(`${SERVER}/services/analytics.service.js`);
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+// Tự động suy ra đường dẫn tuyệt đối tới server/src từ vị trí của file test này
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const srcDir = process.env.SERVER_SRC
+  ? path.resolve(process.env.SERVER_SRC)
+  : path.resolve(__dirname, '../src');
+
+const toUrl = (subPath) => pathToFileURL(path.join(srcDir, subPath)).href;
+
+const M = await import(toUrl('models/index.js'));
+const { PracticeSession } = await import(toUrl('models/practice-session.model.js'));
+const svc = await import(toUrl('services/analytics.service.js'));
 
 let fail = 0;
 const check = (name, ok, extra = '') => { if (!ok) fail++; console.log((ok ? 'PASS ' : 'FAIL ') + name + (extra ? '  -> ' + extra : '')); };
@@ -123,4 +131,34 @@ stub(M.Result, atts.map((a, i) => ({ examAttemptId: a._id, score: 100 - i * 10 }
 const qa = await svc.analyticsService.getQuestionAnalysis({});
 check('Phân tích câu hỏi: loại lượt thi bị hệ thống tự nộp (A1) khỏi mẫu', qa.meta.attemptsAnalyzed === 5 && qa.items.every((i) => i.responses === 5));
 check('Phân tích câu hỏi: đúng 5 lượt = đủ ngưỡng tối thiểu', qa.items.every((i) => !i.insufficientData));
+// ───────────── 3) Phát hiện bất thường (hàm thuần) ─────────────
+const T0 = Date.parse('2026-10-01T08:00:00Z');
+const att = Array.from({ length: 12 }, (_, i) => ({ attemptId: `T${i + 1}`, employeeId: `E${i + 1}`, startedAt: T0, submittedAt: T0 + 1800 * 1000 }));
+att[4].submittedAt = T0 + 60 * 1000; // T5: 12 câu trong 60 giây = 5 giây/câu
+const resp = [];
+for (const a of att) for (let q = 1; q <= 12; q++) {
+  const pair = (a.attemptId === 'T1' || a.attemptId === 'T2') && q <= 5; // T1,T2 cùng sai đáp án w1 ở 5 câu đầu
+  const trap = q === 12 && Number(a.attemptId.slice(1)) <= 6; // câu 12: 6/12 người cùng chọn 'bẫy phổ biến'
+  resp.push({ attemptId: a.attemptId, questionId: `Q${q}`, selectedAnswerIds: [pair ? 'w1' : trap ? 'trap' : 'c'], isCorrect: !pair && !trap });
+}
+const an = svc.detectAnomalies(att, resp);
+check('Bất thường: nêu đúng 1 cặp T1-T2 cùng sai 5 câu giống nhau', an.sharedWrong.length === 1 && an.sharedWrong[0].shared === 5 && an.sharedWrong[0].attemptIds.join() === 'T1,T2', JSON.stringify(an.sharedWrong));
+check('Bất thường: đáp án sai phổ biến (6/12 người chọn) không bị coi là trùng khả nghi', !an.sharedWrong.some((p) => p.attemptIds.includes('T3')));
+check('Bất thường: chỉ T5 làm quá nhanh (5 giây/câu)', an.fast.length === 1 && an.fast[0].attemptId === 'T5' && an.fast[0].secondsPerQuestion === 5, JSON.stringify(an.fast));
+const same = svc.detectAnomalies(att.map((a) => (a.attemptId === 'T2' ? { ...a, employeeId: 'E1' } : a)), resp);
+check('Bất thường: cùng một người thi 2 lượt không bị nêu thành cặp', same.sharedWrong.length === 0);
+const few = svc.detectAnomalies(att.slice(0, 6), resp.filter((r) => Number(r.attemptId.slice(1)) <= 6));
+check('Bất thường: kỳ thi dưới 10 lượt không so cặp (mẫu quá nhỏ)', few.sharedWrong.length === 0);
+
+// ───────────── 4) Bất thường luồng DB (getAnomalies) ─────────────
+// Dùng ObjectId hợp lệ (24 ký tự hex) để tránh assertObjectId ném lỗi
+const fakeExamId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+// Cập nhật stub: ExamCandidate giờ cần trả examId khớp, ExamAttempt cần startedAt/submittedAt
+const candsForAnomaly = emps.map((e, i) => ({ _id: 'C' + (i + 1), employeeId: e._id, examId: fakeExamId }));
+stub(M.ExamCandidate, candsForAnomaly);
+stub(M.ExamAttempt, atts.map((a) => ({ ...a, startedAt: new Date('2026-10-01T08:00:00Z'), submittedAt: new Date('2026-10-01T08:30:00Z') })));
+stub(M.Exam, [{ _id: fakeExamId, title: 'Kỳ thi An toàn 2026' }]);
+const anDb = await svc.analyticsService.getAnomalies({ examId: fakeExamId });
+check('getAnomalies: trả về đúng cấu trúc thresholds và mảng exams', Array.isArray(anDb.exams) && !!anDb.thresholds);
+
 process.exit(fail ? 1 : 0);

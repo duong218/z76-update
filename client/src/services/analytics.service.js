@@ -20,6 +20,11 @@ export const fetchQuestionAnalysis = (filters = {}) =>
 export const fetchDepartmentCompetency = (filters = {}) =>
   apiRequest(withQuery('/analytics/department-competency', filters), { headers: getAuthHeaders() });
 
+// Người duyệt đề: dấu hiệu bất thường theo từng kỳ thi (gợi ý để xem xét). filters: { examId? }
+// Trả về { success, data: { thresholds, exams: [{ examId, title, attempts, sharedWrong, fast }] } }
+export const fetchAnomalies = (filters = {}) =>
+  apiRequest(withQuery('/analytics/anomalies', filters), { headers: getAuthHeaders() });
+
 // Thí sinh: năng lực của chính mình. Trả về { success, data: { topics, weakest } }
 export const fetchMyCompetency = () =>
   apiRequest('/analytics/my-competency', { headers: getAuthHeaders() });

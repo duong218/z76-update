@@ -36,7 +36,8 @@ client/
 │   │   └── lenis-instance.js               # Singleton module-level lưu trữ instance Lenis active (setLenisInstance / getLenisInstance)
 │   ├── components/
 │   │   ├── Banner.jsx                      # Banner hiển thị tên đơn vị, tiêu đề cuộc thi, badge doanh nghiệp
-│   │   ├── CompetencyRadar.jsx             # Biểu đồ radar + thanh tỷ lệ đúng theo chủ đề, dùng chung cho Thí sinh và Người duyệt đề (radar chỉ hiện từ 3 chủ đề)
+│   │   ├── CompetencyBars.jsx              # Danh sách thanh ngang năng lực theo chủ đề (dễ đọc trên mobile, phân loại tốt/trung bình/cần ôn) + CompetencyView (responsive: desktop hiện radar + thanh, mobile hiện thanh)
+│   │   ├── CompetencyRadar.jsx             # Biểu đồ radar Recharts thể hiện tỷ lệ đúng theo các chủ đề (chỉ render khi có từ 3 chủ đề trở lên)
 │   │   ├── ChangePasswordModal.jsx         # Modal đổi mật khẩu bắt buộc lần đầu đăng nhập (mustChangePassword), useScrollLock
 │   │   ├── ConfirmDialog.jsx               # Dialog xác nhận bất đồng bộ thay thế window.confirm(), hook useConfirm(), useScrollLock
 │   │   ├── ContactSection.jsx              # Section thông tin liên hệ kỹ thuật + thông tin công ty Z176
@@ -48,6 +49,7 @@ client/
 │   │   ├── LoginModal.jsx                  # Modal đăng nhập: form username/password, validation, gọi auth service, useScrollLock
 │   │   ├── LogoSelectorModal.jsx           # Modal tùy chỉnh/chọn logo đơn vị hiển thị (dành cho Admin), useScrollLock
 │   │   ├── NotificationBell.jsx            # Chuông thông báo: badge đếm chưa đọc (poll 30s), dropdown phân loại sự kiện, đọc tất cả, điều hướng theo role
+│   │   ├── Pagination.jsx                  # Component phân trang chuẩn hóa (nút Trước/Sau, hiển thị trang hiện tại / tổng trang, min-touch-target 48px)
 │   │   ├── QuickGuideSection.jsx           # Section hướng dẫn 4 bước thi trắc nghiệm trên trang chủ
 │   │   ├── RegulationsSection.jsx          # Section quy chế thi trắc nghiệm chuyên môn Z176
 │   │   ├── ResultsLookupSection.jsx        # Section tra cứu kết quả thi công khai theo Mã nhân viên / Phòng ban
@@ -55,7 +57,8 @@ client/
 │   │   ├── TimeAndCountdown.jsx            # Hiển thị đồng hồ thời gian thực và đếm ngược kỳ thi active
 │   │   ├── Toast.jsx                       # Toast notification thông báo kết quả thao tác (success/error/info/warning)
 │   │   ├── ToastContext.jsx                # React Context + Provider quản lý hàng đợi Toast toàn app, hook useToast()
-│   │   └── UnitLogoDisplay.jsx             # Component hiển thị logo đơn vị (ưu tiên logo custom từ localStorage, fallback logo.svg)
+│   │   ├── UnitLogoDisplay.jsx             # Component hiển thị logo đơn vị (ưu tiên logo custom từ localStorage, fallback logo.svg)
+│   │   └── UserInfoCard.jsx                # Thẻ hiển thị thông tin người dùng đang đăng nhập (họ tên, vai trò, đơn vị)
 │   │
 │   ├── components/admin/
 │   │   ├── AccountTab.jsx                  # Tab quản lý tài khoản: CRUD user, tạo inline phòng ban, import Excel 2 bước (xử lý phòng ban kiêm nhiệm & tự tạo phòng thiếu kèm mã), sửa phòng ban chính/kiêm nhiệm (updateEmployeeDepartments), xuất Excel credentials, phân role, khóa/mở, reset password, useScrollLock
@@ -64,11 +67,11 @@ client/
 │   │   └── OverviewTab.jsx                 # Tab tổng quan admin: thống kê tài khoản theo role, kỳ thi active, số lượng câu hỏi
 │   │
 │   ├── components/candidate/
-│   │   ├── CompetencyCard.jsx              # Khối "Bản đồ năng lực" trên Dashboard thí sinh: radar theo chủ đề (thi + luyện tập), chủ đề cần ôn thêm kèm nút Luyện ngay
+│   │   ├── CompetencyCard.jsx              # Khối "Bản đồ năng lực" trên Dashboard thí sinh: tích hợp CompetencyView (radar + thanh), gợi ý danh sách chủ đề yếu kèm nút "Luyện ngay"
 │   │   └── PracticeSection.jsx             # Phân hệ luyện tập cá nhân: cấu hình bộ đề ôn tập (theo chủ đề, độ khó, chế độ instant/exam), làm bài, kiểm tra từng câu, đếm giờ, chấm điểm, xem tiến độ, chuỗi ngày liên tiếp (streak) và huy hiệu thành tích
 │   │
 │   ├── components/examiner/
-│   │   ├── QuestionAnalysisTab.jsx         # Tab phân tích câu hỏi: tỷ lệ đúng, độ phân biệt, đáp án nhiễu mạnh nhất, cờ cảnh báo, lọc câu có cảnh báo
+│   │   ├── QuestionAnalysisTab.jsx         # Tab phân tích chất lượng câu hỏi thi chính thức: tính tỷ lệ đúng, độ phân biệt (nhóm cao trừ nhóm thấp), nhận diện đáp án nhiễu mạnh nhất, các cờ cảnh báo (suspect_key, low_discrimination, too_easy, too_hard, difficulty_mismatch), lọc theo chủ đề và phân trang
 │   │   ├── DepartmentTab.jsx               # Tab quản lý phòng ban: CRUD phòng ban, bắt buộc mã bộ phận (code chuẩn hóa) & tên bộ phận (name), slug không dấu, tìm kiếm, ngừng sử dụng/khôi phục, useScrollLock
 │   │   ├── ExamProposalTab.jsx             # Tab đề xuất kỳ thi: tạo mới / chỉnh sửa dự thảo (draft/rejected), cấu hình câu hỏi theo độ khó/phạm vi, chọn phạm vi phòng ban dự thi (departmentScope: all/selected & allowedDepartmentIds), công tắc bù câu chung (allowCommonCompensation), modal 2 cột rộng rãi cỡ chữ lớn, tự động tính tổng số câu hỏi từ số câu chung + riêng, nộp duyệt, useScrollLock
 │   │   ├── OverviewTab.jsx                 # Tab tổng quan examiner: thống kê ngân hàng câu hỏi, chủ đề, trạng thái đề xuất
@@ -77,7 +80,7 @@ client/
 │   │   └── TopicTab.jsx                    # Tab chủ đề thi: CRUD chủ đề, tự động khôi phục nếu tạo trùng tên chủ đề đã xóa mềm
 │   │
 │   ├── components/leader/
-│   │   ├── CompetencyTab.jsx               # Tab năng lực theo phòng ban: radar theo chủ đề, ẩn số liệu phòng ban ít thí sinh
+│   │   ├── CompetencyTab.jsx               # Tab năng lực theo phòng ban: phân tích tỷ lệ đúng theo chủ đề, sắp xếp/tìm kiếm phòng ban, ẩn số liệu phòng ban < 3 thí sinh để bảo vệ thông tin cá nhân, mở rộng xem chi tiết CompetencyView từng đơn vị
 │   │   ├── DepartmentReportTab.jsx         # Tab báo cáo phòng ban: thống kê số thí sinh, số lượt thi, tỷ lệ đạt/không đạt theo từng đơn vị
 │   │   ├── DetailedResultsTab.jsx          # Tab kết quả chi tiết: danh sách bảng điểm thí sinh, bộ lọc nâng cao, xuất Excel, cấp thêm lượt thi (hỗ trợ đổi lại phòng ban thi nếu chọn nhầm)
 │   │   ├── ExamReportTab.jsx               # Tab báo cáo kỳ thi: thống kê tổng hợp kết quả theo từng kỳ thi, xuất báo cáo Excel
@@ -86,23 +89,23 @@ client/
 │   │
 │   ├── pages/
 │   │   ├── admin/AdminDashboard.jsx        # Dashboard Quản trị viên: điều phối các tab Admin (Overview, Account, AuditLog, Backup)
-│   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: xem kỳ thi active (hiển thị thông báo thân thiện khi không thuộc phạm vi phòng ban CANDIDATE_OUT_OF_SCOPE hoặc chưa được phân bổ đề), tài liệu ôn tập theo phòng ban, luyện tập tự do & thành tích, lịch sử làm bài, vào thi
-│   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, Topic, Department, ExamProposal, StudyDocument)
-│   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, ExamReview, DepartmentReport, ExamReport, DetailedResults)
+│   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: hiển thị kỳ thi active, khối Bản đồ năng lực (CompetencyCard), tài liệu ôn tập theo phòng ban, luyện tập tự do & thành tích, lịch sử làm bài và biểu đồ điểm số
+│   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, QuestionAnalysis, Topic, Department, ExamProposal, StudyDocument)
+│   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, DepartmentReport, Competency, ExamReport, DetailedResults, ExamReview)
 │   │
 │   └── services/
-│       ├── analytics.service.js            # Service phân tích: fetchQuestionAnalysis, fetchDepartmentCompetency, fetchMyCompetency
-│       ├── api.js                          # HTTP client trung tâm: apiRequest(), gắn Bearer token, silent refresh token với queueing, xử lý 401 & SESSION_EXPIRED_EVENT
-│       ├── token-store.js                  # Module lưu trữ accessToken trong localStorage (get, save, clear, getAuthHeaders)
-│       ├── auth.service.js                 # Service xác thực: loginUser, refreshAccessToken, logoutUser, fetchMe, changePassword
 │       ├── admin.service.js                # Service quản trị: fetchOverviewStats, CRUD user, updateEmployeeDepartments, import/export Excel nhân viên (kèm bóc tách phòng ban kiêm nhiệm), backup/restore API, audit log
+│       ├── analytics.service.js            # Service phân tích nâng cao: fetchQuestionAnalysis (chất lượng câu hỏi), fetchDepartmentCompetency (năng lực gộp theo đơn vị), fetchMyCompetency (bản đồ năng lực cá nhân)
+│       ├── api.js                          # HTTP client trung tâm: apiRequest(), gắn Bearer token, silent refresh token với queueing, xử lý 401 & SESSION_EXPIRED_EVENT
+│       ├── auth.service.js                 # Service xác thực: loginUser, refreshAccessToken, logoutUser, fetchMe, changePassword
 │       ├── exam-attempt.service.js         # Service làm bài thi: fetchMyExam, startExamAttempt (truyền departmentId chọn vai trò), submitExamAttempt, answerExamQuestion (autosave), sendExamHeartbeat
 │       ├── exam-review.service.js          # Service workflow kỳ thi: fetchPendingExams, fetchApprovedExams, fetchExamHistory, approveExam, rejectExam, publishExam, fetchPublishImpact, archiveExam, fetchActiveExam, grantExtraAttempt (hỗ trợ truyền departmentId đổi vai trò), fetchCandidateRoleOptions
 │       ├── examiner.service.js             # Service người ra đề: CRUD câu hỏi, upload ảnh câu hỏi, preview/confirm import câu hỏi Excel & Word (.docx), chuyển ngân hàng hàng loạt, xóa hàng loạt, CRUD chủ đề, CRUD phòng ban, tạo/chỉnh sửa đề xuất kỳ thi
 │       ├── notification.service.js         # Service thông báo: fetchNotifications, fetchUnreadCount, markNotificationRead, markAllNotificationsRead
 │       ├── practice.service.js             # Service luyện tập thí sinh: fetchPracticeTopics, fetchPracticeProgress, fetchPracticeAchievements, fetchActivePractice, startPracticeSession, checkPracticeAnswer, abandonPracticeSession, submitPracticeSession
 │       ├── report.service.js               # Service báo cáo: fetchOverviewReport, fetchDepartmentReport, fetchExamReport, fetchDetailedResults, exportReport, lookupPublicResult, fetchMyResults
-│       └── study-document.service.js       # Service tài liệu: fetchStudyDocuments, fetchCandidateDocuments, uploadStudyDocument, deleteStudyDocument, previewStudyDocument, downloadStudyDocument (Stream Blob)
+│       ├── study-document.service.js       # Service tài liệu: fetchStudyDocuments, fetchCandidateDocuments, uploadStudyDocument, deleteStudyDocument, previewStudyDocument, downloadStudyDocument (Stream Blob)
+│       └── token-store.js                  # Module lưu trữ accessToken trong localStorage (get, save, clear, getAuthHeaders)
 └── dist/                                   # Đầu ra build production (Vite build)
 ```
 
@@ -130,7 +133,10 @@ Dự án sử dụng chiến lược quản lý trạng thái phân tán, chủ 
 
 - Không sử dụng thư viện Routing bên thứ 3 mà dùng luồng điều hướng (conditional rendering) thủ công gọn nhẹ qua trạng thái Auth tại `App.jsx`.
 - **Tầng bảo vệ (Guards)**: `App.jsx` quyết định load trang chủ hay dashboard dựa vào role của `user` trả về từ `/api/auth/me`.
-- Dashboard của từng vai trò được tải dựa vào role code (`admin`, `examiner`, `leader`, `candidate`).
+- Dashboard của từng vai trò được tải dựa vào role code (`admin`, `examiner`, `leader`, `candidate`):
+  - **Examiner**: Bổ sung tab `analysis` (`QuestionAnalysisTab`) phân tích câu hỏi thi chính thức (tỷ lệ đúng, độ phân biệt, cờ cảnh báo nghi sai đáp án).
+  - **Leader**: Bổ sung tab `competency` (`CompetencyTab`) theo dõi bản đồ năng lực gộp theo phòng ban (bảo mật cá nhân với phòng ban dưới 3 người).
+  - **Candidate**: Tích hợp khối `CompetencyCard` ngay trên màn hình chính để trực quan hóa năng lực các chủ đề (thi + luyện tập) và gợi ý luyện tập kịp thời.
 - Nếu user truy cập trái phép tab của người khác, UI mặc định sẽ không render component tab đó.
 
 ## Tiêu chuẩn UI/CSS (Tailwind v4)

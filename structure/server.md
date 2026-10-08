@@ -87,6 +87,7 @@ server/
     ├── services/
     │   ├── account-purge.service.js                # Logic xóa cứng tài khoản: quét user khóa >6 tháng (lockedAt), loại trừ user có vết lịch sử thi/audit
     │   ├── account-purge.scheduler.js              # Cron scheduler: Tự động xóa cứng tài khoản khóa lâu lúc 04:00 hàng ngày (Asia/Ho_Chi_Minh)
+    │   ├── abandoned-attempt.scheduler.js          # Cron scheduler: Tự động quét và nộp bài các lượt thi bị bỏ rơi (thí sinh rời tab >60s) mỗi 1 phút (* * * * *)
     │   ├── analytics.service.js                    # Logic phân tích (chỉ đọc, không đổi schema): tỷ lệ đúng/độ phân biệt/đáp án nhiễu/cờ cảnh báo từng câu hỏi thi chính thức; bản đồ năng lực theo chủ đề (thi chính thức + luyện tập), gộp theo phòng ban có ngưỡng ẩn số liệu
     │   ├── audit.service.js                        # Ghi log vết hành động, truy vấn/lọc/phân trang nhật ký hệ thống (hỗ trợ tìm kiếm theo nhân viên/phòng ban)
     │   ├── auth.service.js                         # Logic xác thực: kiểm tra bcrypt, tạo JWT Access/Refresh tokens, set cookie, tăng tokenVersion
@@ -122,7 +123,8 @@ server/
   4. `initBackupScheduler()`: Đăng ký tiến trình cron chạy tự động vào **03:00 hàng ngày** để dump database, nén `.gz`, đẩy lên Google Drive và giữ lại tối đa 5 bản sao lưu mới nhất.
   5. `initUploadCleanupScheduler()`: Đăng ký tiến trình cron chạy **mỗi 1 giờ** để quét và xóa sạch các file tạm còn tồn đọng trong thư mục upload quá 6 tiếng.
   6. `initAccountPurgeScheduler()`: Đăng ký tiến trình cron chạy vào **04:00 hàng ngày** để quét và xóa cứng các tài khoản bị khóa liên tục quá 6 tháng (`lockedAt <= now - 6m`) và không có dấu vết lịch sử (chưa từng thi, chưa từng ghi audit log).
-  7. `app.listen()`: Mở cổng Express nhận kết nối.
+  7. `initAbandonedAttemptScheduler()`: Đăng ký tiến trình cron chạy **mỗi 1 phút (`* * * * *`)** để tự động quét, thu hồi và nộp/chấm điểm các lượt thi bị bỏ rơi (thí sinh tắt tab/máy không tương tác quá 60s), tránh để bài thi treo vĩnh viễn ở trạng thái `in_progress`.
+  8. `app.listen()`: Mở cổng Express nhận kết nối.
 
 ### 2. Mô hình Dữ liệu và Các mối quan hệ (Schema Relations)
 - **Tài khoản & Nhân sự**:
@@ -339,9 +341,10 @@ server/
 - **CORS**: Chỉ chấp nhận các request từ `CLIENT_ORIGIN` được định nghĩa trong cấu hình môi trường.
 - **Bảo mật Phiên làm việc (Single Active Session)**: Quản lý qua trường `tokenVersion` trên model `User`. Khi người dùng đăng nhập tại thiết bị mới hoặc đổi mật khẩu, `tokenVersion` được tăng lên -> Vô hiệu hóa toàn bộ token của các phiên trước đó.
 - **Bảo vệ Endpoint Nhạy cảm**:
-  - `loginRateLimiter`: Giới hạn tần suất đăng nhập ngăn chặn tấn công dò mật khẩu (Brute Force) theo IP.
+  - `loginRateLimiter`: Giới hạn tần suất đăng nhập ngăn chặn tấn công dò mật khẩu (Brute Force) theo IP + tên đăng nhập (`${req.ip}|${username}`), bỏ qua các lần đăng nhập thành công (`skipSuccessfulRequests: true`) để không gây nghẽn phòng thi.
   - `examAttemptRateLimiter`: Kiểm soát lưu lượng request trong phòng thi (`start`, `answer`, `heartbeat`, `submit`) theo **userId** (`keyGenerator: (req) => req.auth?.userId ?? req.ip`) — đảm bảo mỗi thí sinh có hạn ngạch độc lập, không bị nghẽn hay chặn nhầm khi hàng trăm thí sinh thi cùng lúc sau 1 địa chỉ IP/NAT mạng LAN.
 - **Tự động Dọn dẹp Tài khoản Khóa (`account-purge`)**: Scheduler 04:00 hàng ngày tự động xóa cứng các tài khoản bị khóa liên tục quá 6 tháng (`lockedAt <= now - 6m`) và chưa từng có vết lịch sử (chưa từng tham gia kỳ thi, chưa từng ghi audit log), đồng thời ghi vết `ACCOUNT_PURGE_AUTO`.
+- **Tự động Thu hồi & Chấm bài Bị bỏ rơi (`abandoned-attempt`)**: Tiến trình Cron chạy định kỳ **mỗi phút (`* * * * *`)** tự động nộp bài và chấm điểm các lượt thi bị bỏ rơi (khi thí sinh tắt tab/máy hoặc mất kết nối quá thời gian quy định), tránh việc lượt thi bị treo vĩnh viễn ở trạng thái `in_progress`.
 - **Quản lý Mật khẩu**: Băm mật khẩu bằng `bcrypt` / `bcryptjs` với salt rounds chuẩn bảo mật cao (12 rounds).
 - **Global Error Handling**: Tất cả các lỗi bất đồng bộ được gom lại qua `asyncHandler` và xử lý tập trung tại error middleware ở cuối `app.js`, ẩn toàn bộ stacktrace nội bộ khi chạy trên môi trường production.
 

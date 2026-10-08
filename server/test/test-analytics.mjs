@@ -1,7 +1,8 @@
 // Test phân tích câu hỏi và bản đồ năng lực bằng DỮ LIỆU GIẢ LẬP (không dùng dữ liệu thật).
 // Chạy trong thư mục server: node test-analytics.mjs   (đổi SERVER thành đường dẫn tới server/src nếu cần)
 import path from 'node:path';
-const SERVER = process.env.SERVER_SRC || path.resolve('src');
+import { pathToFileURL } from 'node:url';
+const SERVER = pathToFileURL(process.env.SERVER_SRC || path.resolve('src')).href; // Windows cần dạng file:///D:/...
 const M = await import(`${SERVER}/models/index.js`);
 const { PracticeSession } = await import(`${SERVER}/models/practice-session.model.js`);
 const svc = await import(`${SERVER}/services/analytics.service.js`);

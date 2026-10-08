@@ -43,6 +43,7 @@ import {
   PracticeSection,
   PracticeProgressCard,
 } from '../../components/candidate/PracticeSection';
+import { CompetencyCard } from '../../components/candidate/CompetencyCard';
 
 const formatDateTime = (value) => {
   if (!value) return '—';
@@ -589,6 +590,11 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                 {/* Tiến độ luyện tập */}
                 <div className="animate-fade-in-up" style={{ '--stagger-delay': '90ms' }}>
                   <PracticeProgressCard onPracticeTopic={startPracticeWithTopic} />
+                </div>
+
+                {/* Bản đồ năng lực theo chủ đề */}
+                <div className="animate-fade-in-up" style={{ '--stagger-delay': '120ms' }}>
+                  <CompetencyCard onPracticeTopic={startPracticeWithTopic} />
                 </div>
 
                 {/* Biểu đồ điểm số qua các lần thi */}

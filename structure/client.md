@@ -36,6 +36,7 @@ client/
 │   │   └── lenis-instance.js               # Singleton module-level lưu trữ instance Lenis active (setLenisInstance / getLenisInstance)
 │   ├── components/
 │   │   ├── Banner.jsx                      # Banner hiển thị tên đơn vị, tiêu đề cuộc thi, badge doanh nghiệp
+│   │   ├── CompetencyRadar.jsx             # Biểu đồ radar + thanh tỷ lệ đúng theo chủ đề, dùng chung cho Thí sinh và Người duyệt đề (radar chỉ hiện từ 3 chủ đề)
 │   │   ├── ChangePasswordModal.jsx         # Modal đổi mật khẩu bắt buộc lần đầu đăng nhập (mustChangePassword), useScrollLock
 │   │   ├── ConfirmDialog.jsx               # Dialog xác nhận bất đồng bộ thay thế window.confirm(), hook useConfirm(), useScrollLock
 │   │   ├── ContactSection.jsx              # Section thông tin liên hệ kỹ thuật + thông tin công ty Z176
@@ -63,9 +64,11 @@ client/
 │   │   └── OverviewTab.jsx                 # Tab tổng quan admin: thống kê tài khoản theo role, kỳ thi active, số lượng câu hỏi
 │   │
 │   ├── components/candidate/
+│   │   ├── CompetencyCard.jsx              # Khối "Bản đồ năng lực" trên Dashboard thí sinh: radar theo chủ đề (thi + luyện tập), chủ đề cần ôn thêm kèm nút Luyện ngay
 │   │   └── PracticeSection.jsx             # Phân hệ luyện tập cá nhân: cấu hình bộ đề ôn tập (theo chủ đề, độ khó, chế độ instant/exam), làm bài, kiểm tra từng câu, đếm giờ, chấm điểm, xem tiến độ, chuỗi ngày liên tiếp (streak) và huy hiệu thành tích
 │   │
 │   ├── components/examiner/
+│   │   ├── QuestionAnalysisTab.jsx         # Tab phân tích câu hỏi: tỷ lệ đúng, độ phân biệt, đáp án nhiễu mạnh nhất, cờ cảnh báo, lọc câu có cảnh báo
 │   │   ├── DepartmentTab.jsx               # Tab quản lý phòng ban: CRUD phòng ban, bắt buộc mã bộ phận (code chuẩn hóa) & tên bộ phận (name), slug không dấu, tìm kiếm, ngừng sử dụng/khôi phục, useScrollLock
 │   │   ├── ExamProposalTab.jsx             # Tab đề xuất kỳ thi: tạo mới / chỉnh sửa dự thảo (draft/rejected), cấu hình câu hỏi theo độ khó/phạm vi, chọn phạm vi phòng ban dự thi (departmentScope: all/selected & allowedDepartmentIds), công tắc bù câu chung (allowCommonCompensation), modal 2 cột rộng rãi cỡ chữ lớn, tự động tính tổng số câu hỏi từ số câu chung + riêng, nộp duyệt, useScrollLock
 │   │   ├── OverviewTab.jsx                 # Tab tổng quan examiner: thống kê ngân hàng câu hỏi, chủ đề, trạng thái đề xuất
@@ -74,6 +77,7 @@ client/
 │   │   └── TopicTab.jsx                    # Tab chủ đề thi: CRUD chủ đề, tự động khôi phục nếu tạo trùng tên chủ đề đã xóa mềm
 │   │
 │   ├── components/leader/
+│   │   ├── CompetencyTab.jsx               # Tab năng lực theo phòng ban: radar theo chủ đề, ẩn số liệu phòng ban ít thí sinh
 │   │   ├── DepartmentReportTab.jsx         # Tab báo cáo phòng ban: thống kê số thí sinh, số lượt thi, tỷ lệ đạt/không đạt theo từng đơn vị
 │   │   ├── DetailedResultsTab.jsx          # Tab kết quả chi tiết: danh sách bảng điểm thí sinh, bộ lọc nâng cao, xuất Excel, cấp thêm lượt thi (hỗ trợ đổi lại phòng ban thi nếu chọn nhầm)
 │   │   ├── ExamReportTab.jsx               # Tab báo cáo kỳ thi: thống kê tổng hợp kết quả theo từng kỳ thi, xuất báo cáo Excel
@@ -87,6 +91,7 @@ client/
 │   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, ExamReview, DepartmentReport, ExamReport, DetailedResults)
 │   │
 │   └── services/
+│       ├── analytics.service.js            # Service phân tích: fetchQuestionAnalysis, fetchDepartmentCompetency, fetchMyCompetency
 │       ├── api.js                          # HTTP client trung tâm: apiRequest(), gắn Bearer token, silent refresh token với queueing, xử lý 401 & SESSION_EXPIRED_EVENT
 │       ├── token-store.js                  # Module lưu trữ accessToken trong localStorage (get, save, clear, getAuthHeaders)
 │       ├── auth.service.js                 # Service xác thực: loginUser, refreshAccessToken, logoutUser, fetchMe, changePassword

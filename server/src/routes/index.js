@@ -18,6 +18,7 @@ import notificationRoutes from './notification.routes.js';
 import studyDocumentRoutes from './study-document.routes.js';
 import backupRoutes from './backup.routes.js';
 import practiceRoutes from './practice.routes.js';
+import analyticsRoutes from './analytics.routes.js';
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use('/audit-logs', auditRoutes);               // Nhật ký thao tác b�
 router.use('/backups', backupRoutes);                 // Quản lý sao lưu/khôi phục CSDL lên Google Drive
 
 router.use('/practice', practiceRoutes);
+router.use('/analytics', analyticsRoutes);           // Phân tích chất lượng câu hỏi & bản đồ năng lực
 
 export default router;

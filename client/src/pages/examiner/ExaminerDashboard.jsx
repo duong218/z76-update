@@ -6,13 +6,15 @@ import { DepartmentTab } from '../../components/examiner/DepartmentTab';
 import { ExamProposalTab } from '../../components/examiner/ExamProposalTab';
 import { OverviewTab } from '../../components/examiner/OverviewTab';
 import { StudyDocumentTab } from '../../components/examiner/StudyDocumentTab';
-import { LayoutDashboard, BookOpen, FolderOpen, Building, FileSignature, Library } from 'lucide-react';
+import { QuestionAnalysisTab } from '../../components/examiner/QuestionAnalysisTab';
+import { LayoutDashboard, BookOpen, FolderOpen, Building, FileSignature, Library, BarChart3 } from 'lucide-react';
 
 // Xuất ra ngoài để App.jsx dùng lại khi truyền xuống Header.jsx (hiển thị
 // trong menu 3 gạch ở mobile), cùng pattern đã áp dụng cho ADMIN_DASHBOARD_TABS.
 export const EXAMINER_DASHBOARD_TABS = [
   { id: 'overview', label: 'Tổng quan', icon: <LayoutDashboard className="w-5 h-5" /> },
   { id: 'questions', label: 'Ngân hàng câu hỏi', icon: <BookOpen className="w-5 h-5" /> },
+  { id: 'analysis', label: 'Phân tích câu hỏi', icon: <BarChart3 className="w-5 h-5" /> },
   { id: 'topics', label: 'Chủ đề', icon: <FolderOpen className="w-5 h-5" /> },
   { id: 'departments', label: 'Bộ phận / Phòng ban', icon: <Building className="w-5 h-5" /> },
   { id: 'proposals', label: 'Đề xuất kỳ thi', icon: <FileSignature className="w-5 h-5" /> },
@@ -76,6 +78,7 @@ export const ExaminerDashboard = ({ currentUser, activeTab, onTabChange, highlig
           {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
           {activeTab === 'overview' && <OverviewTab onNavigate={onTabChange} />}
           {activeTab === 'questions' && <QuestionBankTab initialFilter={questionsFilterSeed} />}
+          {activeTab === 'analysis' && <QuestionAnalysisTab />}
           {activeTab === 'topics' && <TopicTab onViewQuestions={handleViewQuestionsByTopic} />}
           {activeTab === 'departments' && <DepartmentTab onViewQuestions={handleViewQuestionsByDepartment} />}
           {activeTab === 'proposals' && <ExamProposalTab highlightExam={highlightExam} onHighlightConsumed={onHighlightConsumed} />}

@@ -1,0 +1,264 @@
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { AlertTriangle, ChevronDown, ChevronUp, BarChart3, Info } from 'lucide-react';
+import { fetchQuestionAnalysis } from '../../services/analytics.service';
+import { Pagination } from '../Pagination';
+
+const PAGE_SIZE = 5;
+
+const FLAGS = {
+  suspect_key: { label: 'Nghi sai đáp án', cls: 'bg-[#FEECEC] text-[#C53030]' },
+  low_discrimination: { label: 'Phân biệt thấp', cls: 'bg-[#FFF7E6] text-[#B7791F]' },
+  too_easy: { label: 'Quá dễ', cls: 'bg-[#FFF7E6] text-[#B7791F]' },
+  too_hard: { label: 'Quá khó', cls: 'bg-[#FFF7E6] text-[#B7791F]' },
+  difficulty_mismatch: { label: 'Độ khó khai báo lệch', cls: 'bg-[#FFF7E6] text-[#B7791F]' },
+};
+
+const pct = (v) => (v === null || v === undefined ? '—' : `${Math.round(v * 100)}%`);
+
+const Stat = ({ label, value, warn }) => (
+  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4">
+    <p className="text-sm text-[#64748B]">{label}</p>
+    <p className={`text-2xl font-bold mt-0.5 ${warn ? 'text-[#B7791F]' : 'text-[#0F172A]'}`}>{value}</p>
+  </div>
+);
+
+/** Phân tích chất lượng câu hỏi từ kỳ thi chính thức: tỷ lệ đúng, độ phân biệt, đáp án nhiễu. */
+export const QuestionAnalysisTab = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const [topic, setTopic] = useState('all');
+  const [page, setPage] = useState(1);
+  const [openId, setOpenId] = useState(null);
+  const listRef = useRef(null);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetchQuestionAnalysis();
+      if (res.success) setData(res.data);
+      else setError(res.message);
+    } catch (err) {
+      setError(err.message || 'Lỗi tải phân tích câu hỏi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const topics = useMemo(() => [...new Set(items.map((i) => i.topicName).filter(Boolean))].sort(), [items]);
+  const flaggedCount = useMemo(() => items.filter((i) => i.flags.length > 0).length, [items]);
+  const shown = useMemo(
+    () => items.filter((i) => (topic === 'all' || i.topicName === topic) && (!onlyFlagged || i.flags.length > 0)),
+    [items, topic, onlyFlagged]
+  );
+
+  const pageCount = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const cur = Math.min(page, pageCount);
+  const rows = shown.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
+
+  const changeFilter = (fn) => {
+    fn();
+    setPage(1);
+    setOpenId(null);
+  };
+  const goPage = (p) => {
+    setPage(p);
+    setOpenId(null);
+    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <div className="w-8 h-8 border-4 border-[#E2E8F0] border-t-[#008BC5] rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-xl text-[#C53030]">
+        <p className="text-base">Lỗi: {error}</p>
+        <button
+          onClick={loadData}
+          className="mt-4 px-4 py-2.5 bg-[#334155] hover:bg-[#1e293b] text-white rounded-lg text-base font-semibold min-touch-target"
+        >
+          Thử lại
+        </button>
+      </div>
+    );
+  }
+
+  const { meta } = data;
+  const seg = (active) =>
+    `flex-1 sm:flex-none px-4 py-2.5 rounded-lg text-base font-semibold min-touch-target ${
+      active ? 'bg-[#008BC5] text-white' : 'bg-white text-[#334155] border border-[#CBD5E1] hover:bg-[#F1F5F9]'
+    }`;
+
+  return (
+    <div className="space-y-5">
+      <div className="animate-fade-in-up space-y-3" style={{ '--stagger-delay': '0ms' }}>
+        <h2 className="text-lg font-bold text-[#0F172A]">Phân tích chất lượng câu hỏi</h2>
+
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-3">
+          <Stat label="Lượt thi đã phân tích" value={meta.attemptsAnalyzed} />
+          <Stat label="Câu hỏi" value={items.length} />
+          <Stat label="Câu cần rà soát" value={flaggedCount} warn={flaggedCount > 0} />
+        </div>
+
+        <details className="group rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3 text-[#334155]">
+          <summary className="flex items-center gap-2 cursor-pointer text-base font-semibold min-touch-target select-none">
+            <Info className="w-4 h-4 text-[#008BC5] shrink-0" /> Cách đọc các chỉ số
+          </summary>
+          <ul className="mt-2 space-y-1.5 text-sm text-[#475569] list-disc pl-5">
+            <li>Không tính bài bị hệ thống tự nộp.</li>
+            <li>
+              Câu dưới {meta.minResponses} lượt trả lời chưa hiện chỉ số; từ {meta.reliableResponses} lượt trở lên mới có cảnh báo.
+            </li>
+            <li>
+              Độ phân biệt = tỷ lệ đúng của nhóm điểm cao trừ nhóm điểm thấp. Càng gần 1 càng tốt; số âm nghĩa là người giỏi lại làm
+              sai nhiều hơn.
+            </li>
+            <li>Cảnh báo chỉ là gợi ý để rà soát lại câu hỏi.</li>
+          </ul>
+        </details>
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex gap-2">
+            <button className={seg(!onlyFlagged)} onClick={() => changeFilter(() => setOnlyFlagged(false))}>
+              Tất cả ({items.length})
+            </button>
+            <button className={seg(onlyFlagged)} onClick={() => changeFilter(() => setOnlyFlagged(true))}>
+              Có cảnh báo ({flaggedCount})
+            </button>
+          </div>
+          <select
+            value={topic}
+            onChange={(e) => changeFilter(() => setTopic(e.target.value))}
+            aria-label="Lọc theo chủ đề"
+            className="sm:ml-auto w-full sm:w-64 px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-white text-base text-[#0F172A] min-touch-target"
+          >
+            <option value="all">Mọi chủ đề</option>
+            {topics.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div ref={listRef} className="scroll-mt-24 space-y-3">
+        {shown.length === 0 ? (
+          <div className="bg-white rounded-xl border border-[#E2E8F0] p-12 text-center text-[#64748B]">
+            <BarChart3 className="w-12 h-12 mb-3 mx-auto" />
+            <p className="text-base font-medium text-[#334155]">
+              {items.length === 0 ? 'Chưa có dữ liệu phân tích' : 'Không có câu hỏi phù hợp bộ lọc'}
+            </p>
+            {items.length === 0 && <p className="text-base mt-1">Cần có lượt thi chính thức đã nộp để phân tích.</p>}
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-[#64748B]">
+              Hiển thị {(cur - 1) * PAGE_SIZE + 1}–{Math.min(cur * PAGE_SIZE, shown.length)} / {shown.length} câu
+            </p>
+            {rows.map((q) => {
+              const isOpen = openId === q.questionId;
+              const canOpen = !q.insufficientData;
+              const strongest = q.options
+                .filter((o) => !o.isCorrect)
+                .reduce((best, o) => (!best || o.selectedRate > best.selectedRate ? o : best), null);
+              return (
+                <article key={q.questionId} className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+                  <button
+                    onClick={() => canOpen && setOpenId(isOpen ? null : q.questionId)}
+                    className={`w-full text-left p-4 flex items-start gap-3 min-touch-target ${canOpen ? 'hover:bg-[#F6F8FA]' : 'cursor-default'}`}
+                    aria-expanded={canOpen ? isOpen : undefined}
+                  >
+                    <div className="flex-1 min-w-0 space-y-2.5">
+                      <p className="text-base font-medium text-[#0F172A] line-clamp-3">{q.content || '(Câu hỏi đã bị xóa)'}</p>
+                      <p className="text-sm text-[#64748B]">
+                        {q.topicName} · {q.responses} lượt trả lời
+                      </p>
+                      {canOpen ? (
+                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-base text-[#334155]">
+                          <span>
+                            Tỷ lệ đúng <b className="text-[#0F172A]">{pct(q.correctRate)}</b>
+                          </span>
+                          <span>
+                            Độ phân biệt <b className="text-[#0F172A]">{q.discrimination.toFixed(2)}</b>
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-[#64748B]">Chưa đủ dữ liệu để phân tích</p>
+                      )}
+                      {(q.flags.length > 0 || (canOpen && q.reliability === 'low')) && (
+                        <div className="flex flex-wrap gap-2">
+                          {q.flags.map((f) => (
+                            <span
+                              key={f}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm font-semibold ${FLAGS[f].cls}`}
+                            >
+                              {f === 'suspect_key' && <AlertTriangle className="w-3.5 h-3.5" />}
+                              {FLAGS[f].label}
+                            </span>
+                          ))}
+                          {canOpen && q.reliability === 'low' && (
+                            <span className="inline-flex px-2.5 py-1 rounded-full text-sm font-medium bg-[#F1F5F9] text-[#475569]">
+                              Mẫu nhỏ, chỉ tham khảo
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {canOpen &&
+                      (isOpen ? (
+                        <ChevronUp className="w-5 h-5 text-[#64748B] shrink-0 mt-1" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-[#64748B] shrink-0 mt-1" />
+                      ))}
+                  </button>
+
+                  {isOpen && canOpen && (
+                    <div className="border-t border-[#E2E8F0] bg-[#F8FAFC] p-4 space-y-4">
+                      {q.options.length === 0 && <p className="text-base text-[#64748B]">Không có dữ liệu đáp án.</p>}
+                      {q.options.map((o, i) => {
+                        const distractor = !o.isCorrect && strongest?.answerId === o.answerId && o.selectedRate > 0;
+                        return (
+                          <div key={o.answerId} className="space-y-1.5">
+                            <p className="text-base text-[#0F172A]">
+                              <span className="font-semibold">{String.fromCharCode(65 + i)}.</span> {o.content}
+                              {o.isCorrect && <span className="ml-2 text-sm font-semibold text-[#15803D]">Đáp án đúng</span>}
+                              {distractor && <span className="ml-2 text-sm font-semibold text-[#B7791F]">Nhiễu mạnh nhất</span>}
+                            </p>
+                            <div className="h-2 rounded-full bg-[#E2E8F0] overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${o.isCorrect ? 'bg-[#22C55E]' : distractor ? 'bg-[#F6AD37]' : 'bg-[#94A3B8]'}`}
+                                style={{ width: `${Math.round((o.selectedRate ?? 0) * 100)}%` }}
+                              />
+                            </div>
+                            <p className="text-sm text-[#64748B]">
+                              Chọn {pct(o.selectedRate)} · Nhóm cao {pct(o.upperRate)} · Nhóm thấp {pct(o.lowerRate)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            <Pagination page={cur} pageCount={pageCount} onChange={goPage} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};

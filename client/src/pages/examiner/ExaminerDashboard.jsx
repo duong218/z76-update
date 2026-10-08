@@ -50,7 +50,7 @@ export const ExaminerDashboard = ({ currentUser, activeTab, onTabChange, highlig
         <p className="text-sm sm:text-base text-slate-500">Soạn thảo, quản lý câu hỏi thi chuyên môn và bộ phận phòng ban.</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-clip">
         {/* Tab Navigation — CHỈ hiện từ md trở lên. Trên mobile, chuyển hẳn
             sang menu 3 gạch (Header.jsx) để không phải vuốt ngang nữa. */}
         <div role="tablist" aria-label="Các mục quản lý của Người ra đề" className="hidden md:flex overflow-x-auto border-b border-slate-200 bg-slate-50 scrollbar-hide snap-x snap-mandatory">

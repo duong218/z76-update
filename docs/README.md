@@ -1,27 +1,48 @@
 # Z176 — Module thi chuyên môn (Hệ thống thực tế)
 
-Thư mục này chứa tài liệu đặc tả kỹ thuật và mô hình dữ liệu chính thức của hệ thống thi trắc nghiệm chuyên môn nội bộ Z176.
+Thư mục này chứa tài liệu đặc tả kỹ thuật, mô hình dữ liệu, cơ chế bảo mật và quy trình vận hành chính thức của hệ thống thi trắc nghiệm chuyên môn nội bộ Công ty TNHH MTV 76 (Nhà máy Z176) - Bộ Quốc phòng.
 
-## Cấu trúc thư mục dự án
+---
 
-- **[client/](file:///c:/Users/duong/Desktop/HethongZ176/client)** — Ứng dụng client React 19 + Vite + Tailwind CSS v4. Chi tiết: [client.md](file:///c:/Users/duong/Desktop/HethongZ176/structure/client.md).
-- **[server/](file:///c:/Users/duong/Desktop/HethongZ176/server)** — Ứng dụng server-side Express API + MongoDB/Mongoose. Chi tiết: [server.md](file:///c:/Users/duong/Desktop/HethongZ176/structure/server.md).
-- **[docs/](file:///c:/Users/duong/Desktop/HethongZ176/docs)** — Tài liệu phân tích và thiết kế hệ thống.
-  - [MONGOOSE_SCHEMA.md](file:///c:/Users/duong/Desktop/HethongZ176/docs/MONGOOSE_SCHEMA.md) — Mô hình cơ sở dữ liệu MongoDB/Mongoose.
-  - [AUTH_API.md](file:///c:/Users/duong/Desktop/HethongZ176/docs/AUTH_API.md) — Mô tả cơ chế xác thực JWT, phân quyền và Rate Limiting.
-  - [sinh-de-tu-dong.md](file:///c:/Users/duong/Desktop/HethongZ176/docs/sinh-de-tu-dong.md) — Thuật toán sinh đề và tạo mã đề thi.
-  - [luong-lam-bai-thi.md](file:///c:/Users/duong/Desktop/HethongZ176/docs/luong-lam-bai-thi.md) — Thiết kế luồng làm bài thi realtime và cơ chế giám sát.
-  - [THNGOAILE.md](file:///c:/Users/duong/Desktop/HethongZ176/docs/THNGOAILE.md) — Tổng hợp 23 tình huống ngoại lệ đã khắc phục & các hạn chế kỹ thuật của hệ thống.
-- **[mock-data/](file:///c:/Users/duong/Desktop/HethongZ176/mock-data)** — Thư mục chứa dữ liệu mẫu chuẩn hóa để hỗ trợ phát triển (seed database) và cung cấp cấu trúc cho các AI Agent trợ lý.
+## 1. Cấu trúc Tài liệu Dự án
 
-## Chạy nhanh (Môi trường Dev)
+- **Tài liệu Yêu cầu & Quy trình tổng thể**:
+  - [BRS_SRS_Module_Thi_Chuyen_Mon_Z176.md](file:///d:/code%20file/Z176-main/BRS_SRS_Module_Thi_Chuyen_Mon_Z176.md) — Đặc tả yêu cầu nghiệp vụ (BRS) & phần mềm (SRS) chuẩn hóa toàn hệ thống.
+  - [dieu-phoi-quy-trinh-lam-viec.md](file:///d:/code%20file/Z176-main/dieu-phoi-quy-trinh-lam-viec.md) — Sổ tay điều phối và quy trình chuẩn bị/tổ chức đợt thi.
+  - [SECURITY_BASELINE.md](file:///d:/code%20file/Z176-main/SECURITY_BASELINE.md) — Tiêu chuẩn kiểm soát an toàn thông tin & bảo mật cấp quân đội.
+  - [security_report.md](file:///d:/code%20file/Z176-main/security_report.md) — Báo cáo đánh giá bảo mật & danh mục kiểm toán an ninh.
+  - [SKILLS.md](file:///d:/code%20file/Z176-main/SKILLS.md) — Hướng dẫn kiến trúc, quy tắc phát triển cốt lõi và tech stack cho lập trình viên/Agent.
+  - [design/design-system.md](file:///d:/code%20file/Z176-main/design/design-system.md) — Hệ thống thiết kế chuẩn UI/UX cho người dùng 30–60 tuổi (Inter, 5 màu chức năng, Mobile-first).
+
+- **Tài liệu Kỹ thuật Chi tiết (`docs/`)**:
+  - [ACTIVE.md](file:///d:/code%20file/Z176-main/docs/ACTIVE.md) — Đặc tả chi tiết luồng hoạt động 4 vai trò (Admin, Examiner, Leader, Candidate) và bảng mã lỗi.
+  - [MONGOOSE_SCHEMA.md](file:///d:/code%20file/Z176-main/docs/MONGOOSE_SCHEMA.md) — Mô hình cơ sở dữ liệu MongoDB/Mongoose (ERD, Collections, Indexing).
+  - [AUTH_API.md](file:///d:/code%20file/Z176-main/docs/AUTH_API.md) — Cơ chế xác thực Dual Token (JWT in-memory + HttpOnly Cookie), quản lý phiên đơn lẻ (`tokenVersion`), và Rate Limiting.
+  - [sinh-de-tu-dong.md](file:///d:/code%20file/Z176-main/docs/sinh-de-tu-dong.md) — Thuật toán sinh đề tự động, cơ chế bù câu hỏi chung (`allowCommonCompensation`), phạm vi phòng ban, và khóa concurrency (`publishLockedAt`).
+  - [luong-lam-bai-thi.md](file:///d:/code%20file/Z176-main/docs/luong-lam-bai-thi.md) — Luồng thi trắc nghiệm realtime: phòng ban đóng băng, autosave, heartbeat 15s, và 3 tầng tự động nộp bài chống gian lận.
+  - [THNGOAILE.md](file:///d:/code%20file/Z176-main/docs/THNGOAILE.md) — Tổng hợp 23+ tình huống ngoại lệ (Edge Cases) đã khắc phục và các hạn chế kỹ thuật của hệ thống.
+
+---
+
+## 2. Cấu trúc Mã nguồn Dự án
+
+- **[client/](file:///d:/code%20file/Z176-main/client)** — Ứng dụng Frontend React 19 + Vite + Tailwind CSS v4.
+  - Thiết kế Mobile-first, font chữ tối thiểu 16px, bảng màu nghiêm túc.
+  - Thành phần phòng thi toàn màn hình `ExamModal.jsx`, quản lý thông báo `ToastContext.jsx`, hộp thoại xác nhận `ConfirmDialog.jsx`.
+- **[server/](file:///d:/code%20file/Z176-main/server)** — Ứng dụng Backend Node.js / Express API + MongoDB/Mongoose.
+  - Kiến trúc phân lớp: Controllers, Services, Models, Routes, Middlewares, Schedulers.
+  - Hệ thống 4 tác vụ định kỳ tự động (`node-cron`): Backup Google Drive (03:00), Cleanup file tạm (mỗi 1h), Purge tài khoản khóa > 6 tháng (04:00), và Quét bài thi bị bỏ dở (mỗi 1 phút).
+
+---
+
+## 3. Khởi chạy Nhanh (Môi trường Dev)
 
 ### Terminal 1 — Backend (Server)
 ```bash
 cd server
 npm install
 # Tạo và cấu hình tệp .env (tham khảo .env.example)
-# Chạy dự án ở chế độ phát triển (watch mode)
+# Chạy server ở chế độ phát triển (watch mode)
 npm run dev
 ```
 
@@ -33,6 +54,10 @@ npm install
 npm run dev
 ```
 
-## Quy ước phát triển
-- Luôn tôn trọng bảo mật dữ liệu của nhà máy Z176. Không sử dụng thông tin nhân sự/đề thi thật trong tệp mock dữ liệu.
-- Cấu hình CORS của server cần chấp nhận nguồn từ client (mặc định là `http://localhost:3000` hoặc theo cấu hình `.env`).
+---
+
+## 4. Quy ước Phát triển Cốt lõi
+1. **Bảo mật Thông tin Quân sự**: Tuyệt đối không lưu dữ liệu người dùng thật hoặc tài liệu nội bộ nhà máy lên dịch vụ đám mây công cộng (tài liệu ôn tập được lưu trữ trực tiếp trên ổ đĩa máy chủ nội bộ `uploadDir`).
+2. **Nguyên tắc Đơn phiên & Chống gian lận**: Mọi tài khoản chỉ được đăng nhập trên 1 thiết bị/trình duyệt tại một thời điểm (`tokenVersion`). Mọi bài thi đều được giám sát qua 3 tầng (Client 10s, Server 60s, Scheduler 1 phút).
+3. **Tuân thủ Design System**: Không tự ý thêm gradient, dark mode, hoặc các màu ngoài 5 màu chức năng quy định. Ưu tiên cỡ chữ lớn (>= 16px) và vùng chạm tối thiểu 44×44px cho người dùng 30–60 tuổi.
+

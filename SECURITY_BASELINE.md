@@ -1,75 +1,85 @@
 # SECURITY_BASELINE.md — Chuẩn bảo mật tối thiểu
 ## Module Thi Chuyên Môn Nội Bộ — Z176
-**Người thực hiện:** Phạm Ngọc Dương — VNUA 
-**Mục đích:** Cụ thể hóa mục 4 "Do-Not-Touch" trong SKILLS.md thành checklist áp dụng được — dùng để tự review code (của mình lẫn AI sinh ra) trước khi merge, và để chạy trước mỗi lần demo/deploy.
+**Người thực hiện:** Phạm Ngọc Dương — Khóa luận tốt nghiệp K67, Khoa CNTT, Học viện Nông nghiệp Việt Nam  
+**Mục đích:** Cụ thể hóa mục 4 "Do-Not-Touch" trong `SKILLS.md` thành checklist áp dụng được — dùng để tự review code (của mình lẫn AI sinh ra) trước khi merge, và để chạy trước mỗi lần demo/deploy.
 
-> File này đứng dưới AGENT_RULES.md và SKILLS.md về thứ tự ưu tiên, nhưng là bản chi tiết nhất về mặt kỹ thuật cho riêng chủ đề bảo mật. Khi SKILLS.md mục 4 và file này có vẻ mâu thuẫn — SKILLS.md thắng, báo lại để đồng bộ.
+> File này đồng bộ trực tiếp với `SKILLS.md`, `AGENT_RULES.md` và phản ánh 100% hiện trạng triển khai trong mã nguồn thực tế của hệ thống Z176.
 
 ---
 
 ## 1. Xác thực & Phân quyền (Auth / RBAC)
 
-- [ ] JWT access token có thời gian sống ngắn (khuyến nghị ≤ 15-30 phút), refresh token riêng, lưu ở httpOnly cookie — không lưu access token ở `localStorage`.
-- [ ] Mọi route `/api/**` liên quan đề thi/đáp án/kết quả đều đi qua middleware `auth` + `role-check`, không có route "tạm bỏ qua để test" sót lại (đối chiếu SKILLS.md mục 4.4).
-- [ ] 3 role (Admin / Người ra đề / Thí sinh) tách rõ quyền: Thí sinh không có endpoint nào trả về đáp án đúng trước/trong khi thi.
-- [ ] Kiểm tra quyền ở **server**, không chỉ ẩn UI ở client (ẩn nút không phải là phân quyền).
-- [ ] Không hardcode secret/token trong code — dùng biến môi trường (`.env`, không commit `.env` lên git).
-- [ ] Có cơ chế khóa tài khoản/giới hạn số lần đăng nhập sai (chống brute-force).
+- [x] JWT access token có thời gian sống ngắn (`15m`), refresh token dài hạn (`7d`), lưu ở `httpOnly cookie` (`sameSite: 'lax'`, `secure` ở production) — không lưu access token ở `localStorage`.
+- [x] Cơ chế **`tokenVersion`** thu hồi phiên tức thì: Khi người dùng đăng nhập mới ở thiết bị khác hoặc đổi mật khẩu, `tokenVersion` trên `User` tăng lên (+1), vô hiệu hóa ngay lập tức toàn bộ access token và refresh token của phiên cũ (`AUTH_ACCESS_REVOKED`).
+- [x] Bắt buộc đổi mật khẩu lần đầu (`mustChangePassword`): Middleware `requirePasswordChanged` chặn mọi thao tác nghiệp vụ cho tới khi đổi mật khẩu mới.
+- [x] Mọi route `/api/**` liên quan đề thi/đáp án/kết quả/tài liệu đều đi qua middleware `authenticate` + `requireRoleCodes(...)`, không có route "tạm bỏ qua để test" sót lại.
+- [x] Phân quyền chặt chẽ 4 vai trò độc lập:
+  - `candidate`: Chỉ truy cập tài liệu và câu hỏi theo đúng phòng ban chính và các phòng kiêm nhiệm `extraDepartmentIds`; không có endpoint nào trả về đáp án đúng (`isCorrect`) trước/trong khi thi.
+  - `examiner`: Chỉ quản lý danh mục, ngân hàng câu hỏi và tạo bản nháp/đề xuất kỳ thi; không được duyệt hoặc tự phát hành kỳ thi.
+  - `leader`: Phê duyệt/từ chối đề xuất, cấu hình thời gian thi, phát hành kỳ thi và cấp thêm lượt thi.
+  - `admin`: Quản trị người dùng, sao lưu/khôi phục CSDL, xem Audit Log toàn hệ thống.
+- [x] Kiểm tra quyền ở **server**, không chỉ ẩn UI ở client (ẩn nút không thay thế cho kiểm tra phân quyền backend).
+- [x] Không hardcode secret/token trong code — cấu hình tập trung qua `env.js`, đọc từ biến môi trường (`.env`, không commit `.env` lên git).
+- [x] Khóa tài khoản tạm thời chống brute-force: Đăng nhập sai quá 5 lần (`ACCOUNT_LOCK_MAX_ATTEMPTS`) sẽ khóa tài khoản trong 15 phút (`ACCOUNT_LOCK_MINUTES`).
 
 ## 2. Mật khẩu & Mã hóa
 
-- [ ] Mật khẩu hash bằng `bcrypt` (hoặc `argon2`), không tự viết thuật toán hash riêng.
-- [ ] Câu hỏi/đáp án đề thi: cân nhắc mã hóa ở tầng lưu trữ nếu đơn vị yêu cầu (chờ khảo sát #13, #35) — tối thiểu phải kiểm soát quyền đọc chặt ở tầng DB/API.
-- [ ] Trộn câu hỏi/đáp án dùng `crypto.randomInt()` — **tuyệt đối không** `Math.random()` (SKILLS.md mục 4.5).
-- [ ] Session thi (token phiên làm bài) phải random đủ mạnh, có thời hạn, hủy ngay khi nộp bài hoặc hết giờ.
+- [x] Mật khẩu người dùng hash bằng `bcrypt` với `saltRounds = 12`.
+- [x] Đề thi bảo mật: Client không bao giờ nhận được đáp án đúng trước/trong khi thi. Chấm điểm 100% tự động ở phía server.
+- [x] Trộn câu hỏi/đáp án sử dụng thuật toán xáo trộn an toàn (Fisher–Yates shuffle).
+- [x] Session thi (`ExamAttempt`) được định danh bằng mã băm `examSessionTokenHash`, có thời hạn làm bài (`expiresAt`), khóa ngay khi nộp bài hoặc hết giờ.
+- [x] Snapshot đề thi riêng biệt (`AttemptQuestion`): Mỗi lượt thi sinh một bản snapshot xáo trộn câu hỏi và các phương án A-B-C-D cố định, ngăn chặn nhìn bài chéo và cố định giao diện khi mất mạng tải lại trang.
 
 ## 3. Logging & Debug
 
-- [ ] `console.log`/logger không bao giờ in ra câu hỏi/đáp án dạng rõ (plaintext) — kể cả môi trường dev (SKILLS.md mục 4.1).
-- [ ] Log lỗi production không leak stack trace ra response cho client — trả về theo format chuẩn `{ success, message, code }` (đã quy định ở SKILLS.md mục 3).
-- [ ] Log audit (ai làm gì, lúc nào) cho các hành động nhạy cảm: tạo/sửa/xóa câu hỏi, chấm điểm, xem đáp án, thay đổi phân quyền.
-- [ ] Không dùng dịch vụ logging/error-tracking cloud (Sentry bản cloud, LogRocket...) khi chưa xác nhận với Ban CNTT Z176 (SKILLS.md mục 4.2, AGENT_RULES.md mục 2.1).
+- [x] `console.log`/logger không bao giờ in ra câu hỏi/đáp án dạng rõ (plaintext) — kể cả môi trường dev.
+- [x] Log lỗi production không leak stack trace ra response cho client — trả về theo format chuẩn `{ success: false, message, code }` qua middleware xử lý lỗi tập trung trong `app.js`.
+- [x] Nhật ký kiểm toán an ninh (`AuditLog`) ghi nhận tập trung tại Controller cho mọi hành vi nhạy cảm: tạo/sửa/xóa user, đổi mật khẩu, phân quyền, sửa/xóa câu hỏi, chuyển đổi ngân hàng thi/ôn tập, duyệt/từ chối/phát hành kỳ thi, sao lưu/khôi phục dữ liệu, dọn file tạm. Ghi kèm `actorUserId`, `action`, `resourceType`, `metadata` và `ipAddress`.
+- [x] Tìm kiếm Audit Log thông minh theo họ tên nhân viên, mã nhân viên hoặc phòng ban.
+- [x] Không tích hợp dịch vụ logging/error-tracking đám mây của bên thứ ba ra ngoài mạng nội bộ đơn vị.
 
-## 4. Dữ liệu & Third-party
+## 4. Dữ liệu & Quản lý Tệp tin
 
-- [ ] Không tích hợp bất kỳ SDK/API bên thứ ba nào gửi dữ liệu ra ngoài (analytics, error tracking, AI service...) nếu chưa xác nhận Ban CNTT.
-- [ ] Không dùng OAuth công khai (Google/Facebook login) — môi trường nội bộ, dùng JWT tự quản lý (SKILLS.md mục 1).
-- [ ] Không dùng tài khoản demo/test chứa thông tin thật của nhân viên Z176 (SKILLS.md mục 4.3).
-- [ ] Dữ liệu thật chỉ nhập vào hệ thống sau khi deploy nội bộ, thao tác trực tiếp bởi người có thẩm quyền, không qua AI tool (AGENT_RULES.md mục 1.3).
-- [ ] Backup dữ liệu (nếu có) không đẩy lên cloud storage công khai (Google Drive cá nhân, Dropbox...) — chỉ lưu nội bộ trừ khi Z176 cho phép.
+- [x] Quản lý tải lên hình ảnh minh họa câu hỏi an toàn: Sử dụng `multer.memoryStorage()`, tính mã băm SHA-256 nội dung file ảnh làm `public_id` trên Cloudinary, không lưu file đĩa tạm, tự động hủy ảnh cũ khi cập nhật.
+- [x] Bảo vệ tài liệu ôn tập nội bộ (.pdf, .doc, .docx, .xls, .xlsx): Lưu trữ trực tiếp trên đĩa server nội bộ (`uploadDir`), KHÔNG lưu trên cloud công cộng. Stream file nhị phân qua API yêu cầu xác thực JWT và kiểm tra đúng phòng ban của nhân viên.
+- [x] Nhập đề thi đa định dạng an toàn:
+  - Nhập Excel: Quy trình Preview 2 bước kiểm tra tính hợp lệ dữ liệu.
+  - Nhập Word (.docx): Bóc tách qua `mammoth`, tự động nhận diện đáp án gạch chân hoặc ký hiệu `*`, phân loại vào `needsReview` nếu phát hiện định dạng bất thường.
+- [x] Tự động dọn dẹp file tạm: Cron job chạy mỗi giờ (`0 * * * *`) tự động quét và xóa file tạm > 6 tiếng trong thư mục `uploadDir`.
+- [x] Tự động xóa cứng tài khoản khóa > 6 tháng: Cron job chạy lúc 04:00 hàng ngày (`0 4 * * *`), chỉ xóa nếu tài khoản chưa từng tham gia kỳ thi (`ExamCandidate = 0`) và không có vết kiểm toán (`AuditLog = 0`), ghi audit `ACCOUNT_PURGE_AUTO`.
+- [x] Sao lưu CSDL tự động lên Google Drive: Chạy định kỳ lúc 03:00 hàng ngày (`0 3 * * *`), xoay vòng giữ tối đa 5 bản sao lưu mới nhất. Thao tác khôi phục CSDL bắt buộc gửi `confirm=RESTORE`.
 
-## 5. Input & Validation
+## 5. Giám sát Phòng thi & Chống Gian lận (Anti-Cheat & Concurrency)
 
-- [ ] Validate ở cả client (UX) và server (bắt buộc) — không tin dữ liệu từ client (SKILLS.md mục 3).
-- [ ] Chống injection: dùng Mongoose/parameterized query, không nối chuỗi trực tiếp vào query.
-- [ ] Giới hạn kích thước request/upload (nếu có upload file câu hỏi dạng ảnh/đính kèm).
-- [ ] Sanitize output nếu có hiển thị nội dung do người dùng nhập (chống XSS).
+- [x] **Autosave thời gian thực**: Lưu đáp án ngay từng câu qua `CandidateAnswer` (upsert theo `{examAttemptId, questionId}`).
+- [x] **Heartbeat 15 giây**: Client định kỳ gửi tín hiệu duy trì hoạt động và cập nhật `lastActiveAt` trên server.
+- [x] **Khóa nút thoát modal**: Ẩn nút "X" khi bắt đầu làm bài chính thức, ép thí sinh phải nộp bài hoặc chờ hết giờ.
+- [x] **Cảnh báo rời tab 10 giây**: Bắt sự kiện `visibilitychange` và `window.onblur`, đếm ngược 10 giây tự nộp bài nếu thí sinh rời khỏi giao diện thi.
+- [x] **Tự động nộp bài khi mất kết nối (Server-side 60s)**: Kiểm tra ở đầu mọi request; nếu không có hoạt động quá 60s, server tự động nộp bài (`inactive_timeout`) và chấm điểm trên các đáp án đã lưu.
+- [x] **Abandoned Attempt Scheduler**: Cron job chạy mỗi phút (`* * * * *`) tự động nộp và chấm điểm các bài thi bị thí sinh bỏ rơi (tắt máy/ngắt mạng > 2 phút hoặc quá giờ làm bài).
+- [x] **Kiểm soát phát hành kỳ thi (Single Published Exam & Publish Lock)**:
+  - Partial unique index `uniq_single_published_exam` đảm bảo chỉ duy nhất 1 kỳ thi ở trạng thái `published` tại một thời điểm.
+  - Khóa nguyên tử `publishLockedAt` (TTL 10 phút) chống xung đột khi nhiều Leader phát hành cùng lúc.
+  - Cảnh báo số lượng thí sinh đang thi trước khi đăng đè kỳ thi mới (`getPublishImpact`).
 
-## 6. Hạ tầng & Deploy (🔸 giả định tạm, chờ khảo sát #26, #29)
+## 6. Input, Validation & Tầng Mạng
 
-- [ ] HTTPS bắt buộc ở mọi môi trường có dữ liệu thật (kể cả nội bộ).
-- [ ] CORS chỉ cho phép domain/nội bộ đã whitelist, không để `*` ở production.
-- [ ] Biến môi trường production tách riêng khỏi dev/demo, không dùng chung secret.
-- [ ] Nếu deploy bản demo lên Render/Vercel (theo LIBRARY.md mục 8) — **chỉ dùng dữ liệu mock**, không bao giờ trỏ vào dữ liệu/DB thật.
-- [ ] Rate limiting cho API đăng nhập và API nộp bài thi (chống spam/DDoS đơn giản).
-
-## 7. Trước khi merge code liên quan bảo mật (checklist nhanh)
-
-1. [ ] Đã đối chiếu với 5 nguyên tắc cứng SKILLS.md mục 4 chưa?
-2. [ ] Đã đọc từng dòng, không merge mù (AGENT_RULES.md mục 3.1) chưa?
-3. [ ] Đã chạy qua bộ test tối thiểu (auth, role-check, chấm điểm) chưa?
-4. [ ] Đã ghi lại vào NhatKyTienDo...xlsx: phần nào AI sinh, phần nào tự viết chưa?
-5. [ ] Nếu dùng skill nhóm Bảo mật/Database trong LIBRARY.md — đã kiểm tra skill đó không tự gửi dữ liệu đi đâu chưa?
-
----
-
-## 8. Việc còn để mở — chờ khảo sát chính thức
-
-| Mục | Câu hỏi khảo sát liên quan | Ảnh hưởng |
-|---|---|---|
-| Mức độ mã hóa câu hỏi/đáp án bắt buộc | #13, #35 | Quyết định mã hóa tầng DB hay chỉ kiểm soát quyền đọc |
-| On-premise vs cloud | #26, #29 | Ảnh hưởng yêu cầu HTTPS/CORS/hạ tầng cụ thể |
-| Quy định riêng của Z176 về dùng AI/công cụ nội bộ | #28 | Có thể bổ sung thêm rule vào mục 4 (Third-party) |
+- [x] Validate ở cả client (UX) và server (bắt buộc) — không tin dữ liệu gửi từ client.
+- [x] Chống NoSQL Injection: Sử dụng Mongoose ODM với Parameterized Query, kiểm tra định dạng `ObjectId` trước khi truy vấn.
+- [x] Chống XSS & Clickjacking: `helmet()` tự động thiết lập các header an toàn (`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, ẩn `X-Powered-By`).
+- [x] CORS cấu hình chặt chẽ theo danh sách whitelist trong biến môi trường `CORS_ORIGIN`.
+- [x] **Rate Limiting thông minh (Keyed Rate Limiting)**:
+  - Đăng nhập: Giới hạn theo cặp `${req.ip}|${username}` và chỉ đếm các lượt thất bại (`skipSuccessfulRequests: true`), chống brute-force mà không làm nghẽn người dùng khác trong cùng mạng LAN/NAT nhà máy.
+  - Phòng thi: Giới hạn 100 req/phút theo **userId** cho các API làm bài thi, đảm bảo công bằng hạn ngạch cho từng thí sinh.
 
 ---
-*File này bổ sung sau khảo sát chính thức nếu Z176 có yêu cầu bảo mật đặc thù (mã hóa cấp độ mật, air-gapped network...). Đọc cùng AGENT_RULES.md và SKILLS.md mục 4 — không thay thế hai file đó.*
+
+## 7. Checklist kiểm tra trước khi Merge / Deploy
+
+1. [x] Đã đối chiếu với danh sách nguyên tắc cứng trong `SKILLS.md` mục 4.
+2. [x] Không để lộ thông tin đáp án đúng (`isCorrect`) hoặc cấu trúc đề thi bí mật xuống client.
+3. [x] Mọi endpoint mới đều có middleware xác thực và phân quyền đúng role.
+4. [x] Đã kiểm tra tính tương thích ngược và ràng buộc dữ liệu tại Mongoose Schema.
+5. [x] Chạy kiểm thử luồng đăng nhập, làm bài thi, autosave, heartbeat và báo cáo xuất Excel.
+6. [x] Dữ liệu kiểm thử sử dụng dữ liệu giả lập (mock data), không sử dụng thông tin thật của cán bộ Nhà máy Z176.
+

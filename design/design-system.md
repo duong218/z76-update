@@ -154,13 +154,30 @@ Người dùng làm việc/thi chủ yếu trên điện thoại. Toàn bộ h�
 - **Thời lượng:** Tự đóng sau 3.5s hoặc cho phép đóng thủ công. Quản lý qua `ToastContext.jsx`.
 
 ### Hộp thoại xác nhận (ConfirmDialog)
-- **Cấu trúc:** Thay thế hoàn toàn `window.confirm()`.
+- **Cấu trúc:** Thay thế hoàn toàn `window.confirm()` và `window.alert()`.
 - **Giao diện:** Modal căn giữa màn hình, backdrop đen mờ (`bg-black/60`), tiêu đề in đậm, nội dung giải thích rõ ràng hậu quả hành động, 2 nút lựa chọn (Hủy: Secondary, Xác nhận: Primary/Danger).
 - **Z-Index:** Thiết lập `z-[110]` để luôn nổi lên trên các modal thông thường khác.
 
 ### Hộp thoại Modal & Modal lồng nhau (Stacked Modals)
 - **Modal chính:** `z-50`, bo góc `12px` (hoặc `rounded-[10px]`), padding `20px–24px`, thanh tiêu đề phân cách rõ ràng và nút đóng góc trên bên phải.
 - **Modal con (Inline Action):** Mở đè lên modal cha (ví dụ: tạo nhanh phòng ban từ dropdown trong form tài khoản), thiết lập `z-[60]` để phân tách lớp hiển thị rõ ràng, backdrop riêng.
+- **Modal chọn phòng ban dự thi (Kiêm nhiệm):** Dành cho thí sinh có `extraDepartmentIds`, hiển thị danh sách phòng ban/phân xưởng trực quan, radio button lớn, nút xác nhận rõ ràng trước khi vào phòng thi.
+- **Hộp thoại Thu hồi phiên (SessionRevokedModal):** `z-[120]` nổi lên cao nhất khi phát hiện `AUTH_ACCESS_REVOKED` (tài khoản đăng nhập nơi khác), chặn hoàn toàn tương tác và yêu cầu đăng nhập lại.
+
+### Thang phân cấp Z-Index Hệ thống
+- `z-10`: Sticky headers / Controls
+- `z-40`: Navigation bars / Bottom action bars
+- `z-50`: Modal chính (Form, Preview, Exam)
+- `z-60`: Modal con / Dropdown trong modal
+- `z-[100]`: Toast notifications
+- `z-[110]`: ConfirmDialog
+- `z-[120]`: SessionRevokedModal (khóa màn hình khẩn cấp)
+
+### Hiệu ứng & Hiệu năng GPU (Motion Guidelines)
+- **Cuộn mượt Lenis**: Sử dụng Lenis cho thao tác cuộn tự nhiên, tắt `scroll-behavior: smooth` mặc định của trình duyệt để tránh xung đột gây giật khung hình.
+- **Hiệu ứng fadeInUp an toàn**: Chỉ áp dụng biến đổi `opacity` và `transform: translateY` (được GPU compositor xử lý độc lập) cho danh sách bảng biểu. Hỗ trợ biến `--stagger-delay` phân tầng mượt mà.
+- **Tôn trọng `prefers-reduced-motion`**: Luôn tắt bỏ hoàn toàn animation khi người dùng bật chế độ giảm chuyển động trong cài đặt thiết bị để đảm bảo tính tiếp cận (Accessibility).
+
 
 ---
 

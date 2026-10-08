@@ -1,80 +1,66 @@
-# Điều phối quy trình làm việc
+# Điều phối quy trình làm việc (Engineering & AI Workflow)
+## Hệ thống thi trắc nghiệm chuyên môn nội bộ — Nhà máy Z176
+**Người thực hiện:** Phạm Ngọc Dương — Khóa luận tốt nghiệp K67, Khoa CNTT, Học viện Nông nghiệp Việt Nam  
+**Mục đích:** Quy định phương pháp làm việc, quy trình lập kế hoạch và nguyên tắc phối hợp giữa Kỹ sư phát triển và AI Coding Assistant trong dự án Z176.
 
-## #1. Mặc định lập kế hoạch
+---
 
--   Chuyển sang chế độ lập kế hoạch cho **BẤT KỲ** tác vụ nào không đơn
-    giản (từ 3 bước trở lên hoặc có quyết định về kiến trúc)
--   Nếu có sự cố xảy ra, **DỪNG** và lập kế hoạch lại ngay --- đừng tiếp
-    tục một cách mù quáng
--   Sử dụng chế độ lập kế hoạch cho cả các bước kiểm tra, không chỉ
-    riêng việc xây dựng
--   Viết đặc tả chi tiết ngay từ đầu để giảm sự mơ hồ
+## #1. Mặc định lập kế hoạch (Plan-First Approach)
 
-## #2. Chiến lược tác nhân phụ
+- Chuyển sang chế độ lập kế hoạch cho **BẤT KỲ** tác vụ nào không đơn giản (từ 3 bước trở lên hoặc có tác động đến kiến trúc, CSDL Mongoose, hoặc bảo mật).
+- Đối chiếu trước với các tài liệu chuẩn mực của hệ thống:
+  - [`SKILLS.md`](file:///d:/code%20file/Z176-main/SKILLS.md): Quy ước công nghệ, coding convention và 6 nguyên tắc cứng không được chạm vào.
+  - [`SECURITY_BASELINE.md`](file:///d:/code%20file/Z176-main/SECURITY_BASELINE.md): Checklist kiểm soát an ninh tối thiểu trước khi triển khai/merge.
+  - [`GLOSSARY.md`](file:///d:/code%20file/Z176-main/GLOSSARY.md): Thuật ngữ chuẩn hóa, tên model và mã định danh.
+- Nếu có sự cố bất thường xảy ra: **DỪNG** và lập kế hoạch phân tích lại ngay — không sửa mù hoặc thay đổi mã nguồn tùy tiện.
+- Viết đặc tả chi tiết các đầu việc trước khi code để giảm thiểu sự mơ hồ.
 
--   Sử dụng tác nhân phụ một cách rộng rãi để giữ cửa sổ ngữ cảnh chính
-    gọn gàng
--   Chuyển việc nghiên cứu, khám phá và phân tích song song cho các tác
-    nhân phụ
--   Với những vấn đề phức tạp, hãy phân bổ thêm năng lực tính toán thông
-    qua các tác nhân phụ
--   Mỗi tác nhân phụ chỉ đảm nhận một nhiệm vụ để thực thi tập trung
+## #2. Chiến lược phân tách nhiệm vụ (Subagent & Modular Execution)
 
-## #3. Vòng lặp tự cải thiện
+- Sử dụng các tác nhân phụ (subagents) cho các công việc nghiên cứu, đọc tài liệu, đối chiếu mô hình hoặc phân tích song song để giữ ngữ cảnh chính tập trung.
+- Mỗi tác vụ chỉ giải quyết một mục tiêu cụ thể (ví dụ: tối ưu truy vấn Mongoose, bổ sung validator, cập nhật giao diện component).
+- Đảm bảo tính độc lập và toàn vẹn của từng tầng: Controller mỏng, Service dày, Model chặt chẽ.
 
--   Sau **BẤT KỲ** sự sửa lỗi nào từ người dùng: cập nhật
-    `tasks/lessons.md` với dạng lỗi đó
--   Viết các quy tắc cho chính mình để ngăn lỗi tương tự lặp lại
--   Kiên trì lặp lại dựa trên những bài học này cho đến khi tỷ lệ mắc
-    lỗi giảm xuống
--   Xem lại các bài học khi bắt đầu phiên làm việc để tìm thông tin liên
-    quan đến dự án
+## #3. Vòng lặp tự cải thiện & Truy vết bài học (Self-Improvement Loop)
 
-## #4. Xác minh trước khi hoàn tất
+- Khi phát hiện lỗi hoặc người dùng sửa chữa: Ghi nhận dạng lỗi vào nhật ký theo dõi hoặc tài liệu bài học kinh nghiệm.
+- Thiết lập quy tắc kiểm tra để ngăn chặn lỗi tương tự lặp lại (ví dụ: không bao giờ để lộ trường `isCorrect` về client khi thi, luôn kiểm tra `tokenVersion`).
+- Thường xuyên rà soát lại các quy tắc cốt lõi khi bắt đầu phiên làm việc mới.
 
--   Không bao giờ đánh dấu một tác vụ là hoàn tất nếu chưa chứng minh
-    rằng nó hoạt động
--   Khi phù hợp, so sánh hành vi giữa phiên bản chính và các thay đổi
-    của bạn
--   Tự hỏi: **"Một kỹ sư cấp cao có phê duyệt việc này không?"**
--   Chạy thử nghiệm, kiểm tra nhật ký và chứng minh tính chính xác
+## #4. Xác minh trước khi hoàn tất (Verification Before Done)
 
-## #5. Yêu cầu sự tinh tế (Cân bằng)
+- **Tuyệt đối không** đánh dấu một tác vụ là hoàn thành nếu chưa chứng minh nó hoạt động chính xác.
+- Luôn kiểm chứng:
+  1. Tính đúng đắn của logic nghiệp vụ (Auth, RBAC 4 vai trò, sinh mã đề, tính điểm, xuất Excel).
+  2. Tính tương thích ngược với dữ liệu cũ (ví dụ: các trường mới như `extraDepartmentIds`, `allowCommonCompensation`, `departmentScope`).
+  3. Kiểm tra nhật ký kiểm toán (`AuditLog`) và đảm bảo không có rò rỉ lỗi hay stack trace ở môi trường production.
+- Tự phản biện theo tiêu chuẩn kỹ sư cấp cao: *"Giải pháp này có an toàn, tối ưu và bảo mật trong môi trường quân đội Z176 hay không?"*
 
--   Với những thay đổi không đơn giản: hãy dừng lại và hỏi **"Có cách
-    nào tinh tế hơn không?"**
--   Nếu một bản sửa lỗi có vẻ chắp vá: **"Với tất cả những gì tôi biết
-    hiện tại, hãy triển khai giải pháp tinh tế"**
--   Bỏ qua bước này với những bản sửa lỗi đơn giản, hiển nhiên --- đừng
-    thiết kế quá mức cần thiết
--   Tự phản biện công việc của mình trước khi trình bày
+## #5. Yêu cầu sự tinh tế & Cân bằng (Elegance & Simplicity)
 
-## #6. Tự chủ sửa lỗi
+- Với những thay đổi phức tạp: Tìm giải pháp tinh tế, rõ ràng, tận dụng triệt để kiến trúc hiện có (ví dụ: dùng chung hàm xử lý import thay vì viết lặp mã).
+- Tránh thiết kế dư thừa (over-engineering) cho những yêu cầu đơn giản.
+- Giữ mã nguồn sạch, có chú thích bằng tiếng Việt chuẩn mực, tôn trọng coding style hiện tại của dự án.
 
--   Khi nhận được báo cáo lỗi: hãy sửa ngay. Đừng yêu cầu người dùng
-    hướng dẫn từng bước
--   Dựa vào nhật ký, lỗi và các bài kiểm tra thất bại --- sau đó giải
-    quyết chúng
--   Người dùng không cần phải chuyển đổi ngữ cảnh
--   Tự sửa các bài kiểm tra CI thất bại mà không cần được chỉ dẫn cách
-    làm
+## #6. Tự chủ sửa lỗi (Autonomous Bug Fixing)
 
-## Quản lý tác vụ
+- Khi gặp mã lỗi API hoặc lỗi kiểm thử: Dựa trực tiếp vào error code, log và cấu trúc dữ liệu để tìm nguyên nhân gốc rễ (Root Cause Analysis).
+- Khắc phục triệt để, không dùng các bản vá tạm thời (hotfix chắp vá).
+- Đảm bảo luồng xử lý lỗi trả về đúng cấu trúc `{ success: false, message, code }` theo chuẩn `ApiError`.
 
-1.  **Lập kế hoạch trước:** Viết kế hoạch vào `tasks/todo.md` với các
-    mục có thể kiểm tra
-2.  **Xác minh kế hoạch:** Kiểm tra lại trước khi bắt đầu triển khai
-3.  **Theo dõi tiến độ:** Đánh dấu các mục đã hoàn tất trong quá trình
-    thực hiện
-4.  **Giải thích thay đổi:** Tóm tắt ở cấp độ cao tại mỗi bước
-5.  **Ghi lại kết quả:** Thêm phần đánh giá vào `tasks/todo.md`
-6.  **Ghi nhận bài học:** Cập nhật `tasks/lessons.md` sau khi sửa lỗi
+---
+
+## Quản lý tác vụ & Quy trình triển khai
+
+1. **Lập kế hoạch trước**: Xác định rõ các file cần chỉnh sửa và phạm vi ảnh hưởng.
+2. **Kiểm tra ràng buộc**: Đối chiếu với 6 nguyên tắc cứng trong [`SKILLS.md`](file:///d:/code%20file/Z176-main/SKILLS.md).
+3. **Thực hiện thay đổi**: Tác động tối thiểu, chỉ sửa những gì cần thiết.
+4. **Kiểm thử & Xác minh**: Chạy thử luồng nghiệp vụ hoặc kiểm tra cú pháp mã nguồn.
+5. **Ghi nhận & Cập nhật tài liệu**: Đồng bộ hóa tài liệu đặc tả ([`BRS_SRS_Module_Thi_Chuyen_Mon_Z176.md`](file:///d:/code%20file/Z176-main/BRS_SRS_Module_Thi_Chuyen_Mon_Z176.md), [`SECURITY_BASELINE.md`](file:///d:/code%20file/Z176-main/SECURITY_BASELINE.md), [`security_report.md`](file:///d:/code%20file/Z176-main/security_report.md)).
 
 ## Nguyên tắc cốt lõi
 
--   **Ưu tiên sự đơn giản:** Làm cho mọi thay đổi đơn giản nhất có thể.
-    Tác động đến ít mã nhất.
--   **Không lười biếng:** Tìm nguyên nhân gốc rễ. Không dùng các bản sửa
-    lỗi tạm thời. Tiêu chuẩn của kỹ sư cấp cao.
--   **Tác động tối thiểu:** Các thay đổi chỉ nên chạm đến những gì cần
-    thiết. Tránh đưa lỗi mới vào.
+- **Ưu tiên sự đơn giản**: Tác động đến ít mã nhất có thể nhưng giải quyết triệt để vấn đề.
+- **Không lười biếng**: Tìm nguyên nhân gốc rễ, tuân thủ tiêu chuẩn kỹ thuật cao cấp.
+- **An toàn & Bảo mật là tiên quyết**: Tuyệt đối bảo vệ đề thi, tài liệu nội bộ và tính công bằng của kỳ thi.
+

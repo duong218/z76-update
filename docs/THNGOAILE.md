@@ -29,7 +29,7 @@ Tài liệu này tổng hợp các tình huống ngoại lệ (edge cases) mà h
 
 **Tình huống:** Máy tính thí sinh bị treo, phải chuyển sang điện thoại, hoặc vô tình nhấn F5 reload trang trong lúc đang làm bài.
 
-**Cách khắc phục:** Hàm `startAttempt` kiểm tra: nếu đang có lượt thi `in_progress` còn hạn → **trả về đúng lượt thi đó** (`resumed: true`), không tạo lượt mới và không tốn lượt thi. Snapshot `AttemptQuestion` (thứ tự câu hỏi đã xáo) và `CandidateAnswer` (đáp án đã autosave) đều được giữ nguyên trên server → thí sinh mở lại từ bất kỳ thiết bị nào vẫn thấy đúng bài thi và đáp án đã chọn trước đó.
+**Cách khắc phục:** Hàm `startAttempt` kiểm tra: nếu đang có lượt thi `in_progress` còn hạn → **trả về đúng lượt thi đó** (`resumed: true`), không tạo lượt mới và không tốn lượt thi. Snapshot `AttemptQuestion` (thứ tự câu hỏi và đáp án đã xáo) và `CandidateAnswer` (đáp án đã autosave) đều được giữ nguyên trên server → thí sinh mở lại từ bất kỳ thiết bị nào vẫn thấy đúng bài thi và đáp án đã chọn trước đó.
 
 ---
 
@@ -53,18 +53,19 @@ Tài liệu này tổng hợp các tình huống ngoại lệ (edge cases) mà h
 
 ---
 
-### A6. Thí sinh bỏ thi / ngắt kết nối đột ngột
+### A6. Thí sinh bỏ thi / ngắt kết nối đột ngột (3 Tầng Bảo vệ Tự động nộp bài)
 
 **Tình huống:** Thí sinh tắt máy tính, mất điện, hoặc cố tình đóng trình duyệt để "câu giờ" không nộp bài.
 
-**Cách khắc phục:** Hệ thống dựng **2 lớp phòng thủ song song**:
+**Cách khắc phục:** Hệ thống dựng **3 tầng phòng thủ song song**:
 
-| Lớp | Vị trí | Thời gian | Cơ chế |
+| Tầng | Vị trí | Thời gian | Cơ chế |
 |---|---|---|---|
-| **Lớp 1** | Client (`ExamModal.jsx`) | 10 giây | Sự kiện `visibilitychange` / `blur` → hiện cảnh báo đếm ngược 10s → quá hạn tự gọi `submitAttempt` |
-| **Lớp 2** | Server (`checkAndAutoSubmitIfInactive`) | 60 giây | Kiểm tra `lastActiveAt` tại mọi API (`getMyExam`, `recordAnswer`, `heartbeat`) → nếu idle > 60s → cưỡng chế nộp bài, chấm điểm dựa trên `CandidateAnswer` đã autosave |
+| **Tầng 1** | Client (`ExamModal.jsx`) | 10 giây | Sự kiện `visibilitychange` / `blur` → hiện cảnh báo đếm ngược 10s → quá hạn tự gọi `submitAttempt` |
+| **Tầng 2** | Server Request Guard (`checkAndAutoSubmitIfInactive`) | 60 giây | Kiểm tra `lastActiveAt` tại mọi API (`getMyExam`, `recordAnswer`, `heartbeat`) → nếu idle > 60s → cưỡng chế nộp bài, chấm điểm dựa trên `CandidateAnswer` đã autosave |
+| **Tầng 3** | Background Cron (`abandoned-attempt.scheduler.js`) | 1 phút | Chạy mỗi phút (`* * * * *`), tự động quét và nộp tất cả bài thi `in_progress` bị treo mạng/ngắt máy quá 60s trong DB |
 
-Lớp 2 là lớp bảo vệ cốt lõi không thể bị vô hiệu hóa từ phía client (vì server tự tính thời gian dựa trên request).
+Lớp 2 và Lớp 3 là các lớp bảo vệ cốt lõi không thể bị vô hiệu hóa từ phía client.
 
 ---
 
@@ -97,23 +98,23 @@ Lớp 2 là lớp bảo vệ cốt lõi không thể bị vô hiệu hóa từ p
 
 ### A10. Import câu hỏi trùng lặp với ngân hàng hiện có
 
-**Tình huống:** File Excel chứa câu hỏi giống hệt câu đã có trong DB (do import lại file cũ, hoặc copy-paste nội dung).
+**Tình huống:** File Excel hoặc Word chứa câu hỏi giống hệt câu đã có trong DB (do import lại file cũ, hoặc copy-paste nội dung).
 
-**Cách khắc phục:** Hệ thống tải trước toàn bộ câu hỏi `isActive: true` vào `Set` (key = `topicId|scope|departmentId|normalizedContent`), so khớp từng dòng import:
+**Cách khắc phục:** Hệ thống tải trước toàn bộ câu hỏi `isActive: true` vào `Set` (key = `topicId|scope|departmentId|normalizedContent`), so khớp từng câu import:
 - Trùng → đưa vào danh sách `duplicates`, hiển thị ở bước preview để người dùng quyết định giữ/bỏ.
 - Không trùng → đưa vào `ready`.
-Tránh N+1 query bằng cách dùng `Set` thay vì query DB từng dòng.
+Tránh N+1 query bằng cách dùng `Set` thay vì query DB từng câu.
 
 ---
 
-### A11. Chặn xóa câu hỏi / chủ đề khi kỳ thi đang diễn ra
+### A11. Chặn thay đổi `usage` hoặc xóa câu hỏi khi kỳ thi đang diễn ra
 
-**Tình huống:** Examiner xóa câu hỏi thuộc chủ đề đang được kỳ thi `published` sử dụng. Dù câu hỏi đó không nằm trong đề đã sinh, nhưng nếu nhân viên mới được thêm vào → hệ thống cần tạo `ExamCode` mới và query lại `Question.isActive:true` → thiếu số lượng → lỗi `INSUFFICIENT_QUESTIONS`.
+**Tình huống:** Examiner đổi mục đích sử dụng (`usage` từ `exam` sang `practice`) hoặc xóa câu hỏi thuộc chủ đề đang được kỳ thi `published` sử dụng. Dù câu hỏi đó không nằm trong đề đã sinh, nhưng nếu nhân viên mới được thêm vào → hệ thống cần tạo `ExamCode` mới và query lại `Question.isActive:true` → thiếu số lượng → lỗi `INSUFFICIENT_QUESTIONS`.
 
 **Cách khắc phục:**
 - `deactivateQuestion` và `deactivateManyQuestions`: chặn **toàn bộ** câu hỏi thuộc chủ đề đang được kỳ thi `published` dùng (theo `topicId`), kèm thông báo rõ tên kỳ thi.
+- `updateQuestion`: chặn sửa trường `usage` nếu câu hỏi thuộc chủ đề có kỳ thi đang `published` (`QUESTION_USAGE_LOCKED`).
 - `deactivateTopic`: chặn xóa chủ đề nếu có `Exam` đang `published` tham chiếu `topicId` đó.
-- Xóa hàng loạt (`deactivateManyQuestions` với filters): nếu danh sách chứa câu hỏi từ nhiều chủ đề, chỉ **loại bỏ các câu thuộc chủ đề bị chặn** khỏi danh sách xóa, xóa phần còn lại và báo rõ bao nhiêu câu bị giữ lại.
 
 ---
 
@@ -131,23 +132,27 @@ Tránh N+1 query bằng cách dùng `Set` thay vì query DB từng dòng.
 
 **Tình huống:** Nhân viên đăng nhập ở 2 trình duyệt/thiết bị khác nhau → có thể nhờ người khác thi hộ ở thiết bị thứ 2.
 
-**Cách khắc phục:** Mỗi lần đăng nhập thành công, hàm `loginWithUsernamePassword` tự tăng `tokenVersion` → mọi access/refresh token đã cấp trước đó (ở phiên cũ) lập tức bị lệch `tv` so với DB → bị middleware `authenticate` từ chối với mã `AUTH_ACCESS_REVOKED` ở request kế tiếp. Client polling `tokenVersion` mỗi 5 giây phát hiện phiên bị thu hồi và hiện modal `SessionRevokedModal`.
+**Cách khắc phục:** Mỗi lần đăng nhập thành công, hàm `loginWithUsernamePassword` tự tăng `tokenVersion` → mọi access/refresh token đã cấp trước đó (ở phiên cũ) lập tức bị lệch `tv` so với DB → bị middleware `authenticate` từ chối với mã `AUTH_ACCESS_REVOKED` ở request kế tiếp. Client polling hoặc nhận diện mã lỗi lập tức bật `SessionRevokedModal`.
 
 ---
 
-### A14. Khóa tài khoản khi đăng nhập sai nhiều lần
+### A14. Khóa tài khoản khi đăng nhập sai nhiều lần & Rate Limit theo IP + Username
 
 **Tình huống:** Tấn công brute-force mật khẩu, hoặc nhân viên quên mật khẩu bấm thử nhiều lần.
 
-**Cách khắc phục:** Hàm `registerFailedLogin` đếm `failedLoginAttempts`: khi vượt `accountLockMaxAttempts` → gán `lockUntil` (thời gian khóa tạm = `accountLockMinutes` phút) → lần đăng nhập tiếp theo bị chặn với mã `AUTH_LOCKED` (HTTP 423). Đăng nhập thành công sẽ reset bộ đếm về 0.
+**Cách khắc phục:** 
+- Middleware `loginRateLimiter` đánh dấu khóa theo `${req.ip}|${username}` với `skipSuccessfulRequests: true` (chỉ tính lần nhập sai).
+- Hàm `registerFailedLogin` đếm `failedLoginAttempts`: khi vượt `accountLockMaxAttempts` → gán `lockUntil` (thời gian khóa tạm 15 phút) → lần đăng nhập tiếp theo bị chặn với mã `AUTH_LOCKED` (HTTP 423). Đăng nhập thành công sẽ reset bộ đếm về 0.
 
 ---
 
-### A15. Bù đắp câu hỏi riêng từ pool chung khi thiếu (Smart Fallback)
+### A15. Bù đắp câu hỏi riêng có điều kiện (`allowCommonCompensation`)
 
 **Tình huống:** Phòng ban X cần 5 câu riêng nhưng ngân hàng chỉ có 3 câu riêng → nếu chặn hẳn thì cả kỳ thi không publish được chỉ vì 1 phòng ban thiếu 2 câu riêng.
 
-**Cách khắc phục:** `validateQuestionAvailability` trong `exam-code-generation.service.js` tự động bù 2 câu thiếu từ pool câu hỏi Chung (`commonPickCount = commonQuestionCount + shortfall`). Chỉ ném lỗi khi **tổng 2 pool (Chung + Riêng)** vẫn không đủ tổng số câu của đề thi.
+**Cách khắc phục:** `validateQuestionAvailability` trong `exam-code-generation.service.js` kiểm tra cờ cấu hình `allowCommonCompensation`:
+- Nếu `allowCommonCompensation === true`: Tự động bù 2 câu thiếu từ pool câu hỏi Chung (`commonPickCount = commonQuestionCount + shortfall`). Chỉ ném lỗi khi **tổng 2 pool (Chung + Riêng)** vẫn không đủ tổng số câu của đề thi.
+- Nếu `allowCommonCompensation === false`: Chặn lại ngay lập tức và ném lỗi `INSUFFICIENT_DEPARTMENT_QUESTIONS`, yêu cầu bổ sung câu hỏi riêng đúng theo quy chuẩn.
 
 ---
 
@@ -161,190 +166,104 @@ Tránh N+1 query bằng cách dùng `Set` thay vì query DB từng dòng.
 
 ### A17. File tạm import bị bỏ dở không dọn (Upload Cleanup Scheduler)
 
-**Tình huống:** Người dùng upload file Excel import, xem preview rồi đóng tab/đổi ý → file tạm nằm lại trên đĩa vĩnh viễn.
+**Tình huống:** Người dùng upload file Excel hoặc Word import, xem preview rồi đóng tab/đổi ý → file tạm nằm lại trên đĩa vĩnh viễn.
 
 **Cách khắc phục:** Scheduler `upload-cleanup.scheduler.js` chạy mỗi giờ, xóa file tạm trong `uploadDir` cũ hơn 6 tiếng. Ghi audit log `UPLOAD_TMP_CLEANUP` để truy vết. Chạy ngay 1 lần lúc server khởi động để dọn rác tồn đọng.
 
 ---
 
-### A18. Audit log bị ghi trùng 2 dòng cho cùng 1 hành động
+### A18. Race Condition & Xung đột khi Publish kỳ thi (`publishLockedAt` & Single Published Exam)
 
-**Tình huống:** Cả service (vd `createUser`) lẫn controller (vd `user.controller.js`) cùng ghi audit log → mỗi lần tạo tài khoản bị ghi 2 dòng log (1 dòng có chi tiết từ controller, 1 dòng từ service không có metadata).
-
-**Cách khắc phục:** Loại bỏ audit log khỏi tầng service, chỉ giữ ở controller (nơi có đủ context: action chuẩn, `metadata.detail`, `ipAddress`). Ghi chú rõ trong code "*Audit: KHÔNG ghi ở đây nữa*" để tránh lặp lại lỗi.
-
----
-
-### A19. Import Excel với cột tiếng Việt có dấu / không dấu / hoa-thường
-
-**Tình huống:** File Excel có tiêu đề cột "Chủ đề", "CHU DE", "chude", "Chủ Đề" → hệ thống cần nhận diện tất cả đều là cùng 1 cột.
-
-**Cách khắc phục:** Hàm `normalizeKey` trong `question.service.js` và `user.service.js`:
-1. Lowercase → thay `đ` thành `d` (vì `normalize('NFD')` không tách được chữ đ) → `normalize('NFD')` bỏ dấu → loại khoảng trắng.
-2. Map enum (`DIFFICULTY_MAP`, `KIND_MAP`, `SCOPE_MAP`) được build bằng `buildNormalizedMap` với cùng hàm `normalizeKey`, đảm bảo key từ Excel luôn khớp key trong map.
-
----
-
-### A20. Xóa ảnh Cloudinary lỗi không chặn luồng cập nhật câu hỏi
-
-**Tình huống:** Examiner đổi ảnh câu hỏi → cần xóa ảnh cũ trên Cloudinary. Nếu Cloudinary API bị timeout hoặc ảnh đã bị xóa tay từ trước → không được chặn việc cập nhật câu hỏi trong DB.
-
-**Cách khắc phục:** Hàm `deleteQuestionImage` bọc `cloudinary.uploader.destroy` trong try-catch, chỉ `console.error` nếu lỗi, không throw.
-
----
-
-### A21. Path Traversal khi confirm import bằng token
-
-**Tình huống:** Client gửi token import dạng `../../etc/passwd` → đọc file ngoài thư mục upload.
-
-**Cách khắc phục:** Hàm `resolveImportTokenPath` lấy `path.basename(token)` và kiểm tra `safe !== token` → từ chối nếu token chứa bất kỳ ký tự đường dẫn nào (`/`, `\`, `..`).
-
----
-
-### A22. Rate Limiting theo userId thay vì IP — tránh chặn nhầm phòng thi lớn
-
-**Tình huống:** Trong phòng thi lớn (50–100+ thí sinh cùng mạng LAN công ty), tất cả thí sinh đều chia sẻ chung 1 IP công cộng (NAT). Rate limiter mặc định (`express-rate-limit`) đếm theo IP → heartbeat mỗi 15s + autosave mỗi lần đổi đáp án từ hàng chục thí sinh cộng dồn vào **cùng 1 bộ đếm** → dễ chạm giới hạn 100 req/phút/IP → một số thí sinh bị từ chối tạm thời (HTTP 429) dù hành vi cá nhân hoàn toàn hợp lệ.
-
-**Cách khắc phục:** Middleware `examAttemptRateLimiter` trong `rate-limit.middleware.js` sử dụng `keyGenerator: (req) => req.auth?.userId ?? req.ip` — đếm rate limit theo **userId** thay vì IP. Vì hệ thống chỉ cho phép 1 phiên đăng nhập/tài khoản tại 1 thời điểm (xem A13 — `tokenVersion`), `userId` là định danh ổn định và duy nhất cho mỗi thí sinh → mỗi người có bộ đếm riêng, không bị ảnh hưởng bởi người khác cùng mạng. Fallback về `req.ip` khi chưa có `req.auth` (phòng trường hợp thứ tự middleware bị đổi trong tương lai, dù `examAttemptRateLimiter` luôn đặt sau `authenticate` trên route).
-
----
-
-### A23. Tự động xóa cứng tài khoản bị khóa liên tục quá 6 tháng (Account Purge Scheduler)
-
-**Tình huống:** Tài khoản nhân viên đã nghỉ việc bị khóa lâu ngày tích tụ làm tăng dung lượng cơ sở dữ liệu. Tuy nhiên, nếu xóa cứng bừa bãi sẽ làm mồ côi hoặc gãy liên kết dữ liệu lịch sử thi cử (`ExamCandidate`) và nhật ký hệ thống (`AuditLog`).
+**Tình huống:** 2 cán bộ quản lý (Leader) cùng bấm "Đăng chính thức" cho 2 kỳ thi khác nhau tại cùng 1 giây, hoặc một người click đúp chuột gửi 2 request publish đồng thời.
 
 **Cách khắc phục:**
-- Khi khóa tài khoản (`toggleUserLock`), hệ thống ghi nhận thời điểm khóa vào trường `User.lockedAt`. Nếu tài khoản được mở khóa, `lockedAt` được xóa về `undefined` (đảm bảo đồng hồ 6 tháng tự động reset nếu bị khóa lại).
-- Scheduler `account-purge.scheduler.js` chạy lúc **04:00 hàng ngày** gọi `purgeExpiredLockedAccounts`:
-  1. Lọc các tài khoản `isActive: false` và có `lockedAt <= now - 6 tháng` liên tục.
-  2. Kiểm tra dấu vết lịch sử (`hasHistoricalFootprint`): Nếu tài khoản **đã từng tham gia kỳ thi** (`ExamCandidate > 0`) hoặc **từng là actor trong nhật ký hệ thống** (`AuditLog > 0`) → **Tuyệt đối không xóa**, giữ lại vĩnh viễn để bảo vệ tính toàn vẹn báo cáo/kiểm toán.
-  3. Chỉ xóa cứng cả `User` và `Employee` đối với tài khoản không có vết lịch sử, đồng thời ghi 1 dòng audit log tổng hợp `ACCOUNT_PURGE_AUTO` để truy vết.
-  4. Các tài khoản khóa từ trước khi có tính năng này (`lockedAt` là `null`) sẽ được giữ an toàn, không xóa tự động.
+1. **Khóa chống click đúp / Concurrency lock**: Trước khi bắt đầu sinh đề, hệ thống cập nhật `publishLockedAt = new Date()`. Nếu request khác đến trong vòng 5 phút khi khóa chưa được giải phóng, hệ thống từ chối ngay với mã `PUBLISH_IN_PROGRESS`.
+2. **Quy tắc Single Active Exam**: Index partial unique `uniq_single_published_exam` trên CSDL MongoDB đảm bảo chỉ duy nhất 1 kỳ thi ở trạng thái `published`.
+3. **Cơ chế Force Override & Tự động Archive**: Khi publish kỳ thi mới, kỳ thi cũ tự động chuyển sang `archived`. Nếu có thí sinh đang thi trong kỳ thi cũ, hệ thống cung cấp API kiểm tra tác động (`/publish-impact`) và yêu cầu xác nhận `force: true`.
+
+---
+
+### A19. Import Excel & Word với tiêu đề cột tiếng Việt linh hoạt
+
+**Tình huống:** File import có tiêu đề cột "Chủ đề", "CHU DE", "chude", "Chủ Đề", hoặc định dạng Word có khoảng trắng/chữ hoa chữ thường.
+
+**Cách khắc phục:** Hàm `normalizeKey` loại bỏ dấu tiếng Việt (thay `đ` -> `d`), chuyển chữ thường, bỏ khoảng trắng. Map enum được build bằng `buildNormalizedMap` đảm bảo khớp chuẩn xác.
+
+---
+
+### A20. Rate Limiting theo `userId` thay vì IP trong Phòng thi
+
+**Tình huống:** Trong phòng thi lớn (50–100+ thí sinh cùng mạng LAN công ty), tất cả thí sinh đều chia sẻ chung 1 IP công cộng (NAT). Rate limiter mặc định đếm theo IP khiến hàng trăm thí sinh gửi heartbeat và autosave cộng dồn vào cùng 1 bộ đếm → bị chặn nhầm 429.
+
+**Cách khắc phục:** `examAttemptRateLimiter` sử dụng `keyGenerator: (req) => req.auth?.userId ?? req.ip` — đếm rate limit theo **userId** (mỗi thí sinh 100 req/phút), không bị ảnh hưởng bởi người khác cùng mạng.
+
+---
+
+### A21. Tự động xóa cứng tài khoản bị khóa liên tục quá 6 tháng (Account Purge Scheduler)
+
+**Tình huống:** Tài khoản nhân viên đã nghỉ việc bị khóa lâu ngày tích tụ làm tăng dung lượng CSDL nhưng không thể xóa bừa bãi làm mất dữ liệu lịch sử thi cử và kiểm toán.
+
+**Cách khắc phục:** Scheduler `account-purge.scheduler.js` chạy lúc **04:00 hàng ngày**:
+1. Lọc các tài khoản `isActive: false` và có `lockedAt <= now - 6 tháng` liên tục.
+2. Kiểm tra dấu vết lịch sử (`hasHistoricalFootprint`): Nếu tài khoản **đã từng tham gia kỳ thi** (`ExamCandidate > 0`) hoặc **từng ghi audit log** (`AuditLog > 0`) → **Tuyệt đối không xóa**, giữ lại vĩnh viễn để bảo vệ tính toàn vẹn báo cáo.
+3. Chỉ xóa cứng tài khoản không có vết lịch sử, ghi 1 dòng audit log tổng hợp `ACCOUNT_PURGE_AUTO`.
+
+---
+
+### A22. Xử lý Nhân sự Kiêm nhiệm nhiều Phòng ban (`extraDepartmentIds`)
+
+**Tình huống:** Một nhân viên thuộc biên chế Xưởng Cơ khí nhưng kiêm nhiệm Tổ An toàn. Khi tham gia kỳ thi chuyên môn, hệ thống không biết nên lấy đề thi theo phòng ban nào.
+
+**Cách khắc phục:**
+1. Model `Employee` hỗ trợ trường `extraDepartmentIds` lưu danh sách phòng ban kiêm nhiệm.
+2. Khi mở phòng thi, nếu nhân viên kiêm nhiệm chưa được xác nhận phòng ban thi (`roleConfirmedAt = null`), giao diện hiển thị Modal yêu cầu chọn phòng ban dự thi.
+3. Khi bắt đầu làm bài, trường `ExamAttempt.departmentId` được sao chép và đóng băng vĩnh viễn theo phòng ban đã chọn để đảm bảo chấm điểm và thống kê chính xác tuyệt đối.
 
 ---
 
 ## PHẦN B — HẠN CHẾ HIỆN TẠI CỦA DỰ ÁN
 
-### B1. Chỉ hỗ trợ tối đa 1 kỳ thi `published` tại 1 thời điểm
+### B1. Tổ chức Kỳ thi Độc quyền (Single Active Exam Policy)
 
-Hệ thống thiết kế "**single active exam**": khi publish kỳ thi mới, tất cả kỳ thi `published` trước đó tự động chuyển sang `archived`. Các API phòng thi (`resolveCandidateContext`) luôn query `Exam.findOne({ status: 'published' })`.
+Hệ thống thiết kế theo cơ chế một thời điểm chỉ có tối đa 1 kỳ thi ở trạng thái `published`. Khi phát hành kỳ thi mới, kỳ thi cũ tự động lưu trữ (`archived`).
 
-**Hệ quả:** Không thể tổ chức 2 kỳ thi song song (ví dụ An toàn Lao động cho Xưởng 1 và Kiểm tra Chuyên môn cho Phòng Kỹ thuật cùng lúc).
+**Hệ quả:** Chưa thể tổ chức song song 2 kỳ thi độc lập tại cùng một thời điểm (ví dụ kỳ thi Kiểm tra Tay nghề Xưởng 1 và kỳ thi PCCC Khối Văn phòng cùng diễn ra trong một ngày).
 
 ---
 
-### B2. Không có hệ thống WebSocket / Real-time
+### B2. Giao tiếp dựa trên Polling (Chưa có WebSocket Real-time)
 
 Hệ thống hiện dùng **HTTP polling** (client gọi API định kỳ) thay vì WebSocket:
 - Client polling `tokenVersion` mỗi 5 giây để phát hiện phiên bị thu hồi.
 - Thông báo (Notification) cần refresh trang hoặc chờ polling để hiển thị.
 
-**Hệ quả:** Độ trễ phản hồi lên tới 5 giây khi phiên bị thu hồi. Không có push notification tức thì.
+**Hệ quả:** Độ trễ phản hồi lên tới vài giây khi phiên bị thu hồi. Chưa có tính năng đẩy tin nhắn tức thì (Push notification).
 
 ---
 
-### B3. Không có Transaction MongoDB (Atomicity hạn chế)
+### B3. Không sử dụng MongoDB Transaction (Atomicity dựa trên Service)
 
-Các thao tác liên quan nhiều collection (tạo User + Employee + gán ExamCandidate, hoặc publish kỳ thi tạo ExamCode + ExamCodeQuestion + ExamCandidate) được thực hiện **tuần tự** mà không gói trong MongoDB Transaction. Nếu lỗi xảy ra giữa chừng:
-- Tạo User thành công nhưng Employee lỗi → có rollback thủ công `User.deleteOne`.
-- Publish kỳ thi lỗi giữa chừng → có cơ chế idempotent recovery (Mục A2) nhưng **không rollback tự động** dữ liệu đã ghi.
+Do hệ thống hướng tới khả năng triển khai linh hoạt trên các cụm MongoDB đơn lẻ (Standalone MongoDB) không bắt buộc Replica Set, các thao tác ghi dữ liệu nhiều bước (như Publish Exam tạo ExamCode + ExamCandidate) được bảo vệ bằng cơ chế **Idempotent Recovery** thay vì MongoDB Multi-document Transactions.
 
-**Hệ quả:** Trong trường hợp hiếm gặp (crash server giữa lúc ghi), có thể tồn tại dữ liệu mồ côi cần xử lý thủ công.
+**Hệ quả:** Trong trường hợp hi hữu server bị mất điện đúng tích tắc đang ghi CSDL, có thể tồn tại bản ghi mồ côi cần Leader bấm publish lại để hệ thống tự động hoàn tất.
 
 ---
 
-### B4. Chỉ xóa mềm các thực thể nghiệp vụ (Phòng ban, Chủ đề, Câu hỏi)
+### B4. Cơ chế Xóa mềm Danh mục Nghiệp vụ
 
-Đối với các thực thể cốt lõi như Phòng ban (`Department`), Chủ đề (`Topic`), và Câu hỏi (`Question`), hệ thống chỉ hỗ trợ xóa mềm (`isActive: false`) để bảo toàn tính toàn vẹn tham chiếu với các đề thi đã phát hành và kết quả thi trong quá khứ. Chưa có công cụ quản trị (Purge Tool) để xóa cứng các danh mục này. (Riêng tài khoản người dùng đã có cơ chế tự động dọn dẹp an toàn sau 6 tháng khóa — xem Mục A23).
-
-**Hệ quả:**
-- Các danh mục câu hỏi, chủ đề, phòng ban đã xóa mềm vẫn chiếm dung lượng và tồn tại trong cơ sở dữ liệu.
-- Ràng buộc duy nhất (Unique index) trên trường như `slug` (Department) hoặc `name` (Topic) vẫn lưu giữ bản ghi cũ → khi tạo mới trùng tên, hệ thống phải kích hoạt luồng "khôi phục" thay vì tạo bản ghi hoàn toàn mới.
+Đối với Phòng ban (`Department`), Chủ đề (`Topic`), và Câu hỏi (`Question`), hệ thống áp dụng cơ chế xóa mềm (`isActive: false`) để bảo toàn tính toàn vẹn tham chiếu với các đề thi đã phát hành và kết quả thi trong quá khứ. Chưa có công cụ quản trị (Purge Tool) để xóa cứng các danh mục này.
 
 ---
 
-### B5. Backup / Restore phụ thuộc hoàn toàn vào công cụ bên ngoài
+### B5. Sao lưu Phụ thuộc Công cụ Hệ điều hành & Google Drive
 
-- **mongodump / mongorestore** phải được cài sẵn trên server (`mongodb-database-tools`). Nếu chưa cài → API backup trả lỗi `BACKUP_TOOL_NOT_FOUND`.
-- **Google Drive** lưu bản backup qua OAuth2 cá nhân (không phải Service Account do hạn chế quota Drive cá nhân). Refresh token có thể hết hạn nếu Google thu hồi quyền truy cập hoặc không sử dụng trong thời gian dài.
-- Restore (`--drop`) **xóa toàn bộ dữ liệu hiện tại** trước khi khôi phục → không có cơ chế merge hoặc partial restore.
-
----
-
-### B6. Lưu trữ ảnh câu hỏi phụ thuộc Cloudinary (dịch vụ bên ngoài)
-
-Ảnh câu hỏi được upload lên Cloudinary. Nếu Cloudinary gặp sự cố hoặc tài khoản bị khóa:
-- Upload ảnh mới sẽ thất bại.
-- Ảnh hiện có vẫn hiển thị được (đã lưu URL tĩnh).
-- Xóa ảnh cũ lỗi được nuốt im lặng, không ảnh hưởng luồng cập nhật câu hỏi (Mục A20).
-
-**Hệ quả:** Không có bản sao ảnh nội bộ. Nếu mất truy cập Cloudinary, toàn bộ ảnh câu hỏi sẽ không hiển thị được.
+- **mongodump / mongorestore** phải được cài sẵn trên server (`mongodb-database-tools`).
+- **Google Drive** lưu bản backup qua OAuth2 cá nhân. Refresh token cần được quản lý định kỳ để tránh hết hạn.
+- Khôi phục dữ liệu (`mongorestore --drop`) sẽ ghi đè toàn bộ dữ liệu CSDL hiện tại.
 
 ---
 
-### B7. Heartbeat và Timeout dựa trên đồng hồ server (không đồng bộ client)
+### B6. Ảnh câu hỏi phụ thuộc Dịch vụ Cloudinary
 
-- `lastActiveAt` được gán `new Date()` ở **phía server**, không dùng timestamp từ client.
-- `INACTIVITY_TIMEOUT_MS = 60_000` (1 phút) là hằng số cứng, không cấu hình qua giao diện.
+Ảnh câu hỏi được lưu trữ đám mây trên Cloudinary (dù tài liệu ôn tập PDF/Word được lưu an toàn trên ổ đĩa server nội bộ). Nếu mất kết nối Internet quốc tế tới Cloudinary, ảnh câu hỏi có thể tải chậm hoặc không hiển thị được.
 
-**Hệ quả:**
-- Nếu thí sinh có mạng rất chậm (latency > 15s), heartbeat có thể tới server muộn → server tính `idleMs` dài hơn thực tế → có thể bị auto-submit sớm hơn mong muốn (trường hợp cực kỳ hiếm).
-- Admin không thể điều chỉnh timeout qua giao diện mà phải sửa code.
-
----
-
-### B8. Không hỗ trợ thi thử (Practice Mode)
-
-Model `ExamAttempt` có trường `attemptType` với giá trị `official` và `practice`, nhưng hiện tại **chỉ xử lý** `official`. Không có API hay giao diện cho chế độ thi thử.
-
-**Hệ quả:** Thí sinh không có cách luyện tập trước khi thi chính thức trong hệ thống.
-
----
-
-### B9. Thiếu cơ chế tự động kết thúc kỳ thi khi hết hạn (`endDate`)
-
-Kỳ thi có `startDate` và `endDate` nhưng hệ thống **không có** scheduler tự động chuyển trạng thái từ `published` sang `archived` khi `endDate` đã qua. Kỳ thi chỉ kết thúc khi Leader chủ động publish kỳ thi mới (kỳ thi cũ bị archive), hoặc thao tác thủ công.
-
-**Hệ quả:** Kỳ thi có thể "mở" vô thời hạn dù `endDate` đã qua, cho tới khi Leader can thiệp.
-
----
-
-### B10. Phân trang (Pagination) chỉ hỗ trợ offset-based
-
-API danh sách câu hỏi (`listQuestions`) sử dụng `skip(offset).limit(pageSize)`. Khi dataset lớn (hàng chục nghìn câu hỏi), MongoDB phải duyệt qua toàn bộ offset trước khi trả kết quả → hiệu năng giảm ở các trang cuối.
-
-**Hệ quả:** Chưa ảnh hưởng ở quy mô hiện tại (nhà máy Z176), nhưng có thể gặp vấn đề nếu mở rộng cho nhiều đơn vị hoặc tích lũy dữ liệu lâu dài.
-
----
-
-### B11. Không có phân quyền chi tiết theo phòng ban cho Examiner
-
-Mọi Examiner đều có thể tạo, sửa, xóa câu hỏi **bất kỳ phòng ban nào** (không giới hạn theo phòng ban mà Examiner quản lý). Tương tự, Examiner có thể tạo đề xuất kỳ thi cho bất kỳ chủ đề nào.
-
-**Hệ quả:** Phù hợp với quy mô nhỏ (1 Examiner quản lý toàn bộ ngân hàng câu hỏi), nhưng thiếu cơ chế kiểm soát khi có nhiều Examiner thuộc nhiều phòng ban khác nhau.
-
----
-
-### B12. Không hỗ trợ câu hỏi tự luận hoặc media ngoài ảnh tĩnh
-
-Hệ thống chỉ hỗ trợ câu hỏi trắc nghiệm:
-- **Đơn đáp án** (`single`): Chọn đúng 1 đáp án đúng.
-- **Nhiều đáp án** (`multiple`): Chọn đúng và đủ tất cả đáp án đúng.
-
-Không hỗ trợ: câu hỏi tự luận, câu hỏi kéo-thả, câu hỏi sắp xếp thứ tự, hoặc câu hỏi có video/audio đính kèm.
-
----
-
-### B13. Mật khẩu tạm 6 chữ số (độ an toàn thấp cho giai đoạn chuyển giao)
-
-Mật khẩu tạm sinh bằng `crypto.randomInt(100000, 999999)` — chỉ 6 chữ số, dễ gõ nhưng không mạnh. Thí sinh bắt buộc phải đổi mật khẩu lần đầu đăng nhập (`mustChangePassword`), nhưng nếu file Excel xuất danh sách tài khoản (`exportCandidateCredentialsExcel`) bị lộ trước khi nhân viên đổi mật khẩu → toàn bộ tài khoản trong file bị lộ.
-
-**Hệ quả:** Cần bảo mật chặt chẽ file Excel chứa mật khẩu tạm (đã có cảnh báo trong file xuất).
-
----
-
-### B14. Không có log truy cập hệ thống (Access Log) chi tiết
-
-Audit log chỉ ghi các hành động nghiệp vụ (tạo tài khoản, xóa câu hỏi, backup...). Không ghi log truy cập HTTP chi tiết (IP, User-Agent, thời gian phản hồi, status code) cho mọi request.
-
-**Hệ quả:** Khó truy vết khi cần điều tra sự cố bảo mật hoặc phân tích hiệu năng. Có thể bổ sung bằng reverse proxy (Nginx access log) nhưng chưa tích hợp sẵn.

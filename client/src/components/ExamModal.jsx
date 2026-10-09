@@ -179,6 +179,12 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
   const [autoSubmitResult, setAutoSubmitResult] = useState(null);
 
   const finishingRef = useRef(false);
+
+  // Chặn bấm đúp / 2 request /start chạy song song (mỗi request có thể tạo 1 lượt thi riêng).
+
+  const startingRef = useRef(false);
+
+  const [starting, setStarting] = useState(false);
   // Giữ attemptId mới nhất trong ref để heartbeat/interval luôn đọc đúng giá
   // trị hiện tại mà không phải dựng lại interval mỗi lần state đổi.
   const attemptIdRef = useRef(null);
@@ -249,6 +255,9 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
       onOpenLogin();
       return;
     }
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setStarting(true);
     try {
       setSubmitError(null);
       // Vai trò đã khóa thì không gửi lại; chưa khóa thì gửi vai trò thí sinh đang chọn để backend xác nhận & khóa.
@@ -270,6 +279,9 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
       setStep('testing');
     } catch (err) {
       setSubmitError(err?.message || 'Không thể bắt đầu lượt thi.');
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
     }
   };
 
@@ -585,7 +597,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto"
       data-lenis-prevent
     >
-      <div className="bg-white w-full max-w-2xl rounded-[10px] shadow-2xl overflow-hidden border border-slate-200 my-auto flex flex-col max-h-[92dvh] relative">
+      <div className="bg-white w-full max-w-2xl rounded-[10px] shadow-2xl overflow-hidden border border-slate-200 my-auto flex flex-col max-h-[92vh] supports-[height:100dvh]:max-h-[92dvh] relative">
         {/* Overlay cảnh báo rời màn hình thi — chỉ hiện khi đang testing và
             phát hiện tab/app bị chuyển. Che toàn bộ modal, không cho tương
             tác gì khác cho tới khi quay lại hoặc hết giờ. */}
@@ -870,11 +882,11 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
             ) : (
               <button
                 onClick={handleStartExam}
-                disabled={!employee || (examData?.role && (!examData.role.departmentId || examData.role.hasEligibleRole === false))}
+                disabled={starting || !employee || (examData?.role && (!examData.role.departmentId || examData.role.hasEligibleRole === false))}
                 className="w-full min-h-[52px] bg-[#008BC5] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-lg rounded-full hover:bg-[#007ba1] transition-colors flex items-center justify-center gap-2 shadow-z176 min-touch-target"
               >
                 <CheckCircle2 className="w-6 h-6" />
-                <span>{examData?.attempt ? 'TIẾP TỤC BÀI THI ĐANG DỞ' : 'XÁC NHẬN & BẮT ĐẦU BÀI THI'}</span>
+                <span>{starting ? 'ĐANG VÀO BÀI THI...' : examData?.attempt ? 'TIẾP TỤC BÀI THI ĐANG DỞ' : 'XÁC NHẬN & BẮT ĐẦU BÀI THI'}</span>
               </button>
             )}
 
@@ -1030,12 +1042,6 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                   onCopy={handleBlockCopy}
                   style={{ WebkitUserSelect: 'none', userSelect: 'none' }}
                 >
-                  {submitError && (
-                    <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg text-[#0F172A] text-sm flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{submitError}</span>
-                    </div>
-                  )}
 
                   <div className="flex items-center justify-end gap-2 text-sm text-[#334155]" role="group" aria-label="Cỡ chữ câu hỏi">
                     <button
@@ -1121,7 +1127,19 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                       );
                     })}
                   </div>
+                </div>
 
+                {/* Footer cố định: nút Trước/Sau/Nộp bài luôn hiện, không bị đẩy ra ngoài màn hình khi nội dung dài hoặc chữ lớn. */}
+                <div
+                  className="shrink-0 border-t border-slate-200 bg-white px-4 sm:px-6 pt-3 space-y-3 max-h-[50%] overflow-y-auto"
+                  style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+                >
+                  {submitError && (
+                    <div className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 rounded-lg text-[#0F172A] text-sm flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{submitError}</span>
+                    </div>
+                  )}
                   {/* Xác nhận trước khi nộp nếu còn câu chưa trả lời */}
                   {confirmSubmitOpen && (
                     <div className="p-3 bg-[#FFFBEB] border border-[#F6AD37]/50 rounded-lg space-y-2.5">
@@ -1147,9 +1165,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                       </div>
                     </div>
                   )}
-
-                  {/* Question Navigation Bar */}
-                  <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2">
                     <button
                       onClick={() => setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))}
                       disabled={currentQuestionIndex === 0}

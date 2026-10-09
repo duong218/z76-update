@@ -69,4 +69,16 @@ examAttemptSchema.index(
   { examCandidateId: 1, attemptType: 1, status: 1 },
 );
 
+// Mỗi thí sinh chỉ có TỐI ĐA 1 lượt thi chính thức đang làm dở. Nhờ ràng buộc này, hai request /start chạy song song
+// (bấm đúp, 2 tab/thiết bị) không thể cùng tạo lượt thi mới — request đến sau nhận lỗi trùng khóa và được chuyển
+// thành "tiếp tục lượt đang dở" (xem startAttempt).
+examAttemptSchema.index(
+  { examCandidateId: 1 },
+  {
+    unique: true,
+    name: 'uniq_one_in_progress_official_attempt',
+    partialFilterExpression: { attemptType: ATTEMPT_TYPE.OFFICIAL, status: ATTEMPT_STATUS.IN_PROGRESS },
+  },
+);
+
 export const ExamAttempt = mongoose.model('ExamAttempt', examAttemptSchema);

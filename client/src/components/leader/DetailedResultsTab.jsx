@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, Search, Filter, ChevronLeft, ChevronRight, RotateCcw, Lock, CheckCircle2, Circle, X } from 'lucide-react';
 import { fetchDetailedResults, exportReport } from '../../services/report.service';
@@ -15,6 +15,8 @@ export const DetailedResultsTab = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [grantingId, setGrantingId] = useState(null);
+  // Khóa ngay từ lúc bấm (kể cả lúc đang tải vai trò / đang mở hộp xác nhận) để bấm đúp không cấp 2 lần.
+  const grantBusyRef = useRef(false);
   // MỚI — Hộp thoại chọn vai trò (phòng ban) khi cấp thêm lượt cho thí sinh kiêm nhiệm:
   // { item, options, currentDepartmentId, hasInProgress, selectedId } hoặc null khi đóng.
   const [grantDialog, setGrantDialog] = useState(null);
@@ -104,7 +106,16 @@ export const DetailedResultsTab = () => {
       showToast('Thiếu thông tin thí sinh, không thể cấp lại lượt thi.', 'error');
       return;
     }
+    if (grantBusyRef.current) return;
+    grantBusyRef.current = true;
+    try {
+      await runGrantFlow(item);
+    } finally {
+      grantBusyRef.current = false;
+    }
+  };
 
+  const runGrantFlow = async (item) => {
     let roleInfo = null;
     try {
       roleInfo = await fetchCandidateRoleOptions(item.examCandidateId);
@@ -133,12 +144,17 @@ export const DetailedResultsTab = () => {
   };
 
   const handleConfirmGrantDialog = async () => {
-    if (!grantDialog) return;
+    if (!grantDialog || grantBusyRef.current) return;
     const { item, currentDepartmentId, selectedId, hasInProgress } = grantDialog;
     // Chỉ gửi departmentId khi thật sự đổi vai trò (và không có lượt thi đang dở)
     const departmentId = !hasInProgress && selectedId && selectedId !== currentDepartmentId ? selectedId : undefined;
-    const ok = await performGrant(item, departmentId);
-    if (ok) setGrantDialog(null);
+    grantBusyRef.current = true;
+    try {
+      const ok = await performGrant(item, departmentId);
+      if (ok) setGrantDialog(null);
+    } finally {
+      grantBusyRef.current = false;
+    }
   };
 
   return (

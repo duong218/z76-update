@@ -607,15 +607,34 @@ export const examAttemptService = {
     const startedAt = new Date();
     const expiresAt = new Date(startedAt.getTime() + exam.durationMinutes * 60_000);
 
-    const attempt = await ExamAttempt.create({
-      examCandidateId: examCandidate._id,
-      attemptType: ATTEMPT_TYPE.OFFICIAL,
-      departmentId: finalCode?.departmentId,
-      startedAt,
-      expiresAt,
-      status: ATTEMPT_STATUS.IN_PROGRESS,
-      lastActiveAt: startedAt,
-    });
+    let attempt;
+    try {
+      attempt = await ExamAttempt.create({
+        examCandidateId: examCandidate._id,
+        attemptType: ATTEMPT_TYPE.OFFICIAL,
+        departmentId: finalCode?.departmentId,
+        startedAt,
+        expiresAt,
+        status: ATTEMPT_STATUS.IN_PROGRESS,
+        lastActiveAt: startedAt,
+      });
+    } catch (err) {
+      // Trùng khóa (E11000) = một request /start khác của cùng thí sinh vừa tạo lượt thi trước ta vài mili giây
+      // (bấm đúp / 2 tab). Không tạo thêm lượt thứ 2 — trả về lượt vừa tạo như khi tiếp tục lượt đang dở.
+      if (err?.code !== 11000) throw err;
+      const existing = await ExamAttempt.findOne({
+        examCandidateId: examCandidate._id,
+        attemptType: ATTEMPT_TYPE.OFFICIAL,
+        status: ATTEMPT_STATUS.IN_PROGRESS,
+      });
+      if (!existing) throw err;
+      return {
+        attemptId: existing._id,
+        startedAt: existing.startedAt,
+        expiresAt: existing.expiresAt,
+        resumed: true,
+      };
+    }
 
     await generateAttemptQuestionSnapshot(attempt._id, examCandidate.examCodeId);
 
@@ -809,8 +828,15 @@ export const examAttemptService = {
       roleName = options.find((o) => String(o.departmentId) === String(departmentId))?.name ?? null;
     }
 
-    examCandidate.extraAttemptsGranted = (examCandidate.extraAttemptsGranted ?? 0) + 1;
+    // Lưu các thay đổi vai trò (nếu có), rồi cộng lượt bằng $inc nguyên tử — không đọc-sửa-ghi, nên 2 lần cấp gần nhau
+    // không ghi đè lên nhau.
     await examCandidate.save();
+    const granted = await ExamCandidate.findByIdAndUpdate(
+      examCandidate._id,
+      { $inc: { extraAttemptsGranted: 1 } },
+      { new: true },
+    );
+    examCandidate.extraAttemptsGranted = granted?.extraAttemptsGranted ?? (examCandidate.extraAttemptsGranted ?? 0) + 1;
 
     return {
       examCandidateId: examCandidate._id,

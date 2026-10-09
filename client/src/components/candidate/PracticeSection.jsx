@@ -84,6 +84,42 @@ const getScrollBehavior = () =>
     ? 'auto'
     : 'smooth';
 
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+// Pháo hoa: vài cụm tia nổ ở vị trí ngẫu nhiên, mỗi tia bay theo 1 hướng (CSS thuần, không thư viện)
+const FX_COLORS = ['#22C55E', '#F6AD37', '#008BC5', '#E53E3E', '#A855F7', '#FACC15'];
+const makeBursts = () =>
+  Array.from({ length: 3 }, (_, b) => {
+    const x = 20 + Math.random() * 60;
+    const y = 25 + Math.random() * 30;
+    return {
+      id: b,
+      x,
+      y,
+      delay: b * 150,
+      sparks: Array.from({ length: 14 }, (_, i) => {
+        const angle = (i / 14) * Math.PI * 2;
+        const dist = 60 + Math.random() * 50;
+        return {
+          id: i,
+          dx: Math.round(Math.cos(angle) * dist),
+          dy: Math.round(Math.sin(angle) * dist),
+          color: FX_COLORS[(i + b) % FX_COLORS.length],
+        };
+      }),
+    };
+  });
+
+const FX_CSS = `
+@keyframes z176-spark { 0% { transform: translate(0,0) scale(1); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; } }
+@keyframes z176-shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+.z176-spark { animation: z176-spark 900ms ease-out both; }
+.z176-shake { animation: z176-shake 450ms ease-in-out; }
+@media (prefers-reduced-motion: reduce) { .z176-spark, .z176-shake { animation: none; } }
+`;
+
 const formatTime = (sec) => {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -143,6 +179,26 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
   const feedbackRef = useRef(null);
   const justCheckedRef = useRef(null);
   const prevIndexRef = useRef(0);
+  // Hiệu ứng khi chấm xong 1 câu: { type: 'correct' | 'wrong', bursts } (tự tắt sau ~1.2s)
+  const [fx, setFx] = useState(null);
+  const fxTimerRef = useRef(null);
+  // Tự chuyển câu sau khi chấm (chế độ instant)
+  const autoNextRef = useRef(null);
+  useEffect(
+    () => () => {
+      clearTimeout(fxTimerRef.current);
+      clearTimeout(autoNextRef.current);
+    },
+    [],
+  );
+
+  const triggerFx = (isCorrect) => {
+    if (prefersReducedMotion()) return;
+    clearTimeout(fxTimerRef.current);
+    setFx(isCorrect ? { type: 'correct', bursts: makeBursts() } : { type: 'wrong' });
+    if (!isCorrect) navigator.vibrate?.(120);
+    fxTimerRef.current = setTimeout(() => setFx(null), 1200);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -421,6 +477,17 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
         [question.id]: { isCorrect: data.isCorrect, correctAnswerIds: data.correctAnswerIds },
       }));
       setAnswers((prev) => ({ ...prev, [question.id]: data.selectedAnswerIds.map(String) }));
+      triggerFx(data.isCorrect);
+      // Tự sang câu sau: đúng chờ ngắn (kịp xem pháo hoa), sai chờ lâu hơn để đọc đáp án đúng.
+      // Nếu thí sinh đã tự bấm sang câu khác trong lúc chờ thì không làm gì. Câu cuối thì ở lại.
+      const qIdx = session.questions.findIndex((q) => q.id === question.id);
+      if (qIdx < session.questions.length - 1) {
+        clearTimeout(autoNextRef.current);
+        autoNextRef.current = setTimeout(
+          () => setIndex((i) => (i === qIdx ? qIdx + 1 : i)),
+          data.isCorrect ? 1500 : 3500,
+        );
+      }
     } catch (err) {
       if (err?.code === 'PRACTICE_TIME_UP') {
         handleSubmit(true);
@@ -698,6 +765,27 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
 
   return (
     <div ref={quizTopRef} className="space-y-3 scroll-mt-20">
+      <style>{FX_CSS}</style>
+      {fx?.type === 'correct' && (
+        <div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden" aria-hidden="true">
+          {fx.bursts.map((b) => (
+            <div key={b.id} className="absolute" style={{ left: `${b.x}%`, top: `${b.y}%` }}>
+              {b.sparks.map((s) => (
+                <span
+                  key={s.id}
+                  className="z176-spark absolute block w-2 h-2 rounded-full"
+                  style={{
+                    background: s.color,
+                    animationDelay: `${b.delay}ms`,
+                    '--dx': `${s.dx}px`,
+                    '--dy': `${s.dy}px`,
+                  }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
       {/* Đồng hồ dính ngay dưới Header cố định (cao 64px = top-16, Header z-50 nên đồng hồ z-40) */}
       {hasTimer && (
         <div
@@ -721,7 +809,11 @@ export const PracticeSection = ({ initialTopicIds = [] }) => {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5">
+      <div
+        className={`bg-white rounded-xl shadow-z176 border border-slate-200 p-4 sm:p-6 space-y-4 sm:space-y-5 ${
+          fx?.type === 'wrong' ? 'z176-shake' : ''
+        }`}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="font-semibold text-[#0F172A]">
             Câu {index + 1}/{questions.length}

@@ -6,6 +6,25 @@
 import * as departmentService from '../services/department.service.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { writeAudit } from '../services/audit.service.js';
+import { ApiError } from '../utils/api-error.js';
+
+// Các mã lỗi chặn cứng khi ngừng sử dụng phòng ban (DEPARTMENT_HAS_ACTIVE_EMPLOYEES chỉ là cảnh báo cần xác nhận nên không ghi nhật ký chặn)
+const BLOCKING_DEPARTMENT_CODES = ['DEPARTMENT_HAS_ACTIVE_ATTEMPT', 'DEPARTMENT_IN_ACTIVE_EXAM'];
+
+// Ghi nhật ký khi lần ngừng sử dụng phòng ban bị chặn cứng, rồi ném lại lỗi cho client.
+async function auditBlockedAndRethrow(err, req, id) {
+  if (err instanceof ApiError && BLOCKING_DEPARTMENT_CODES.includes(err.code)) {
+    await writeAudit({
+      actorUserId: req.auth.userId,
+      action: 'DEACTIVATE_DEPARTMENT_BLOCKED',
+      resourceType: 'Department',
+      resourceId: id,
+      metadata: { detail: `Bị chặn ngừng sử dụng bộ phận (${err.code}): ${err.message}` },
+      ipAddress: req.ip,
+    });
+  }
+  throw err;
+}
 
 // Lấy danh sách phòng ban/đơn vị (hỗ trợ lọc theo trạng thái hoạt động)
 export const list = asyncHandler(async (req, res) => {
@@ -39,7 +58,14 @@ export const create = asyncHandler(async (req, res) => {
 export const update = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, code, description, isActive } = req.body ?? {};
-  const data = await departmentService.updateDepartment(id, { name, code, description, isActive });
+  // force=true: người dùng đã xác nhận bỏ qua cảnh báo còn nhân viên hoạt động khi tắt phòng ban
+  const force = req.query.force === 'true';
+  let data;
+  try {
+    data = await departmentService.updateDepartment(id, { name, code, description, isActive }, { force });
+  } catch (err) {
+    await auditBlockedAndRethrow(err, req, id);
+  }
 
   await writeAudit({
     actorUserId: req.auth.userId,
@@ -60,7 +86,14 @@ export const update = asyncHandler(async (req, res) => {
 // Ngừng kích hoạt (vô hiệu hóa) phòng ban
 export const remove = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const data = await departmentService.deactivateDepartment(id);
+  // force=true: người dùng đã xác nhận bỏ qua cảnh báo còn nhân viên hoạt động
+  const force = req.query.force === 'true';
+  let data;
+  try {
+    data = await departmentService.deactivateDepartment(id, { force });
+  } catch (err) {
+    await auditBlockedAndRethrow(err, req, id);
+  }
 
   await writeAudit({
     actorUserId: req.auth.userId,

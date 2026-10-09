@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { Plus, Loader2, X, AlertCircle, Edit2, Trash2, Search, BookOpen } from 'lucide-react';
 import { fetchDepartments, createDepartment, updateDepartment, deleteDepartment } from '../../services/examiner.service';
 import { useConfirm } from '../ConfirmDialog';
+import { useToast } from '../ToastContext';
 import { useScrollLock } from '../../hooks/useScrollLock';
 
 export const DepartmentTab = ({ onViewQuestions } = {}) => {
   const confirmAction = useConfirm();
+  const { showToast } = useToast();
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -90,10 +92,24 @@ export const DepartmentTab = ({ onViewQuestions } = {}) => {
     setActionLoading(true);
     setError('');
     try {
-      await deleteDepartment(dept._id);
+      try {
+        await deleteDepartment(dept._id);
+      } catch (err) {
+        // Bộ phận còn nhân viên đang hoạt động: cảnh báo kèm số lượng từ server, đồng ý thì ép ngừng sử dụng.
+        if (err.code !== 'DEPARTMENT_HAS_ACTIVE_EMPLOYEES') throw err;
+        const proceed = await confirmAction(err.message, {
+          title: 'Bộ phận còn nhân viên đang hoạt động',
+          confirmLabel: 'Vẫn ngừng sử dụng',
+        });
+        if (!proceed) return;
+        await deleteDepartment(dept._id, { force: true });
+      }
       await loadDepartments();
     } catch (err) {
-      setError(err.message || 'Lỗi khi ngừng sử dụng bộ phận');
+      const message = err.message || 'Lỗi khi ngừng sử dụng bộ phận';
+      setError(message);
+      // Toast song song với banner: lỗi bị CHẶN (đang có người thi / kỳ thi đang diễn ra) cần nổi bật ngay.
+      showToast(message, 'error');
     } finally {
       setActionLoading(false);
     }

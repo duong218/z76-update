@@ -3,7 +3,15 @@
  * Hỗ trợ chuẩn hóa tên/mã phòng ban (slug), xử lý tìm kiếm không phân biệt hoa thường/dấu và tự động khôi phục dữ liệu import.
  */
 
-import { Department } from '../models/index.js';
+import {
+  Department,
+  Employee,
+  User,
+  Exam,
+  ExamAttempt,
+  EXAM_STATUS,
+  ATTEMPT_STATUS,
+} from '../models/index.js';
 import { normalizeDeptName, normalizeDeptCode } from '../models/department.model.js';
 import { ApiError, assertFound } from '../utils/api-error.js';
 import { planImportDepartments } from '../utils/import-departments.js';
@@ -196,8 +204,83 @@ export async function findOrCreateDepartmentByCode({ code, name }) {
   }
 }
 
-// Cập nhật thông tin phòng ban
-export async function updateDepartment(id, { name, code, description, isActive } = {}) {
+// Quyết định có cho ngừng sử dụng phòng ban hay không (hàm thuần, dễ test). Trả về null nếu được phép,
+// hoặc { code, message } nếu bị chặn / cần xác nhận. Thứ tự ưu tiên:
+// 1) Có lượt thi đang làm dở thuộc phòng này          -> CHẶN, đợi thí sinh nộp bài.
+// 2) Kỳ thi đang diễn ra chọn đích danh phòng này     -> CHẶN, đợi kỳ thi kết thúc.
+// 3) Còn nhân viên đang hoạt động (chính + kiêm nhiệm) -> CẢNH BÁO, đồng ý (force = true) thì cho ngừng.
+export function evaluateDepartmentDeactivation(
+  deptName,
+  { inProgressAttempts = 0, publishedExam = null, activePrimary = 0, activeExtra = 0 } = {},
+  { force = false } = {},
+) {
+  if (inProgressAttempts > 0) {
+    return {
+      code: 'DEPARTMENT_HAS_ACTIVE_ATTEMPT',
+      message: `Không thể ngừng sử dụng bộ phận "${deptName}" vì đang có ${inProgressAttempts} thí sinh đang làm bài thi của bộ phận này. Vui lòng đợi họ nộp bài rồi thử lại.`,
+    };
+  }
+  if (publishedExam) {
+    return {
+      code: 'DEPARTMENT_IN_ACTIVE_EXAM',
+      message: `Không thể ngừng sử dụng bộ phận "${deptName}" vì bộ phận này nằm trong phạm vi kỳ thi "${publishedExam.title}" đang diễn ra. Vui lòng đợi kỳ thi kết thúc rồi thử lại.`,
+    };
+  }
+  const total = activePrimary + activeExtra;
+  if (total > 0 && force !== true) {
+    return {
+      code: 'DEPARTMENT_HAS_ACTIVE_EMPLOYEES',
+      message: `Bộ phận "${deptName}" vẫn còn ${total} nhân viên có tài khoản đang hoạt động (${activePrimary} thuộc bộ phận chính, ${activeExtra} kiêm nhiệm). Nếu ngừng sử dụng, họ sẽ không còn thấy bộ phận này để chọn và có thể không vào được kỳ thi theo bộ phận này. Bạn có chắc muốn tiếp tục ngừng sử dụng bộ phận không?`,
+    };
+  }
+  return null;
+}
+
+// Nạp dữ liệu liên quan rồi áp dụng evaluateDepartmentDeactivation; bị chặn/cần xác nhận thì ném ApiError 409.
+async function assertDepartmentDeactivatable(dept, { force = false } = {}) {
+  const [inProgressAttempts, publishedExam, employees] = await Promise.all([
+    ExamAttempt.countDocuments({ departmentId: dept._id, status: ATTEMPT_STATUS.IN_PROGRESS }),
+    Exam.findOne({
+      status: EXAM_STATUS.PUBLISHED,
+      departmentScope: 'selected',
+      allowedDepartmentIds: dept._id,
+    })
+      .select('title')
+      .lean(),
+    Employee.find({
+      isActive: true,
+      $or: [{ departmentId: dept._id }, { extraDepartmentIds: dept._id }],
+    })
+      .select('userId departmentId')
+      .lean(),
+  ]);
+
+  // "Tài khoản đang hoạt động" = hồ sơ nhân viên còn hoạt động VÀ tài khoản đăng nhập chưa bị khóa.
+  const activeUserIds = new Set(
+    (
+      await User.find({ _id: { $in: employees.map((e) => e.userId) }, isActive: true })
+        .select('_id')
+        .lean()
+    ).map((u) => String(u._id)),
+  );
+  const activeEmployees = employees.filter((e) => activeUserIds.has(String(e.userId)));
+  const activePrimary = activeEmployees.filter((e) => String(e.departmentId) === String(dept._id)).length;
+
+  const verdict = evaluateDepartmentDeactivation(
+    dept.name,
+    {
+      inProgressAttempts,
+      publishedExam,
+      activePrimary,
+      activeExtra: activeEmployees.length - activePrimary,
+    },
+    { force },
+  );
+  if (verdict) throw new ApiError(409, verdict.message, verdict.code);
+}
+
+// Cập nhật thông tin phòng ban. force = true: đã xác nhận bỏ qua cảnh báo khi tắt phòng ban (isActive = false).
+export async function updateDepartment(id, { name, code, description, isActive } = {}, { force = false } = {}) {
   const dept = await Department.findById(id);
   assertFound(dept, 'Không tìm thấy bộ phận', 'DEPARTMENT_NOT_FOUND');
 
@@ -216,7 +299,11 @@ export async function updateDepartment(id, { name, code, description, isActive }
     dept.code = trimmedCode;
   }
   if (description !== undefined) dept.description = description?.trim() || '';
-  if (isActive !== undefined) dept.isActive = Boolean(isActive);
+  if (isActive !== undefined) {
+    // Tắt phòng ban qua PATCH cũng phải qua đúng các kiểm tra như khi xóa (tránh lách bằng cách gọi API trực tiếp).
+    if (!isActive && dept.isActive) await assertDepartmentDeactivatable(dept, { force });
+    dept.isActive = Boolean(isActive);
+  }
 
   try {
     await dept.save();
@@ -229,10 +316,12 @@ export async function updateDepartment(id, { name, code, description, isActive }
   return dept.toObject();
 }
 
-// Ngừng sử dụng (xóa mềm) phòng ban để bảo toàn liên kết khóa ngoại
-export async function deactivateDepartment(id) {
+// Ngừng sử dụng (xóa mềm) phòng ban để bảo toàn liên kết khóa ngoại.
+// Bị chặn nếu có thí sinh đang làm bài / kỳ thi đang diễn ra; cảnh báo nếu còn nhân viên hoạt động (truyền force = true để xác nhận).
+export async function deactivateDepartment(id, { force = false } = {}) {
   const dept = await Department.findById(id);
   assertFound(dept, 'Không tìm thấy bộ phận', 'DEPARTMENT_NOT_FOUND');
+  await assertDepartmentDeactivatable(dept, { force });
   dept.isActive = false;
   await dept.save();
   return { id: dept._id.toString(), isActive: false };

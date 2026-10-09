@@ -73,6 +73,8 @@ const ACTION_LABELS = {
   CREATE_DEPARTMENT: 'Tạo phòng ban',
   UPDATE_DEPARTMENT: 'Cập nhật phòng ban',
   DEACTIVATE_DEPARTMENT: 'Ngừng sử dụng phòng ban',
+  // Lần thử ngừng sử dụng phòng ban BỊ CHẶN vì đang có thí sinh làm bài / kỳ thi đang diễn ra (ghi ở department.controller.js)
+  DEACTIVATE_DEPARTMENT_BLOCKED: 'Bị chặn ngừng sử dụng phòng ban',
   // MỚI — Tác vụ hệ thống tự động (không do người dùng bấm), thực hiện bởi
   // actor "Hệ thống" (xem cột "Người thực hiện" trong bảng) — dọn các file
   // đã upload tạm (vd ảnh câu hỏi) nhưng không được gắn vào bản ghi nào
@@ -99,6 +101,7 @@ const EMPHASIZED_ACTIONS = new Set([
   'DEACTIVATE_TOPIC_BLOCKED',
   'DEACTIVATE_STUDY_DOCUMENT',
   'DEACTIVATE_DEPARTMENT',
+  'DEACTIVATE_DEPARTMENT_BLOCKED',
 ]);
 
 const RESOURCE_TYPE_OPTIONS = [

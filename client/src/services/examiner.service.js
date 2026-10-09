@@ -199,8 +199,9 @@ export async function updateDepartment(id, payload) {
   return res.data;
 }
 
-export async function deleteDepartment(id) {
-  const res = await apiRequest(`/departments/${id}`, {
+// force = true: đã xác nhận bỏ qua cảnh báo (bộ phận còn nhân viên đang hoạt động)
+export async function deleteDepartment(id, { force = false } = {}) {
+  const res = await apiRequest(`/departments/${id}${force ? '?force=true' : ''}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   });

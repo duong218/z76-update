@@ -253,9 +253,16 @@ export async function deleteExamProposal(examId) {
   return res.data;
 }
 
-export async function fetchMyExamProposals() {
+// Danh sách CHUNG của mọi Người ra đề: đề của mình (isMine: true) + đề người khác từ "Chờ duyệt" trở đi (isMine: false, bị khóa).
+export async function fetchExamProposals() {
   const res = await apiRequest('/exams', {
     headers: getAuthHeaders(),
   });
   return res.data;
+}
+
+// Chỉ đề của chính mình (OverviewTab dùng để thống kê).
+export async function fetchMyExamProposals() {
+  const all = await fetchExamProposals();
+  return Array.isArray(all) ? all.filter((e) => e.isMine) : [];
 }

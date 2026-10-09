@@ -13,7 +13,7 @@ function clientIp(req) {
 }
 
 export const examController = {
-  // Lấy danh sách kỳ thi (phân quyền: examiner chỉ xem kỳ thi do mình tạo)
+  // Lấy danh sách kỳ thi (examiner thấy chung danh sách nhưng đề của người khác bị khóa — xem examService.listExams)
   list: asyncHandler(async (req, res) => {
     const filters = {
       status: req.query.status,
@@ -21,7 +21,7 @@ export const examController = {
     };
 
     if (req.auth?.roleCode === 'examiner') {
-      filters.createdBy = req.auth.userId;
+      filters.viewerId = req.auth.userId;
     }
 
     const data = await examService.listExams(filters);

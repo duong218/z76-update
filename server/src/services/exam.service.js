@@ -185,16 +185,20 @@ async function parseDepartmentScopeFields(payload) {
   return { departmentScope: 'selected', allowedDepartmentIds };
 }
 
+// Trạng thái đề của người khác mà Người ra đề được thấy (dòng bị khóa). Nháp / Bị từ chối chỉ người gửi thấy.
+const PEER_VISIBLE_STATUSES = [EXAM_STATUS.PENDING_REVIEW, EXAM_STATUS.APPROVED, EXAM_STATUS.PUBLISHED, EXAM_STATUS.ARCHIVED];
+
 export const examService = {
-  // Lấy danh sách kỳ thi theo bộ lọc (trạng thái, người tạo, chủ đề)
+  // Lấy danh sách kỳ thi theo bộ lọc (trạng thái, chủ đề). viewerId chỉ truyền cho Người ra đề (examiner).
   async listExams(filters = {}) {
-    const { status, createdBy, topicId } = filters;
+    const { status, viewerId, topicId } = filters;
     const query = {};
     if (status) query.status = status;
-    // MỚI — Người ra đề không thấy lại đề bị từ chối mà chính họ đã xóa (deletedAt); Leader/Admin vẫn thấy để làm bằng chứng.
-    if (createdBy) {
-      query.createdBy = createdBy;
+    // MỚI — Người ra đề thấy CHUNG một danh sách: đề của mình (trừ đề bị từ chối đã xóa) + đề của người khác từ "Chờ duyệt" trở đi.
+    // Nháp và Bị từ chối là việc riêng của người gửi nên không lộ cho người khác. Leader/Admin (không có viewerId) vẫn thấy tất cả.
+    if (viewerId) {
       query.deletedAt = null;
+      query.$or = [{ createdBy: viewerId }, { status: { $in: PEER_VISIBLE_STATUSES } }];
     }
     if (topicId) query.topicId = topicId;
 
@@ -218,13 +222,15 @@ export const examService = {
 
     return exams.map((exam) => {
       const emp = employeeByUserId.get(String(exam.createdBy?._id));
-      return {
-        ...exam,
-        creator: {
-          name: emp?.fullname || exam.createdBy?.username || null,
-          departmentName: emp?.departmentId?.name || null,
-        },
+      const creator = {
+        name: emp?.fullname || exam.createdBy?.username || null,
+        departmentName: emp?.departmentId?.name || null,
       };
+      if (!viewerId) return { ...exam, creator };
+      const isMine = String(exam.createdBy?._id) === String(viewerId);
+      // Đề của người khác bị KHÓA hoàn toàn: chỉ trả đủ để dựng 1 dòng (tên, trạng thái, người gửi), không lộ cấu hình / lý do từ chối.
+      if (!isMine) return { _id: exam._id, title: exam.title, status: exam.status, createdAt: exam.createdAt, creator, isMine };
+      return { ...exam, creator, isMine };
     });
   },
 

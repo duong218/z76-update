@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Activity, Search, SlidersHorizontal, X, ChevronDown } from 'lucide-react';
 import { fetchAuditLogs } from '../../services/admin.service';
 
@@ -212,6 +212,28 @@ function FilterSelect({ label, value, options, onChange, placeholder }) {
 }
 
 const DEFAULT_LIMIT = 20;
+
+// MỚI — Gộp phần HIỂN THỊ các log liên tiếp cùng người + cùng hành động, cách nhau tối đa 10 phút (logs đã sắp mới -> cũ).
+// Dữ liệu log giữ nguyên từng dòng (kiểm toán không mất gì), chỉ thu gọn thành 1 dòng có số đếm, bấm để xổ ra.
+// Hành động nhạy cảm (EMPHASIZED_ACTIONS) không bao giờ bị gộp để không bị che.
+const GROUP_GAP_MS = 10 * 60 * 1000;
+const actorKeyOf = (log) => log.actorUserId?._id ?? log.actorUserId ?? 'system';
+function groupLogs(logs) {
+  const groups = [];
+  for (const log of logs) {
+    const g = groups[groups.length - 1];
+    const prev = g?.[g.length - 1];
+    const canJoin =
+      prev &&
+      !EMPHASIZED_ACTIONS.has(log.action) &&
+      prev.action === log.action &&
+      String(actorKeyOf(prev)) === String(actorKeyOf(log)) &&
+      Math.abs(new Date(prev.createdAt) - new Date(log.createdAt)) <= GROUP_GAP_MS;
+    if (canJoin) g.push(log);
+    else groups.push([log]);
+  }
+  return groups;
+}
 const EMPTY_FILTERS = { q: '', action: '', resourceType: '', from: '', to: '' };
 
 export const AuditLogTab = () => {
@@ -222,7 +244,17 @@ export const AuditLogTab = () => {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [searchInput, setSearchInput] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // MỚI — id của log đầu nhóm (mới nhất) cho các nhóm đang xổ ra. Tải thêm chỉ nối vào cuối nên id đầu nhóm không đổi.
+  const [expanded, setExpanded] = useState(() => new Set());
   const debounceRef = useRef(null);
+  const groups = useMemo(() => groupLogs(logs), [logs]);
+  const toggleGroup = (id) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
@@ -418,42 +450,110 @@ export const AuditLogTab = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E2E8F0]">
-                {logs.map(log => (
-                  <tr key={log._id} className="hover:bg-[#F6F8FA]">
-                    <td className="p-4 text-sm text-[#64748B] whitespace-nowrap align-top">{formatDate(log.createdAt)}</td>
-                    <td className="p-4 align-top">
-                      <div className="font-medium text-[#0F172A] text-base">{getActorDisplayName(log)}</div>
-                      {getActorSubInfo(log) && (
-                        <div className="text-sm text-[#64748B] mt-0.5">{getActorSubInfo(log)}</div>
-                      )}
-                    </td>
-                    <td className="p-4 align-top"><ActionBadge action={log.action} /></td>
-                    <td className="p-4 text-base text-[#334155] align-top">{getDetailText(log)}</td>
-                  </tr>
-                ))}
+                {groups.map(group => {
+                  const head = group[0];
+                  if (group.length === 1) {
+                    return (
+                      <tr key={head._id} className="hover:bg-[#F6F8FA]">
+                        <td className="p-4 text-sm text-[#64748B] whitespace-nowrap align-top">{formatDate(head.createdAt)}</td>
+                        <td className="p-4 align-top">
+                          <div className="font-medium text-[#0F172A] text-base">{getActorDisplayName(head)}</div>
+                          {getActorSubInfo(head) && (
+                            <div className="text-sm text-[#64748B] mt-0.5">{getActorSubInfo(head)}</div>
+                          )}
+                        </td>
+                        <td className="p-4 align-top"><ActionBadge action={head.action} /></td>
+                        <td className="p-4 text-base text-[#334155] align-top">{getDetailText(head)}</td>
+                      </tr>
+                    );
+                  }
+                  const open = expanded.has(head._id);
+                  return (
+                    <Fragment key={head._id}>
+                      <tr className="hover:bg-[#F6F8FA] cursor-pointer" onClick={() => toggleGroup(head._id)}>
+                        <td className="p-4 text-sm text-[#64748B] whitespace-nowrap align-top">{formatDate(head.createdAt)}</td>
+                        <td className="p-4 align-top">
+                          <div className="font-medium text-[#0F172A] text-base">{getActorDisplayName(head)}</div>
+                          {getActorSubInfo(head) && (
+                            <div className="text-sm text-[#64748B] mt-0.5">{getActorSubInfo(head)}</div>
+                          )}
+                        </td>
+                        <td className="p-4 align-top">
+                          <button type="button" aria-expanded={open} className="inline-flex items-center gap-2 text-left">
+                            <ActionBadge action={head.action} />
+                            <span className="min-w-6 h-6 px-1.5 inline-flex items-center justify-center rounded-full bg-[#008BC5] text-white text-xs font-bold">{group.length}</span>
+                            <ChevronDown className="w-5 h-5 text-[#64748B] transition-transform" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+                          </button>
+                        </td>
+                        <td className="p-4 text-base text-[#334155] align-top">
+                          {group.length} thao tác liên tiếp (từ {formatDate(group[group.length - 1].createdAt)}). {open ? 'Bấm để thu gọn.' : 'Bấm để xem từng dòng.'}
+                        </td>
+                      </tr>
+                      {open && group.map(log => (
+                        <tr key={log._id} className="bg-[#F6F8FA]">
+                          <td className="p-4 pl-8 text-sm text-[#64748B] whitespace-nowrap align-top border-l-4 border-[#008BC5]/40">{formatDate(log.createdAt)}</td>
+                          <td className="p-4" colSpan={2}></td>
+                          <td className="p-4 text-base text-[#334155] align-top">{getDetailText(log)}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
           {/* Mobile List (Hidden on Desktop) */}
           <div className="animate-fade-in-up sm:hidden space-y-3" style={{ '--stagger-delay': '80ms' }}>
-            {logs.map(log => (
-              <div key={log._id} className="bg-white p-4 rounded-xl border border-[#E2E8F0] space-y-2">
-                <div className="flex justify-between items-start gap-2">
-                  <div>
-                    <div className="font-bold text-[#0F172A] text-base">{getActorDisplayName(log)}</div>
-                    {getActorSubInfo(log) && (
-                      <div className="text-sm text-[#64748B]">{getActorSubInfo(log)}</div>
-                    )}
+            {groups.map(group => {
+              const head = group[0];
+              const isGroup = group.length > 1;
+              const open = isGroup && expanded.has(head._id);
+              return (
+                <div key={head._id} className="bg-white p-4 rounded-xl border border-[#E2E8F0] space-y-2">
+                  <div
+                    className={`space-y-2 ${isGroup ? 'cursor-pointer' : ''}`}
+                    onClick={isGroup ? () => toggleGroup(head._id) : undefined}
+                    role={isGroup ? 'button' : undefined}
+                    aria-expanded={isGroup ? open : undefined}
+                  >
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <div className="font-bold text-[#0F172A] text-base">{getActorDisplayName(head)}</div>
+                        {getActorSubInfo(head) && (
+                          <div className="text-sm text-[#64748B]">{getActorSubInfo(head)}</div>
+                        )}
+                      </div>
+                      <span className="text-sm text-[#64748B] whitespace-nowrap">{formatDate(head.createdAt)}</span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ActionBadge action={head.action} />
+                        {isGroup && (
+                          <>
+                            <span className="min-w-6 h-6 px-1.5 inline-flex items-center justify-center rounded-full bg-[#008BC5] text-white text-xs font-bold">{group.length}</span>
+                            <ChevronDown className="w-5 h-5 text-[#64748B] transition-transform" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+                          </>
+                        )}
+                      </div>
+                      <p className="text-base text-[#334155] mt-2">
+                        {isGroup ? `${group.length} thao tác liên tiếp. ${open ? 'Bấm để thu gọn.' : 'Bấm để xem từng dòng.'}` : getDetailText(head)}
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-sm text-[#64748B] whitespace-nowrap">{formatDate(log.createdAt)}</span>
+                  {open && (
+                    <div className="space-y-2 pt-2 border-t border-[#E2E8F0]">
+                      {group.map(log => (
+                        <div key={log._id} className="bg-[#F6F8FA] rounded-lg p-3 border-l-4 border-[#008BC5]/40">
+                          <div className="text-sm text-[#64748B]">{formatDate(log.createdAt)}</div>
+                          <p className="text-base text-[#334155] mt-1 break-words">{getDetailText(log)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <ActionBadge action={log.action} />
-                  <p className="text-base text-[#334155] mt-2">{getDetailText(log)}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {pagination.page < pagination.totalPages && (

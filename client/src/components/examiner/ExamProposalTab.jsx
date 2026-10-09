@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { fetchMyExamProposals, createExamProposal, updateExamProposal, submitForReview, deleteExamProposal, fetchTopics, fetchQuestionStatsByTopic } from '../../services/examiner.service';
-import { FilePlus, Pencil, Send, Trash2, AlertCircle, AlertTriangle, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { fetchExamProposals, createExamProposal, updateExamProposal, submitForReview, deleteExamProposal, fetchTopics, fetchQuestionStatsByTopic } from '../../services/examiner.service';
+import { FilePlus, Pencil, Send, Trash2, Ban, AlertCircle, AlertTriangle, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
@@ -105,7 +105,7 @@ function TopicSelect({ value, options, onChange, placeholder = '-- Chọn chủ 
 }
 
 // MỚI — Danh sách đề xuất kỳ thi hiện tải hết 1 lần (không phân trang phía
-// server, xem fetchMyExamProposals). Về sau số lượng đề xuất tăng dần theo
+// server, xem fetchExamProposals). Về sau số lượng đề xuất tăng dần theo
 // thời gian sẽ khiến trang kéo dài mãi, nên phân trang phía client, mỗi lượt
 // hiển thị 10 kỳ thi.
 const PAGE_SIZE = 10;
@@ -126,6 +126,10 @@ const buildDeleteConfirmMessage = (exam) => {
   }
   return base;
 };
+
+// MỚI — Cột "Người gửi" (họ tên + phòng ban) và dòng thông báo cho đề của người khác (bị khóa hoàn toàn).
+const senderText = (exam) => [exam.creator?.name, exam.creator?.departmentName].filter(Boolean).join(' — ') || '—';
+const NOT_OWNER_MESSAGE = 'Bạn không phải người đề xuất kỳ thi này';
 
 // MỚI — Giá trị mặc định của form khi mở modal "Tạo đề xuất mới" (tách riêng
 // hằng số để openCreateModal() dùng lại được, tránh lặp lại object literal).
@@ -202,7 +206,7 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
     setLoading(true);
     try {
       const [examsData, topicsData] = await Promise.all([
-        fetchMyExamProposals(),
+        fetchExamProposals(),
         // MỚI — kèm số câu hỏi từng ngân hàng của mỗi chủ đề (questionCounts: { exam, practice }) để chỉ cho chọn chủ đề có câu THI CHÍNH THỨC
         fetchTopics({ withCounts: true })
       ]);
@@ -464,7 +468,7 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
       // rõ trạng thái THẬT hiện tại thay vì message chung chung của backend,
       // để người dùng hiểu ngay tại sao không gửi được nữa mà không cần tự đoán.
       if (error.code === 'EXAM_INVALID_STATUS') {
-        const freshExams = await fetchMyExamProposals().catch(() => null);
+        const freshExams = await fetchExamProposals().catch(() => null);
         const freshExam = Array.isArray(freshExams) ? freshExams.find((e) => e._id === id) : null;
         const statusText = freshExam ? STATUS_TEXT_LABELS[freshExam.status] || freshExam.status : null;
         showToast(
@@ -636,7 +640,23 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
         <>
           {/* Mobile card list */}
           <div className="animate-fade-in-up md:hidden space-y-3" style={{ '--stagger-delay': '80ms' }}>
-            {pagedExams.map(exam => (
+            {pagedExams.map(exam => exam.isMine === false ? (
+              <div
+                key={exam._id}
+                data-exam-id={exam._id}
+                aria-disabled="true"
+                className="bg-slate-200/80 rounded-xl border border-slate-300 p-4 space-y-2 text-slate-500 select-none"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-bold text-base leading-snug break-words line-through">{exam.title}</h3>
+                  <div className="shrink-0">{getStatusBadge(exam.status)}</div>
+                </div>
+                <p className="text-sm line-through break-words">Người gửi: {senderText(exam)}</p>
+                <p className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                  <Ban className="w-4 h-4 shrink-0" /> {NOT_OWNER_MESSAGE}
+                </p>
+              </div>
+            ) : (
               <div
                 key={exam._id}
                 data-exam-id={exam._id}
@@ -651,6 +671,8 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                   </div>
                   <div className="shrink-0">{getStatusBadge(exam.status)}</div>
                 </div>
+
+                <p className="text-xs text-slate-500">Người gửi: {senderText(exam)}</p>
 
                 <div className="grid grid-cols-3 gap-2 text-center bg-slate-50 rounded-lg p-2.5 text-xs text-slate-600">
                   <div>
@@ -708,6 +730,7 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-sm">
                     <th className="p-4 font-semibold">Tên kỳ thi</th>
+                    <th className="p-4 font-semibold">Người gửi</th>
                     <th className="p-4 font-semibold">Chủ đề</th>
                     <th className="p-4 font-semibold">Cấu trúc</th>
                     <th className="p-4 font-semibold">Trạng thái</th>
@@ -716,13 +739,33 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
-                  {pagedExams.map(exam => (
+                  {pagedExams.map(exam => exam.isMine === false ? (
+                    <tr key={exam._id} data-exam-id={exam._id} aria-disabled="true" className="bg-slate-200/80 text-slate-500 select-none">
+                      <td className="p-4 font-medium line-through">{exam.title}</td>
+                      <td className="p-4 line-through">
+                        <div className="font-medium">{exam.creator?.name || '—'}</div>
+                        {exam.creator?.departmentName && <div className="text-xs">{exam.creator.departmentName}</div>}
+                      </td>
+                      <td className="p-4">—</td>
+                      <td className="p-4 text-xs">—</td>
+                      <td className="p-4">{getStatusBadge(exam.status)}</td>
+                      <td className="p-4" colSpan={2}>
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                          <Ban className="w-4 h-4 shrink-0" /> {NOT_OWNER_MESSAGE}
+                        </span>
+                      </td>
+                    </tr>
+                  ) : (
                     <tr
                       key={exam._id}
                       data-exam-id={exam._id}
                       className={`transition-colors ${highlightedId === exam._id ? 'bg-[#EAF6FF]' : 'hover:bg-slate-50'}`}
                     >
                       <td className="p-4 font-medium text-slate-800">{exam.title}</td>
+                      <td className="p-4 text-slate-600">
+                        <div className="font-medium">{exam.creator?.name || '—'}</div>
+                        {exam.creator?.departmentName && <div className="text-xs text-slate-500">{exam.creator.departmentName}</div>}
+                      </td>
                       <td className="p-4 text-slate-600">{exam.topicId?.name}</td>
                       <td className="p-4 text-slate-600 text-xs">
                         <div>Thời gian: {exam.durationMinutes}p</div>

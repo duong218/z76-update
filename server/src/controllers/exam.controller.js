@@ -77,6 +77,26 @@ export const examController = {
     res.json({ success: true, message: 'Gửi duyệt thành công', data });
   }),
 
+  // MỚI — Examiner xóa đề xuất của chính mình (nháp / chờ duyệt: xóa hẳn; bị từ chối: đánh dấu đã xóa, giữ trong lịch sử duyệt).
+  // Ghi audit SAU khi xóa thành công, và đây là dấu vết duy nhất của đề đã bị xóa hẳn nên phải ghi rõ tên đề + trạng thái.
+  remove: asyncHandler(async (req, res) => {
+    const data = await examService.deleteExamProposal(req.params.id, req.auth.userId);
+
+    const statusLabel = { draft: 'Nháp', pending_review: 'Chờ duyệt', rejected: 'Bị từ chối' }[data.status] ?? data.status;
+    await writeAudit({
+      actorUserId: req.auth.userId,
+      action: 'DELETE_EXAM',
+      resourceType: 'Exam',
+      resourceId: data._id,
+      metadata: {
+        detail: `Xóa đề xuất kỳ thi: ${data.title} (trạng thái lúc xóa: ${statusLabel}${data.hardDeleted ? '' : ', vẫn giữ trong lịch sử duyệt của Người duyệt đề'})`,
+      },
+      ipAddress: clientIp(req),
+    });
+
+    res.json({ success: true, message: 'Đã xóa đề xuất', data });
+  }),
+
   // Leader phê duyệt kỳ thi và thiết lập khung thời gian bắt đầu / kết thúc
   approve: asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.body ?? {};

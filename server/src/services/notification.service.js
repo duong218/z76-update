@@ -29,6 +29,11 @@ export const notificationService = {
     return Notification.insertMany(docs);
   },
 
+  // MỚI — Xóa mọi thông báo gắn với 1 kỳ thi đã bị xóa hẳn (tránh thông báo ma trỏ tới đề không còn tồn tại)
+  async deleteByExam(examId) {
+    return Notification.deleteMany({ examId });
+  },
+
   // Sự kiện: Examiner gửi duyệt đề xuất -> Báo cho tất cả Leader đang hoạt động
   async notifyExamSubmitted(exam) {
     const leaderRole = await Role.findOne({ code: 'leader' }).select('_id').lean();

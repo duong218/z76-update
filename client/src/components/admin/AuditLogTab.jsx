@@ -20,6 +20,7 @@ const ACTION_LABELS = {
   // Đề thi
   CREATE_EXAM: 'Tạo đề thi',
   UPDATE_EXAM: 'Chỉnh sửa đề xuất kỳ thi',
+  DELETE_EXAM: 'Xóa đề xuất kỳ thi',
   SUBMIT_EXAM: 'Gửi đề thi để phê duyệt',
   APPROVE_EXAM: 'Duyệt đề thi',
   REJECT_EXAM: 'Từ chối đề thi',
@@ -89,6 +90,7 @@ const EMPHASIZED_ACTIONS = new Set([
   'LOCK_USER',
   'RESET_PASSWORD',
   'REJECT_EXAM',
+  'DELETE_EXAM',
   'ARCHIVE_EXAM',
   'AUTO_SUBMIT_EXAM_ATTEMPT',
   'BACKUP_RESTORE',

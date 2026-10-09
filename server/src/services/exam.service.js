@@ -4,7 +4,7 @@
  */
 
 import mongoose from 'mongoose';
-import { Exam, Topic, Department, Question, ExamCandidate, ExamAttempt } from '../models/index.js';
+import { Exam, Topic, Department, Question, ExamCandidate, ExamAttempt, Employee, User } from '../models/index.js';
 import { EXAM_STATUS, QUESTION_USAGE, ATTEMPT_TYPE, ATTEMPT_STATUS } from '../models/constants.js';
 import { questionUsageFilter } from '../models/question.model.js';
 import { ApiError } from '../utils/api-error.js';
@@ -191,7 +191,11 @@ export const examService = {
     const { status, createdBy, topicId } = filters;
     const query = {};
     if (status) query.status = status;
-    if (createdBy) query.createdBy = createdBy;
+    // MỚI — Người ra đề không thấy lại đề bị từ chối mà chính họ đã xóa (deletedAt); Leader/Admin vẫn thấy để làm bằng chứng.
+    if (createdBy) {
+      query.createdBy = createdBy;
+      query.deletedAt = null;
+    }
     if (topicId) query.topicId = topicId;
 
     const exams = await Exam.find(query)
@@ -260,7 +264,8 @@ export const examService = {
   // bình thường sau khi sửa, KHÔNG tự động gửi duyệt ngay trong hàm này —
   // để họ có cơ hội xem lại lần cuối trước khi gửi.
   async updateExamProposal(examId, payload, userId) {
-    const exam = await Exam.findOne({ _id: examId, createdBy: userId });
+    // deletedAt: null — đề bị từ chối đã xóa (chỉ còn là "bia mộ" trong lịch sử của Leader) không được sửa / gửi duyệt lại.
+    const exam = await Exam.findOne({ _id: examId, createdBy: userId, deletedAt: null });
     if (!exam) throw new ApiError(404, 'Không tìm thấy kỳ thi', 'EXAM_NOT_FOUND');
 
     if (![EXAM_STATUS.DRAFT, EXAM_STATUS.REJECTED].includes(exam.status)) {
@@ -335,7 +340,8 @@ export const examService = {
 
   // Examiner gửi duyệt đề xuất kỳ thi -> Chuyển trạng thái sang PENDING_REVIEW và bắn thông báo tới Leader
   async submitExamForReview(examId, userId) {
-    const exam = await Exam.findOne({ _id: examId, createdBy: userId });
+    // deletedAt: null — đề bị từ chối đã xóa (chỉ còn là "bia mộ" trong lịch sử của Leader) không được sửa / gửi duyệt lại.
+    const exam = await Exam.findOne({ _id: examId, createdBy: userId, deletedAt: null });
     if (!exam) throw new ApiError(404, 'Không tìm thấy kỳ thi', 'EXAM_NOT_FOUND');
 
     if (![EXAM_STATUS.DRAFT, EXAM_STATUS.REJECTED].includes(exam.status)) {
@@ -375,6 +381,58 @@ export const examService = {
     const result = submitted.toObject();
     if (warnings) result.warnings = warnings;
     return result;
+  },
+
+  // MỚI — Người ra đề xóa đề xuất CỦA CHÍNH MÌNH. Chỉ xóa được khi đề chưa được duyệt:
+  // - Nháp / Chờ duyệt -> XÓA HẲN (Người duyệt đề chưa xử lý gì; đề biến khỏi danh sách chờ duyệt của họ).
+  // - Bị từ chối       -> chỉ ĐÁNH DẤU đã xóa (deletedAt / deletedByName): Người duyệt đề đã xử lý đề này nên Lịch sử duyệt giữ lại làm bằng chứng.
+  // - Đã duyệt / Đã đăng / Đã lưu trữ -> chặn (400 EXAM_INVALID_STATUS).
+  // Mỗi nhánh là MỘT lệnh nguyên tử có điều kiện (chủ đề + trạng thái): xóa cùng lúc với Gửi duyệt / Duyệt / Từ chối thì chỉ một bên thắng.
+  // Đề không tồn tại, của người khác, đã xóa rồi hoặc id sai định dạng đều trả 404 giống nhau (không lộ đề của người khác).
+  async deleteExamProposal(examId, userId) {
+    const notFound = () => new ApiError(404, 'Không tìm thấy kỳ thi', 'EXAM_NOT_FOUND');
+    if (!mongoose.isValidObjectId(examId)) throw notFound();
+    const mine = { _id: examId, createdBy: userId, deletedAt: null };
+
+    const removed = await Exam.findOneAndDelete({
+      ...mine,
+      status: { $in: [EXAM_STATUS.DRAFT, EXAM_STATUS.PENDING_REVIEW] },
+    }).lean();
+    if (removed) {
+      // Dọn thông báo gắn với đề đã xóa (vd "đề vừa gửi duyệt" của Leader) để không còn thông báo ma.
+      try {
+        await notificationService.deleteByExam(removed._id);
+      } catch (err) {
+        console.error('deleteByExam failed:', err);
+      }
+      return { _id: removed._id, title: removed.title, status: removed.status, hardDeleted: true };
+    }
+
+    // Tên người xóa chụp lại ngay lúc xóa (tài khoản chỉ có username, họ tên nằm ở Employee).
+    const employee = await Employee.findOne({ userId }).select('fullname').lean();
+    const deletedByName = employee?.fullname || (await User.findById(userId).select('username').lean())?.username || 'Người ra đề';
+    const marked = await Exam.findOneAndUpdate(
+      { ...mine, status: EXAM_STATUS.REJECTED },
+      { $set: { deletedAt: new Date(), deletedByName }, $inc: { __v: 1 } },
+      // timestamps: false -> giữ nguyên updatedAt (= thời điểm bị từ chối), để cột "Thời gian xử lý" trong lịch sử của Leader không bị đổi thành lúc xóa.
+      { new: true, timestamps: false },
+    ).lean();
+    if (marked) return { _id: marked._id, title: marked.title, status: marked.status, hardDeleted: false };
+
+    // Không xóa được -> xem vì sao để báo đúng.
+    const current = await Exam.findOne(mine).select('status').lean();
+    if (!current) throw notFound();
+    const blockedMessage = {
+      [EXAM_STATUS.APPROVED]: 'Đề đã được duyệt, không thể xóa',
+      [EXAM_STATUS.PUBLISHED]: 'Đề đã được đăng chính thức, không thể xóa',
+      [EXAM_STATUS.ARCHIVED]: 'Đề đã được lưu trữ, không thể xóa',
+    }[current.status];
+    if (blockedMessage) throw new ApiError(400, blockedMessage, 'EXAM_INVALID_STATUS');
+    throw new ApiError(
+      409,
+      'Kỳ thi vừa được thay đổi ở nơi khác. Vui lòng tải lại danh sách rồi thử lại.',
+      'EXAM_CONFLICT',
+    );
   },
 
   // Leader phê duyệt kỳ thi (APPROVED) và ấn định khung thời gian thi

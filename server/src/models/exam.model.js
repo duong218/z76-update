@@ -60,6 +60,14 @@ const examSchema = new mongoose.Schema(
     publishedAt: { type: Date },
     rejectionReason: { type: String, trim: true },
     /**
+     * MỚI — "Bia mộ" cho đề xuất BỊ TỪ CHỐI mà Người ra đề đã xóa. Người duyệt đề đã xử lý đề này nên không xóa hẳn khỏi DB,
+     * chỉ đánh dấu để Lịch sử duyệt vẫn còn bằng chứng (hiển thị mờ, "Đã bị xóa bởi ..."). deletedByName là tên chụp lại lúc xóa.
+     * CỐ TÌNH KHÔNG đặt default: đề cũ (chưa có field) vẫn khớp truy vấn { deletedAt: null } nên không cần migrate.
+     * Đề nháp / chờ duyệt bị xóa thì xóa hẳn khỏi DB, không dùng 2 field này.
+     */
+    deletedAt: { type: Date },
+    deletedByName: { type: String, trim: true },
+    /**
      * MỚI — Khóa "đang phát hành": đặt nguyên tử khi một Người duyệt đề bắt đầu publishExam, gỡ khi phát hành xong hoặc lỗi.
      * Chặn 2 người cùng đăng một kỳ thi (sinh trùng mã đề) và chặn Lưu trữ (archive) chen ngang lúc đang phát hành.
      * Khóa quá hạn (PUBLISH_LOCK_TTL_MS trong exam.service.js) được coi là đã hết hiệu lực, phòng khi server sập giữa chừng.

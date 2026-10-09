@@ -243,6 +243,16 @@ export async function submitForReview(examId) {
   return res.data;
 }
 
+// Xóa đề xuất của chính mình (nháp / chờ duyệt: xóa hẳn; bị từ chối: đánh dấu đã xóa, Leader vẫn thấy trong lịch sử).
+// Lỗi: 404 EXAM_NOT_FOUND (không còn / không phải của mình), 400 EXAM_INVALID_STATUS (đã duyệt / đăng / lưu trữ), 409 EXAM_CONFLICT.
+export async function deleteExamProposal(examId) {
+  const res = await apiRequest(`/exams/${examId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return res.data;
+}
+
 export async function fetchMyExamProposals() {
   const res = await apiRequest('/exams', {
     headers: getAuthHeaders(),

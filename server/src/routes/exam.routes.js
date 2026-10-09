@@ -19,6 +19,7 @@ router.get('/', requireRoleCodes('admin', 'leader', 'examiner'), examController.
 router.post('/', requireRoleCodes('examiner'), examController.create);
 router.patch('/:id', requireRoleCodes('examiner'), examController.update);
 router.post('/:id/submit', requireRoleCodes('examiner'), examController.submit);
+router.delete('/:id', requireRoleCodes('examiner'), examController.remove);
 
 // Quyền của Leader
 router.post('/:id/approve', requireRoleCodes('leader'), examController.approve);

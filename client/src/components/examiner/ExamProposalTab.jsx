@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { fetchMyExamProposals, createExamProposal, updateExamProposal, submitForReview, fetchTopics, fetchQuestionStatsByTopic } from '../../services/examiner.service';
-import { FilePlus, Pencil, Send, AlertCircle, AlertTriangle, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { fetchMyExamProposals, createExamProposal, updateExamProposal, submitForReview, deleteExamProposal, fetchTopics, fetchQuestionStatsByTopic } from '../../services/examiner.service';
+import { FilePlus, Pencil, Send, Trash2, AlertCircle, AlertTriangle, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
@@ -110,6 +110,23 @@ function TopicSelect({ value, options, onChange, placeholder = '-- Chọn chủ 
 // hiển thị 10 kỳ thi.
 const PAGE_SIZE = 10;
 
+// MỚI — Trạng thái cho phép Sửa / Gửi duyệt, và cho phép Xóa (thêm "Chờ duyệt" để rút lại đề đã gửi nhầm).
+// Đã duyệt / Đã đăng / Đã lưu trữ thì không có thao tác nào. Server kiểm tra lại, đây chỉ là để ẩn nút.
+const canEdit = (status) => status === 'draft' || status === 'rejected';
+const canDelete = (status) => canEdit(status) || status === 'pending_review';
+
+// Câu xác nhận xóa theo trạng thái (đề bị từ chối vẫn được giữ trong lịch sử của Người duyệt đề, nên nói rõ).
+const buildDeleteConfirmMessage = (exam) => {
+  const base = `Xóa đề xuất "${exam.title}"? Hành động này không thể hoàn tác.`;
+  if (exam.status === 'pending_review') {
+    return `${base} Đề đang chờ duyệt nên Người duyệt đề sẽ không còn thấy đề này nữa.`;
+  }
+  if (exam.status === 'rejected') {
+    return `${base} Đề bị từ chối này vẫn được giữ trong lịch sử duyệt của Người duyệt đề, đánh dấu là đã bị xóa bởi bạn.`;
+  }
+  return base;
+};
+
 // MỚI — Giá trị mặc định của form khi mở modal "Tạo đề xuất mới" (tách riêng
 // hằng số để openCreateModal() dùng lại được, tránh lặp lại object literal).
 const DEFAULT_FORM_DATA = {
@@ -151,6 +168,8 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
   const [editingExamId, setEditingExamId] = useState(null);
   // Id đề đang gửi duyệt — chống bấm đúp nút "Gửi duyệt" khi request chưa xong
   const [submittingReviewId, setSubmittingReviewId] = useState(null);
+  // Id đề đang xóa — chống bấm đúp nút "Xóa" khi request chưa xong
+  const [deletingId, setDeletingId] = useState(null);
 
   useScrollLock(isModalOpen);
   // MỚI — Trang hiện tại của danh sách đề xuất (phân trang client-side, 10
@@ -469,6 +488,56 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
     }
   };
 
+  // MỚI — Xóa đề xuất của chính mình. Mọi lỗi "dữ liệu cũ" (đề đã đổi trạng thái / đã bị xóa ở tab khác) đều tải lại danh sách
+  // và nói đúng nguyên nhân, không coi là lỗi hệ thống.
+  const handleDelete = async (exam) => {
+    if (deletingId) return;
+    const ok = await confirmAction(buildDeleteConfirmMessage(exam), {
+      title: 'Xóa đề xuất kỳ thi',
+      confirmLabel: 'Xóa',
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingId(exam._id);
+    try {
+      await deleteExamProposal(exam._id);
+      showToast('Đã xóa đề xuất kỳ thi.', 'success');
+      loadData();
+    } catch (error) {
+      if (error.code === 'EXAM_NOT_FOUND') {
+        showToast('Đề xuất này không còn tồn tại (có thể đã được xóa từ tab hoặc thiết bị khác). Danh sách đã được tải lại.', 'warning');
+        loadData();
+        return;
+      }
+      if (error.code === 'EXAM_INVALID_STATUS') {
+        // Server đã nêu đúng trạng thái thật ("Đề đã được duyệt, không thể xóa"...)
+        showToast(`${error.message} (có thể vừa được thao tác từ tab hoặc thiết bị khác). Danh sách đã được tải lại.`, 'warning');
+        loadData();
+        return;
+      }
+      if (error.code === 'EXAM_CONFLICT') {
+        showToast(error.message, 'warning');
+        loadData();
+        return;
+      }
+      showToast(error.message || 'Lỗi khi xóa đề xuất', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // Nút Xóa dùng chung cho thẻ mobile và bảng desktop (chỉ khác kích thước/độ rộng).
+  const renderDeleteButton = (exam, sizeClass) => (
+    <button
+      onClick={() => handleDelete(exam)}
+      disabled={deletingId === exam._id}
+      aria-label="Xóa đề xuất"
+      className={`inline-flex items-center justify-center gap-1.5 border border-[#E53E3E] bg-white hover:bg-[#FEECEC] active:bg-[#FEECEC] text-[#C53030] font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${sizeClass}`}
+    >
+      <Trash2 className="w-4 h-4" /> {deletingId === exam._id ? 'Đang xóa...' : 'Xóa'}
+    </button>
+  );
+
   // ── Tô sáng 1 đề xuất khi được mở từ thông báo ──
   const [highlightedId, setHighlightedId] = useState(null);
   const pendingHighlightRef = useRef(null);
@@ -606,21 +675,26 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                   </div>
                 )}
 
-                {(exam.status === 'draft' || exam.status === 'rejected') && (
+                {canDelete(exam.status) && (
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => openEditModal(exam)}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-slate-100 hover:bg-slate-200 active:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
-                    >
-                      <Pencil className="w-4 h-4" /> Chỉnh sửa
-                    </button>
-                    <button
-                      onClick={() => handleSubmitReview(exam._id)}
-                      disabled={submittingReviewId === exam._id}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-[#FFFBEB] hover:bg-[#FDECC8] active:bg-[#FDECC8] text-[#92400E] rounded-lg font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      <Send className="w-4 h-4" /> {submittingReviewId === exam._id ? 'Đang gửi...' : 'Gửi duyệt'}
-                    </button>
+                    {canEdit(exam.status) && (
+                      <>
+                        <button
+                          onClick={() => openEditModal(exam)}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-slate-100 hover:bg-slate-200 active:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" /> Chỉnh sửa
+                        </button>
+                        <button
+                          onClick={() => handleSubmitReview(exam._id)}
+                          disabled={submittingReviewId === exam._id}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] bg-[#FFFBEB] hover:bg-[#FDECC8] active:bg-[#FDECC8] text-[#92400E] rounded-lg font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <Send className="w-4 h-4" /> {submittingReviewId === exam._id ? 'Đang gửi...' : 'Gửi duyệt'}
+                        </button>
+                      </>
+                    )}
+                    {renderDeleteButton(exam, `px-3 py-2.5 min-h-[44px] rounded-lg ${canEdit(exam.status) ? '' : 'flex-1'}`)}
                   </div>
                 )}
               </div>
@@ -667,21 +741,26 @@ export const ExamProposalTab = ({ highlightExam, onHighlightConsumed }) => {
                         )}
                       </td>
                       <td className="p-4 text-right">
-                        {(exam.status === 'draft' || exam.status === 'rejected') && (
+                        {canDelete(exam.status) && (
                           <div className="inline-flex gap-2">
-                            <button
-                              onClick={() => openEditModal(exam)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition-colors"
-                            >
-                              <Pencil className="w-4 h-4" /> Chỉnh sửa
-                            </button>
-                            <button
-                              onClick={() => handleSubmitReview(exam._id)}
-                              disabled={submittingReviewId === exam._id}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFFBEB] hover:bg-[#FDECC8] text-[#92400E] rounded font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                              <Send className="w-4 h-4" /> {submittingReviewId === exam._id ? 'Đang gửi...' : 'Gửi duyệt'}
-                            </button>
+                            {canEdit(exam.status) && (
+                              <>
+                                <button
+                                  onClick={() => openEditModal(exam)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition-colors"
+                                >
+                                  <Pencil className="w-4 h-4" /> Chỉnh sửa
+                                </button>
+                                <button
+                                  onClick={() => handleSubmitReview(exam._id)}
+                                  disabled={submittingReviewId === exam._id}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFFBEB] hover:bg-[#FDECC8] text-[#92400E] rounded font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  <Send className="w-4 h-4" /> {submittingReviewId === exam._id ? 'Đang gửi...' : 'Gửi duyệt'}
+                                </button>
+                              </>
+                            )}
+                            {renderDeleteButton(exam, 'px-3 py-1.5 rounded')}
                           </div>
                         )}
                       </td>

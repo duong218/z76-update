@@ -10,7 +10,7 @@ import {
   fetchPublishImpact,
   archiveExam,
 } from '../../services/exam-review.service';
-import { CheckCircle, XCircle, Clock, Globe, History, Archive } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Globe, History, Archive, Trash2 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { useConfirm } from '../ConfirmDialog';
 import { useScrollLock } from '../../hooks/useScrollLock';
@@ -598,7 +598,8 @@ export const ExamReviewTab = () => {
                     {pagedHistoryExams.map(exam => {
                       const processedAt = exam.publishedAt || exam.approvedAt || exam.updatedAt || exam.createdAt;
                       return (
-                        <tr key={exam._id} className="hover:bg-[#F6F8FA] transition-colors">
+                        // exam.deletedAt: đề bị từ chối mà Người ra đề đã xóa — giữ lại làm bằng chứng, hiển thị mờ đi
+                        <tr key={exam._id} className={`transition-colors ${exam.deletedAt ? 'opacity-60 bg-[#F6F8FA]' : 'hover:bg-[#F6F8FA]'}`}>
                           <td className="p-4 font-medium text-[#0F172A] truncate" title={exam.title}>{exam.title}</td>
                           <td className="p-4 text-[#334155] truncate" title={exam.topicId?.name}>{exam.topicId?.name}</td>
                           <td className="p-4">
@@ -609,7 +610,15 @@ export const ExamReviewTab = () => {
                           </td>
                           <td className="p-4 text-sm break-words">
                             {exam.status === 'rejected' ? (
-                              <span className="text-[#C53030]">{exam.rejectionReason || 'Không có lý do'}</span>
+                              <>
+                                <span className="text-[#C53030]">{exam.rejectionReason || 'Không có lý do'}</span>
+                                {exam.deletedAt && (
+                                  <span className="mt-1 flex items-start gap-1 font-semibold text-[#334155]">
+                                    <Trash2 className="w-4 h-4 shrink-0 mt-0.5" />
+                                    <span>Đã bị xóa bởi {exam.deletedByName || 'Người ra đề'} lúc {new Date(exam.deletedAt).toLocaleString('vi-VN')}</span>
+                                  </span>
+                                )}
+                              </>
                             ) : exam.status === 'archived' ? (
                               <span className="flex items-center gap-1 text-[#64748B]">
                                 <Archive className="w-4 h-4 shrink-0" /> <span className="truncate">Đã bị thay thế bởi kỳ thi khác hoặc bị bỏ qua</span>
@@ -631,7 +640,7 @@ export const ExamReviewTab = () => {
               {pagedHistoryExams.map(exam => {
                 const processedAt = exam.publishedAt || exam.approvedAt || exam.updatedAt || exam.createdAt;
                 return (
-                  <div key={exam._id} className="bg-white p-4 rounded-xl border border-[#E2E8F0] space-y-2">
+                  <div key={exam._id} className={`p-4 rounded-xl border border-[#E2E8F0] space-y-2 ${exam.deletedAt ? 'opacity-60 bg-[#F6F8FA]' : 'bg-white'}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="font-bold text-[#0F172A] text-base">{exam.title}</div>
@@ -645,6 +654,12 @@ export const ExamReviewTab = () => {
                     {exam.status === 'rejected' && (
                       <div className="text-sm text-[#C53030] bg-[#FEECEC] rounded-lg p-2.5">
                         Lý do: {exam.rejectionReason || 'Không có lý do'}
+                      </div>
+                    )}
+                    {exam.status === 'rejected' && exam.deletedAt && (
+                      <div className="flex items-start gap-1.5 text-sm font-semibold text-[#334155]">
+                        <Trash2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>Đã bị xóa bởi {exam.deletedByName || 'Người ra đề'} lúc {new Date(exam.deletedAt).toLocaleString('vi-VN')}</span>
                       </div>
                     )}
                     {exam.status === 'archived' && (

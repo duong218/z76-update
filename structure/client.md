@@ -44,7 +44,7 @@ client/
 │   │   ├── CTAButton.jsx                   # Nút gọi hành động chính trên trang chủ (Vào thi, Tra cứu kết quả)
 │   │   ├── DashboardShell.jsx              # Khung điều hướng dùng chung cho dashboard Admin và Leader: thanh chức năng DỌC bên trái từ lg (sticky, thu gọn được, nhớ lựa chọn trong localStorage), thanh tab ngang từ md đến dưới lg, dưới md dùng menu 3 gạch ở Header
 │   │   ├── ErrorBoundary.jsx               # Bọc bắt lỗi render component React, hiển thị fallback UI an toàn
-│   │   ├── ExamModal.jsx                   # Modal phòng thi toàn màn hình: chọn vai trò/phòng ban thi (nếu kiêm nhiệm), câu hỏi, đếm giờ, autosave, heartbeat 15s, tự nộp khi vắng mặt >1 phút, cảnh báo rời thi, useScrollLock
+│   │   ├── ExamModal.jsx                   # Modal phòng thi toàn màn hình: cơ chế khóa đơn tab (chống mở thi đồng thời 2 tab cùng trình duyệt), chống click kép vào thi, chọn vai trò/phòng ban thi (nếu kiêm nhiệm), câu hỏi, đếm giờ, autosave, heartbeat 15s, tự nộp khi vắng mặt >1 phút, cảnh báo rời thi, useScrollLock
 │   │   ├── Footer.jsx                      # Footer trang chủ: thông tin bản quyền, liên hệ, chính sách
 │   │   ├── Header.jsx                      # Header navigation: logo tùy chỉnh, menu điều hướng, user info, đăng xuất, NotificationBell, mobile drawer, useScrollLock(drawerOpen)
 │   │   ├── LoginModal.jsx                  # Modal đăng nhập: form username/password, validation, gọi auth service, useScrollLock
@@ -84,7 +84,7 @@ client/
 │   │   ├── CompetencyTab.jsx               # Tab năng lực theo phòng ban: phân tích tỷ lệ đúng theo chủ đề, sắp xếp/tìm kiếm phòng ban, ẩn số liệu phòng ban < 3 thí sinh để bảo vệ thông tin cá nhân, mở rộng xem chi tiết CompetencyView từng đơn vị
 │   │   ├── AnomalyTab.jsx                  # Tab dấu hiệu bất thường: so cặp đáp án sai trùng lặp (không phụ thuộc xáo đề), tốc độ làm bài nhanh bất thường. Chỉ gợi ý xem xét, không kết luận gian lận. Bộ chọn kỳ thi với tìm kiếm không dấu, phân trang, lọc không hiện kỳ thi 0 dấu hiệu
 │   │   ├── DepartmentReportTab.jsx         # Tab báo cáo phòng ban: thống kê số thí sinh, số lượt thi, tỷ lệ đạt/không đạt theo từng đơn vị
-│   │   ├── DetailedResultsTab.jsx          # Tab kết quả chi tiết: danh sách bảng điểm thí sinh, bộ lọc nâng cao, xuất Excel, cấp thêm lượt thi (hỗ trợ đổi lại phòng ban thi nếu chọn nhầm)
+│   │   ├── DetailedResultsTab.jsx          # Tab kết quả chi tiết: danh sách bảng điểm thí sinh, bộ lọc nâng cao, xuất Excel, cấp thêm lượt thi (chống click đúp, hỗ trợ đổi lại phòng ban thi nếu chọn nhầm)
 │   │   ├── ExamReportTab.jsx               # Tab báo cáo kỳ thi: thống kê tổng hợp kết quả theo từng kỳ thi, xuất báo cáo Excel
 │   │   ├── ExamReviewTab.jsx               # Tab duyệt đề thi: xem chi tiết cấu hình đề (bao gồm phạm vi phòng ban áp dụng và công tắc bù câu chung), kiểm tra tác động publishCheck (fetchPublishImpact), duyệt (approve cấu hình ngày bắt đầu/kết thúc), từ chối (reject kèm lý do), phát hành (publish), lưu trữ (archive), useScrollLock
 │   │   └── OverviewTab.jsx                 # Tab tổng quan leader: biểu đồ và chỉ số hiệu suất thi toàn đơn vị
@@ -121,6 +121,9 @@ Dự án sử dụng chiến lược quản lý trạng thái phân tán, chủ 
   - `ConfirmDialog (ConfirmContext)`: Quản lý hiển thị dialog xác nhận bất đồng bộ qua hook `useConfirm()`.
 - **Scroll Lock**: Module-level singleton (`lib/lenis-instance.js`) + hook (`hooks/useScrollLock.js`) quản lý trạng thái khóa cuộn khi modal/drawer mở. Tự động gọi `lenis.stop()` + `document.body.style.overflow = 'hidden'` khi `isLocked = true`, phục hồi khi `isLocked = false`. Được tích hợp vào tất cả modal và drawer trong hệ thống.
 - **Local State**: Các form, danh sách, modal quản lý trạng thái độc lập bằng `useState`, `useReducer`, `useRef`.
+- **Khóa đơn tab & Chống click đúp (Concurrency Guards)**:
+  - `ExamModal`: Sử dụng cơ chế khóa localStorage (`z176.examTabLock`, nhịp tim 4s, TTL 12s) kết hợp `step === 'tab-blocked'` để đảm bảo mỗi tài khoản chỉ mở và làm bài ở 1 tab duy nhất trên cùng một trình duyệt; chặn `handleStartExam` khi đang bắt đầu (`startingRef` & state `starting`) để chống click kép tạo 2 lượt thi cùng lúc.
+  - `DetailedResultsTab`: Sử dụng `grantBusyRef` khóa chặn click đúp khi Leader cấp lại lượt thi cho thí sinh.
 
 ## Tích hợp API và Gọi dữ liệu (API Integration & Data Fetching)
 

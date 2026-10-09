@@ -31,6 +31,23 @@ import {
 } from '../services/exam-attempt.service';
 import { useScrollLock } from '../hooks/useScrollLock';
 
+// ── Cỡ chữ khi làm bài: 3 mức cố định, nhớ theo THIẾT BỊ (không theo kỳ thi) ──
+// Mức 0 = giữ nguyên class gốc (q/a = null -> không gắn style inline), nên giao diện mặc định không đổi.
+const FONT_KEY = 'z176.examFontLevel';
+const FONT_LEVELS = [
+  { label: 'Vừa', q: null, a: null },
+  { label: 'Lớn', q: 20, a: 18 },
+  { label: 'Rất lớn', q: 24, a: 21 },
+];
+function loadFontLevel() {
+  try {
+    const n = Number(localStorage.getItem(FONT_KEY));
+    return n >= 0 && n < FONT_LEVELS.length ? n : 0;
+  } catch {
+    return 0; // localStorage bị chặn — dùng mức mặc định
+  }
+}
+
 // ── Lưu tạm tiến trình đang làm dở vào localStorage ─────────────────────────
 // Chỉ để tránh mất lựa chọn khi reload trang giữa chừng TRÊN CÙNG THIẾT BỊ.
 // Điểm số/chấm điểm thật vẫn luôn do backend quyết định lúc nộp bài
@@ -115,6 +132,17 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
   const [expiresAt, setExpiresAt] = useState(null);
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [fontLevel, setFontLevel] = useState(loadFontLevel);
+  const fontSizes = FONT_LEVELS[fontLevel];
+  const changeFontLevel = (delta) => {
+    const next = Math.min(FONT_LEVELS.length - 1, Math.max(0, fontLevel + delta));
+    setFontLevel(next);
+    try {
+      localStorage.setItem(FONT_KEY, String(next));
+    } catch {
+      /* localStorage đầy/bị chặn — vẫn dùng được trong phiên này */
+    }
+  };
   const [selectedAnswers, setSelectedAnswers] = useState({}); // { [questionId]: string[] }
   const [examSecondsLeft, setExamSecondsLeft] = useState(0);
   const [submitError, setSubmitError] = useState(null);
@@ -1009,7 +1037,32 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                     </div>
                   )}
 
-                  <div className="text-base sm:text-lg font-bold text-[#0F172A] leading-snug">
+                  <div className="flex items-center justify-end gap-2 text-sm text-[#334155]" role="group" aria-label="Cỡ chữ câu hỏi">
+                    <button
+                      type="button"
+                      onClick={() => changeFontLevel(-1)}
+                      disabled={fontLevel === 0}
+                      aria-label="Giảm cỡ chữ"
+                      className="min-touch-target px-3 rounded-lg border border-slate-300 bg-white font-bold text-base text-[#0F172A] hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      A−
+                    </button>
+                    <span className="min-w-[64px] text-center font-medium" aria-live="polite">{fontSizes.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => changeFontLevel(1)}
+                      disabled={fontLevel === FONT_LEVELS.length - 1}
+                      aria-label="Tăng cỡ chữ"
+                      className="min-touch-target px-3 rounded-lg border border-slate-300 bg-white font-bold text-xl text-[#0F172A] hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      A+
+                    </button>
+                  </div>
+
+                  <div
+                    className="text-base sm:text-lg font-bold text-[#0F172A] leading-snug"
+                    style={fontSizes.q ? { fontSize: fontSizes.q } : undefined}
+                  >
                     {currentQuestionIndex + 1}. {currentQ.content}
                     {currentQ.answerType === 'multiple' && (
                       <span className="block text-xs font-semibold text-[#008BC5] mt-1">(Chọn nhiều đáp án đúng)</span>
@@ -1063,7 +1116,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
                           <Icon
                             className={`w-5 h-5 shrink-0 mt-0.5 ${isSelected ? 'text-[#008BC5]' : 'text-slate-400'}`}
                           />
-                          <span className="leading-snug">{opt.content}</span>
+                          <span className="leading-snug" style={fontSizes.a ? { fontSize: fontSizes.a } : undefined}>{opt.content}</span>
                         </button>
                       );
                     })}

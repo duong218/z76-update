@@ -206,7 +206,26 @@ export const examService = {
       .sort({ createdAt: -1 })
       .lean();
 
-    return exams;
+    // MỚI — Người gửi: họ tên + phòng ban lấy từ Employee (tài khoản User chỉ có username). Thiếu họ tên -> username; thiếu phòng ban -> null.
+    const userIds = [...new Set(exams.map((e) => e.createdBy?._id).filter(Boolean).map(String))];
+    const employees = userIds.length
+      ? await Employee.find({ userId: { $in: userIds } })
+          .populate('departmentId', 'name')
+          .select('userId fullname departmentId')
+          .lean()
+      : [];
+    const employeeByUserId = new Map(employees.map((e) => [String(e.userId), e]));
+
+    return exams.map((exam) => {
+      const emp = employeeByUserId.get(String(exam.createdBy?._id));
+      return {
+        ...exam,
+        creator: {
+          name: emp?.fullname || exam.createdBy?.username || null,
+          departmentName: emp?.departmentId?.name || null,
+        },
+      };
+    });
   },
 
   // Examiner tạo bản thảo đề xuất kỳ thi mới (DRAFT)

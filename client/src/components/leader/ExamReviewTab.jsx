@@ -45,6 +45,18 @@ const STATUS_TEXT_LABELS = {
   archived: 'Đã lưu trữ',
 };
 
+// Người gửi (Người ra đề): server trả exam.creator = { name, departmentName }; thiếu họ tên đã lùi về username, thiếu phòng ban thì không có.
+function Sender({ exam }) {
+  const { name, departmentName } = exam.creator ?? {};
+  return (
+    <>
+      <div className="font-medium text-[#0F172A]">{name || '—'}</div>
+      {departmentName && <div className="text-sm text-[#64748B]">{departmentName}</div>}
+    </>
+  );
+}
+const senderText = (exam) => [exam.creator?.name, exam.creator?.departmentName].filter(Boolean).join(' · ') || '—';
+
 // Ô chọn ngày giờ (datetime-local) cho phép chọn "bây giờ" lệch tối đa chừng này (chỉ chính xác tới phút); khớp với server.
 const START_TOLERANCE_MS = 5 * 60 * 1000;
 
@@ -341,6 +353,7 @@ export const ExamReviewTab = () => {
                     <tr>
                       <th className="p-4 font-semibold">Kỳ thi</th>
                       <th className="p-4 font-semibold">Chủ đề</th>
+                      <th className="p-4 font-semibold">Người gửi</th>
                       <th className="p-4 font-semibold">Cấu trúc</th>
                       <th className="p-4 font-semibold text-right">Thao tác</th>
                     </tr>
@@ -350,6 +363,7 @@ export const ExamReviewTab = () => {
                       <tr key={exam._id} className="hover:bg-[#F6F8FA] transition-colors">
                         <td className="p-4 font-medium text-[#0F172A]">{exam.title}</td>
                         <td className="p-4 text-[#334155]">{exam.topicId?.name}</td>
+                        <td className="p-4 text-[#334155]"><Sender exam={exam} /></td>
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Tgian: {exam.durationMinutes}p | Qua: {exam.passThresholdPercent}%</div>
                           <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
@@ -392,6 +406,12 @@ export const ExamReviewTab = () => {
                     <div className="text-base text-[#64748B]">{exam.topicId?.name}</div>
                   </div>
                   <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
+                    <div>
+                      Người gửi:{' '}
+                      <span className="font-medium text-[#0F172A]">
+                        {senderText(exam)}
+                      </span>
+                    </div>
                     <div>Thời gian: {exam.durationMinutes} phút · Qua: {exam.passThresholdPercent}%</div>
                     <div>Tổng câu: {exam.totalQuestions} (Chung: {exam.commonQuestionCount}, Riêng: {exam.departmentQuestionCount})</div>
                     <div>Bù câu chung: {exam.allowCommonCompensation === false ? 'Tắt (phòng thiếu câu riêng bị khóa)' : 'Bật (thiếu câu riêng thì bù câu chung)'}</div>
@@ -445,6 +465,7 @@ export const ExamReviewTab = () => {
                     <tr>
                       <th className="p-4 font-semibold">Kỳ thi</th>
                       <th className="p-4 font-semibold">Chủ đề</th>
+                      <th className="p-4 font-semibold">Người gửi</th>
                       <th className="p-4 font-semibold">Thời gian diễn ra</th>
                       <th className="p-4 font-semibold text-right">Thao tác</th>
                     </tr>
@@ -454,6 +475,7 @@ export const ExamReviewTab = () => {
                       <tr key={exam._id} className="hover:bg-[#F6F8FA] transition-colors">
                         <td className="p-4 font-medium text-[#0F172A]">{exam.title}</td>
                         <td className="p-4 text-[#334155]">{exam.topicId?.name}</td>
+                        <td className="p-4 text-[#334155]"><Sender exam={exam} /></td>
                         <td className="p-4 text-[#334155] text-sm">
                           <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                           <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
@@ -508,6 +530,7 @@ export const ExamReviewTab = () => {
                     <div className="text-base text-[#64748B]">{exam.topicId?.name}</div>
                   </div>
                   <div className="text-sm text-[#334155] bg-[#F6F8FA] rounded-lg p-2.5 space-y-0.5">
+                    <div>Người gửi: <span className="font-medium text-[#0F172A]">{senderText(exam)}</span></div>
                     <div>Bắt đầu: {new Date(exam.startDate).toLocaleString('vi-VN')}</div>
                     <div>Kết thúc: {new Date(exam.endDate).toLocaleString('vi-VN')}</div>
                     {new Date(exam.endDate).getTime() <= Date.now() && (
@@ -579,16 +602,18 @@ export const ExamReviewTab = () => {
               <div className="overflow-x-auto">
                 <table className="w-full text-left table-fixed">
                   <colgroup>
-                    <col className="w-[26%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[15%]" />
                     <col className="w-[18%]" />
+                    <col className="w-[12%]" />
                     <col className="w-[14%]" />
-                    <col className="w-[16%]" />
-                    <col className="w-[26%]" />
+                    <col className="w-[19%]" />
                   </colgroup>
                   <thead className="bg-[#F6F8FA] text-[#334155] text-base border-b border-[#E2E8F0]">
                     <tr>
                       <th className="p-4 font-semibold">Kỳ thi</th>
                       <th className="p-4 font-semibold">Chủ đề</th>
+                      <th className="p-4 font-semibold">Người gửi</th>
                       <th className="p-4 font-semibold">Trạng thái</th>
                       <th className="p-4 font-semibold">Thời gian xử lý</th>
                       <th className="p-4 font-semibold">Ghi chú</th>
@@ -602,6 +627,7 @@ export const ExamReviewTab = () => {
                         <tr key={exam._id} className={`transition-colors ${exam.deletedAt ? 'opacity-60 bg-[#F6F8FA]' : 'hover:bg-[#F6F8FA]'}`}>
                           <td className="p-4 font-medium text-[#0F172A] truncate" title={exam.title}>{exam.title}</td>
                           <td className="p-4 text-[#334155] truncate" title={exam.topicId?.name}>{exam.topicId?.name}</td>
+                          <td className="p-4 text-[#334155] break-words"><Sender exam={exam} /></td>
                           <td className="p-4">
                             <StatusBadge status={exam.status} />
                           </td>
@@ -648,6 +674,7 @@ export const ExamReviewTab = () => {
                       </div>
                       <StatusBadge status={exam.status} />
                     </div>
+                    <div className="text-sm text-[#64748B]">Người gửi: {senderText(exam)}</div>
                     <div className="text-sm text-[#64748B]">
                       {processedAt ? new Date(processedAt).toLocaleString('vi-VN') : '—'}
                     </div>

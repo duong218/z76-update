@@ -2,7 +2,7 @@
 
 ## Phạm vi
 
-`client/` là ứng dụng Single Page Application (SPA) xây dựng bằng React 19, Vite và Tailwind CSS v4. Sử dụng Lenis cho smooth scroll, Lucide React cho hệ thống icon, Motion cho animation vi tương tác, Recharts cho biểu đồ thống kê báo cáo. Thư mục `dist/` là đầu ra build production (không chỉnh sửa trực tiếp).
+`client/` là ứng dụng Single Page Application (SPA) xây dựng bằng React 19, Vite và Tailwind CSS v4. Sử dụng Lenis cho smooth scroll, Lucide React cho hệ thống icon, Motion cho animation vi tương tác, Recharts cho biểu đồ thống kê báo cáo.
 
 ```text
 client/
@@ -13,10 +13,10 @@ client/
 ├── package.json                            # Dependencies & scripts (dev, build, lint, preview)
 ├── package-lock.json                       # Lockfile npm
 ├── vite.config.js                          # Cấu hình Vite: @vitejs/plugin-react, @tailwindcss/vite, alias @ -> /src
-├── assets/                                 # Thư mục tài nguyên tĩnh cấp root
 ├── public/
 │   ├── images/
-│   │   └── HeroSection.jpg                 # Ảnh nền hero section trang chủ
+│   │   ├── HeroSection.jpg                 # Ảnh nền hero section trang chủ
+│   │   └── login-cover.jpg                 # Ảnh nền trang đăng nhập
 │   ├── logo/
 │   │   └── logo.svg                        # Logo doanh nghiệp mặc định / favicon
 │   └── templates/
@@ -42,6 +42,7 @@ client/
 │   │   ├── ConfirmDialog.jsx               # Dialog xác nhận bất đồng bộ thay thế window.confirm(), hook useConfirm(), useScrollLock
 │   │   ├── ContactSection.jsx              # Section thông tin liên hệ kỹ thuật + thông tin công ty Z176
 │   │   ├── CTAButton.jsx                   # Nút gọi hành động chính trên trang chủ (Vào thi, Tra cứu kết quả)
+│   │   ├── DashboardShell.jsx              # Khung điều hướng dùng chung cho dashboard Admin và Leader: thanh chức năng DỌC bên trái từ lg (sticky, thu gọn được, nhớ lựa chọn trong localStorage), thanh tab ngang từ md đến dưới lg, dưới md dùng menu 3 gạch ở Header
 │   │   ├── ErrorBoundary.jsx               # Bọc bắt lỗi render component React, hiển thị fallback UI an toàn
 │   │   ├── ExamModal.jsx                   # Modal phòng thi toàn màn hình: chọn vai trò/phòng ban thi (nếu kiêm nhiệm), câu hỏi, đếm giờ, autosave, heartbeat 15s, tự nộp khi vắng mặt >1 phút, cảnh báo rời thi, useScrollLock
 │   │   ├── Footer.jsx                      # Footer trang chủ: thông tin bản quyền, liên hệ, chính sách
@@ -89,10 +90,10 @@ client/
 │   │   └── OverviewTab.jsx                 # Tab tổng quan leader: biểu đồ và chỉ số hiệu suất thi toàn đơn vị
 │   │
 │   ├── pages/
-│   │   ├── admin/AdminDashboard.jsx        # Dashboard Quản trị viên: điều phối các tab Admin (Overview, Account, AuditLog, Backup)
+│   │   ├── admin/AdminDashboard.jsx        # Dashboard Quản trị viên: điều phối các tab Admin (Overview, Account, AuditLog, Backup). Điều hướng tab qua DashboardShell (thanh DỌC từ lg, thanh tab ngang md–lg, menu 3 gạch dưới md).
 │   │   ├── candidate/CandidateDashboard.jsx# Dashboard Thí sinh: hiển thị kỳ thi active, khối Bản đồ năng lực (CompetencyCard), tài liệu ôn tập theo phòng ban, luyện tập tự do & thành tích, lịch sử làm bài và biểu đồ điểm số
-│   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, QuestionAnalysis, Topic, Department, ExamProposal, StudyDocument)
-│   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, DepartmentReport, Competency, Anomaly, ExamReport, DetailedResults, ExamReview)
+│   │   ├── examiner/ExaminerDashboard.jsx  # Dashboard Người ra đề: điều phối các tab Examiner (Overview, QuestionBank, QuestionAnalysis, Topic, Department, ExamProposal, StudyDocument). Điều hướng tab ngang inline từ md, menu 3 gạch dưới md.
+│   │   └── leader/LeaderDashboard.jsx      # Dashboard Người duyệt đề: điều phối các tab Leader (Overview, DepartmentReport, Competency, Anomaly, ExamReport, DetailedResults, ExamReview). Điều hướng tab qua DashboardShell (thanh DỌC từ lg, thanh tab ngang md–lg, menu 3 gạch dưới md).
 │   │
 │   └── services/
 │       ├── admin.service.js                # Service quản trị: fetchOverviewStats, CRUD user, updateEmployeeDepartments, import/export Excel nhân viên (kèm bóc tách phòng ban kiêm nhiệm), backup/restore API, audit log
@@ -107,7 +108,7 @@ client/
 │       ├── report.service.js               # Service báo cáo: fetchOverviewReport, fetchDepartmentReport, fetchExamReport, fetchDetailedResults, exportReport, lookupPublicResult, fetchMyResults
 │       ├── study-document.service.js       # Service tài liệu: fetchStudyDocuments, fetchCandidateDocuments, uploadStudyDocument, deleteStudyDocument, previewStudyDocument, downloadStudyDocument (Stream Blob)
 │       └── token-store.js                  # Module lưu trữ accessToken trong localStorage (get, save, clear, getAuthHeaders)
-└── dist/                                   # Đầu ra build production (Vite build)
+└── dist/                                   # Đầu ra build production (Vite build, không chỉnh sửa trực tiếp)
 ```
 
 ## Quản lý Trạng thái (State Management)
@@ -135,8 +136,9 @@ Dự án sử dụng chiến lược quản lý trạng thái phân tán, chủ 
 - Không sử dụng thư viện Routing bên thứ 3 mà dùng luồng điều hướng (conditional rendering) thủ công gọn nhẹ qua trạng thái Auth tại `App.jsx`.
 - **Tầng bảo vệ (Guards)**: `App.jsx` quyết định load trang chủ hay dashboard dựa vào role của `user` trả về từ `/api/auth/me`.
 - Dashboard của từng vai trò được tải dựa vào role code (`admin`, `examiner`, `leader`, `candidate`):
-  - **Examiner**: Bổ sung tab `analysis` (`QuestionAnalysisTab`) phân tích câu hỏi thi chính thức (tỷ lệ đúng, độ phân biệt, cờ cảnh báo nghi sai đáp án).
-  - **Leader**: Bổ sung tab `competency` (`CompetencyTab`) theo dõi bản đồ năng lực gộp theo phòng ban (bảo mật cá nhân với phòng ban dưới 3 người) và tab `anomaly` (`AnomalyTab`) rà soát dấu hiệu bất thường theo kỳ thi (so cặp đáp án sai trùng lặp, tốc độ làm bài nhanh bất thường — chỉ gợi ý, không kết luận gian lận).
+  - **Admin**: Sử dụng `DashboardShell` cung cấp thanh điều hướng DỌC bên trái từ `lg` (thu gọn được, nhớ trạng thái trong localStorage), chuyển thành thanh tab ngang từ `md` đến dưới `lg`, và menu 3 gạch ở Header trên mobile dưới `md`.
+  - **Examiner**: Điều hướng tab ngang inline tự quản lý (không dùng DashboardShell). Bổ sung tab `analysis` (`QuestionAnalysisTab`) phân tích câu hỏi thi chính thức (tỷ lệ đúng, độ phân biệt, cờ cảnh báo nghi sai đáp án). Hỗ trợ `questionsFilterSeed` để chuyển tab kèm bộ lọc từ tab Chủ đề/Phòng ban sang Ngân hàng câu hỏi.
+  - **Leader**: Sử dụng `DashboardShell` (cùng cơ chế điều hướng responsive như Admin). Bổ sung tab `competency` (`CompetencyTab`) theo dõi bản đồ năng lực gộp theo phòng ban (bảo mật cá nhân với phòng ban dưới 3 người) và tab `anomaly` (`AnomalyTab`) rà soát dấu hiệu bất thường theo kỳ thi (so cặp đáp án sai trùng lặp, tốc độ làm bài nhanh bất thường — chỉ gợi ý, không kết luận gian lận).
   - **Candidate**: Tích hợp khối `CompetencyCard` ngay trên màn hình chính để trực quan hóa năng lực các chủ đề (thi + luyện tập) và gợi ý luyện tập kịp thời.
 - Nếu user truy cập trái phép tab của người khác, UI mặc định sẽ không render component tab đó.
 
@@ -148,5 +150,3 @@ Dự án sử dụng chiến lược quản lý trạng thái phân tán, chủ 
   - Sử dụng thư viện `Motion` (Framer Motion) hoặc Tailwind classes (`animate-spin`, `transition-all`) cho vi tương tác (micro-interactions).
   - Tối ưu cuộn trang: Sử dụng thư viện `Lenis` tạo hiệu ứng cuộn mượt (Smooth Scrolling) trên trang chủ, quản lý instance qua singleton (`lenis-instance.js`) và hook `useScrollLock` khóa cuộn khi overlay mở.
 - **Icons**: Sử dụng bộ `lucide-react`, đồng nhất SVG format cho toàn bộ hệ thống (dễ dàng tùy chỉnh `size` và `strokeWidth`).
-
-

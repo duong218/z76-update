@@ -1,4 +1,5 @@
 import { UserInfoCard } from '../../components/UserInfoCard';
+import { DashboardShell } from '../../components/DashboardShell';
 import { OverviewTab } from '../../components/admin/OverviewTab';
 import { AccountTab } from '../../components/admin/AccountTab';
 import { AuditLogTab } from '../../components/admin/AuditLogTab';
@@ -19,10 +20,8 @@ export const ADMIN_DASHBOARD_TABS = [
 // để Header.jsx (menu 3 gạch ở mobile) đọc/đổi được đúng tab đang chọn ở đây,
 // tránh 2 nơi giữ 2 state tab riêng biệt lệch nhau.
 export const AdminDashboard = ({ currentUser, activeTab, onTabChange }) => {
-  const activeLabel = ADMIN_DASHBOARD_TABS.find((t) => t.id === activeTab)?.label;
-
   return (
-    <div className="max-w-6xl mx-auto px-3 sm:px-4 py-6 md:py-8 mt-16 min-h-screen">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-6 md:py-8 mt-16 min-h-screen">
       {/* Tiêu đề trang */}
       <div className="mb-5 md:mb-6 flex items-start gap-3 md:gap-4">
         <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-[#EAF6FF] flex items-center justify-center shrink-0">
@@ -36,66 +35,19 @@ export const AdminDashboard = ({ currentUser, activeTab, onTabChange }) => {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-hidden">
-        {/* Thanh tab — chỉ hiện từ md trở lên. Trên mobile dùng menu 3 gạch (Header.jsx). */}
-        <div
-          role="tablist"
-          aria-label="Các mục quản trị"
-          className="hidden md:flex overflow-x-auto border-b border-slate-200 bg-white px-2 scrollbar-hide"
-        >
-          {ADMIN_DASHBOARD_TABS.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                id={`admin-tab-${tab.id}`}
-                aria-selected={isActive}
-                aria-controls="admin-tabpanel"
-                onClick={() => onTabChange(tab.id)}
-                className={`
-                  relative flex items-center gap-2 px-5 py-4 font-semibold text-sm whitespace-nowrap
-                  transition-colors outline-none
-                  focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#008BC5]
-                  ${isActive ? 'text-[#008BC5]' : 'text-slate-500 hover:text-slate-800'}
-                `}
-              >
-                {tab.icon}
-                {tab.label}
-                <span
-                  className={`absolute left-3 right-3 bottom-0 h-0.5 rounded-full transition-colors ${
-                    isActive ? 'bg-[#008BC5]' : 'bg-transparent'
-                  }`}
-                  aria-hidden="true"
-                />
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Mobile: hiện tên mục đang xem vì thanh tab đã ẩn */}
-        {activeLabel && (
-          <div className="md:hidden px-4 py-3 border-b border-slate-200 bg-white text-sm font-semibold text-[#334155]">
-            {activeLabel}
-          </div>
-        )}
-
-        {/* Nội dung tab */}
-        <div
-          key={activeTab}
-          role="tabpanel"
-          id="admin-tabpanel"
-          aria-labelledby={`admin-tab-${activeTab}`}
-          className="animate-fade-in-up p-3 sm:p-4 md:p-6 bg-[#F8FAFC] min-h-[400px]"
-          style={{ '--stagger-delay': '0ms' }}
-        >
-          {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
-          {activeTab === 'overview' && <OverviewTab />}
-          {activeTab === 'accounts' && <AccountTab currentUser={currentUser} />}
-          {activeTab === 'audit' && <AuditLogTab />}
-          {activeTab === 'backup' && <BackupTab />}
-        </div>
-      </div>
+      <DashboardShell
+        tabs={ADMIN_DASHBOARD_TABS}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        idPrefix="admin"
+        label="Các mục quản trị"
+      >
+        {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
+        {activeTab === 'overview' && <OverviewTab />}
+        {activeTab === 'accounts' && <AccountTab currentUser={currentUser} />}
+        {activeTab === 'audit' && <AuditLogTab />}
+        {activeTab === 'backup' && <BackupTab />}
+      </DashboardShell>
     </div>
   );
 };

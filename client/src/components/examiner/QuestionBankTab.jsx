@@ -1270,7 +1270,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
               </div>
 
               {/* Footer buttons */}
-              <div className={compact ? 'pt-3 pb-1 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 bg-white' : 'pt-4 border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3'}>
+              <div className={compact ? 'pt-3 pb-4 -mx-4 px-4 border-t border-slate-200 flex justify-end gap-3 sticky bottom-0 bg-white' : 'pt-4 border-t border-slate-200 flex flex-col-reverse sm:flex-row justify-end gap-3'}>
                 <button
                   type="button"
                   onClick={compact ? handleClosePanel : () => setIsFormOpen(false)}
@@ -1663,7 +1663,7 @@ export const QuestionBankTab = ({ initialFilter } = {}) => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleFormSubmit} className="p-4 overflow-y-auto space-y-5" data-lenis-prevent>
+            <form onSubmit={handleFormSubmit} className="px-4 pt-4 overflow-y-auto space-y-5 rounded-b-[10px]" data-lenis-prevent>
               {panelError && (
                 <div role="alert" className="p-3 bg-[#FEECEC] border border-[#E53E3E]/30 text-[#0F172A] rounded-lg flex items-start gap-2 text-sm">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-[#E53E3E]" />

@@ -1,4 +1,5 @@
 import { UserInfoCard } from '../../components/UserInfoCard';
+import { DashboardShell } from '../../components/DashboardShell';
 import { useState } from 'react';
 import { QuestionBankTab } from '../../components/examiner/QuestionBankTab';
 import { TopicTab } from '../../components/examiner/TopicTab';
@@ -44,47 +45,30 @@ export const ExaminerDashboard = ({ currentUser, activeTab, onTabChange, highlig
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-3 sm:px-4 py-5 sm:py-8 mt-14 sm:mt-16 min-h-screen">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-5 sm:py-8 mt-14 sm:mt-16 min-h-screen">
       <div className="mb-5 sm:mb-8 px-1">
         <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-[#0F172A] mb-1.5 sm:mb-2">QUẢN LÝ NGÂN HÀNG ĐỀ THI</h1>
         <p className="text-sm sm:text-base text-slate-500">Soạn thảo, quản lý câu hỏi thi chuyên môn và bộ phận phòng ban.</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow-z176 border border-slate-200 overflow-clip">
-        {/* Tab Navigation — CHỈ hiện từ md trở lên. Trên mobile, chuyển hẳn
-            sang menu 3 gạch (Header.jsx) để không phải vuốt ngang nữa. */}
-        <div role="tablist" aria-label="Các mục quản lý của Người ra đề" className="hidden md:flex overflow-x-auto border-b border-slate-200 bg-slate-50 scrollbar-hide snap-x snap-mandatory">
-          {EXAMINER_DASHBOARD_TABS.map(tab => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`flex items-center gap-2 shrink-0 snap-start px-4 sm:px-6 py-3.5 sm:py-4 font-medium text-sm sm:text-sm whitespace-nowrap transition-colors border-b-2 outline-none focus:bg-slate-100 min-h-[48px] ${
-                activeTab === tab.id
-                  ? 'border-[#008BC5] text-[#008BC5] bg-white'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab Content */}
-        <div className="p-3 sm:p-4 md:p-6 bg-slate-50/50 min-h-[400px]">
-          {/* onNavigate: để các mục "Việc cần xử lý", "Đề xuất gần đây"... trong Tổng quan chuyển thẳng sang tab tương ứng */}
-          {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
-          {activeTab === 'overview' && <OverviewTab onNavigate={onTabChange} />}
-          {activeTab === 'questions' && <QuestionBankTab initialFilter={questionsFilterSeed} />}
-          {activeTab === 'analysis' && <QuestionAnalysisTab />}
-          {activeTab === 'topics' && <TopicTab onViewQuestions={handleViewQuestionsByTopic} />}
-          {activeTab === 'departments' && <DepartmentTab onViewQuestions={handleViewQuestionsByDepartment} />}
-          {activeTab === 'proposals' && <ExamProposalTab highlightExam={highlightExam} onHighlightConsumed={onHighlightConsumed} />}
-          {activeTab === 'materials' && <StudyDocumentTab />}
-        </div>
-      </div>
+      <DashboardShell
+        tabs={EXAMINER_DASHBOARD_TABS}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        idPrefix="examiner"
+        label="Các mục quản lý của Người ra đề"
+        animated={false}
+      >
+        {/* onNavigate: để các mục "Việc cần xử lý", "Đề xuất gần đây"... trong Tổng quan chuyển thẳng sang tab tương ứng */}
+        {activeTab === 'overview' && <UserInfoCard user={currentUser} />}
+        {activeTab === 'overview' && <OverviewTab onNavigate={onTabChange} />}
+        {activeTab === 'questions' && <QuestionBankTab initialFilter={questionsFilterSeed} />}
+        {activeTab === 'analysis' && <QuestionAnalysisTab />}
+        {activeTab === 'topics' && <TopicTab onViewQuestions={handleViewQuestionsByTopic} />}
+        {activeTab === 'departments' && <DepartmentTab onViewQuestions={handleViewQuestionsByDepartment} />}
+        {activeTab === 'proposals' && <ExamProposalTab highlightExam={highlightExam} onHighlightConsumed={onHighlightConsumed} />}
+        {activeTab === 'materials' && <StudyDocumentTab />}
+      </DashboardShell>
     </div>
   );
 };

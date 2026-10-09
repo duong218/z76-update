@@ -383,7 +383,7 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
           {/* Sidebar */}
           <aside className="md:w-60 shrink-0">
             <nav
-              className="bg-white rounded-xl shadow-z176 border border-slate-200 p-2 grid grid-cols-2 gap-2 md:flex md:flex-col md:gap-1 md:sticky md:top-20"
+              className="bg-white rounded-xl shadow-z176 border border-slate-200 p-2 flex flex-col gap-1.5 md:gap-1 md:sticky md:top-20"
               aria-label="Menu chức năng thí sinh"
             >
               {SIDEBAR_ITEMS.map((item) => {
@@ -393,13 +393,14 @@ export const CandidateDashboard = ({ onOpenExam, examModalOpen, activeExam }) =>
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`flex flex-col md:flex-row items-center md:items-center gap-1.5 md:gap-2.5 px-2 py-3 md:px-4 md:py-3 rounded-lg text-base font-semibold text-center md:text-left transition-colors min-touch-target ${
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`flex flex-row items-center gap-3 px-4 py-3.5 min-h-[56px] rounded-lg text-lg md:text-base font-semibold text-left transition-colors min-touch-target ${
                       isActive
-                        ? 'bg-[#008BC5]/10 text-[#008BC5] border border-[#008BC5]/30'
-                        : 'text-slate-500 hover:text-[#0F172A] hover:bg-slate-100 border border-transparent'
+                        ? 'bg-[#008BC5] text-white border border-[#008BC5] md:bg-[#008BC5]/10 md:text-[#008BC5] md:border-[#008BC5]/30'
+                        : 'text-[#0F172A] md:text-slate-500 hover:text-[#0F172A] hover:bg-slate-100 border border-slate-200 md:border-transparent'
                     }`}
                   >
-                    <Icon className="w-5 h-5 shrink-0" />
+                    <Icon className="w-6 h-6 md:w-5 md:h-5 shrink-0" />
                     <span className="leading-tight">{item.label}</span>
                   </button>
                 );

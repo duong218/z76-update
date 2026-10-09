@@ -10,9 +10,9 @@ server/
 ├── .env.example                                    # Mẫu khai báo biến môi trường (không chứa giá trị nhạy cảm)
 ├── package.json                                    # Quản lý dependencies, engines và scripts (dev, start, seed, backup)
 ├── package-lock.json                               # Lockfile quản lý phiên bản gói npm
-├── test_rate_limit.js                              # Kịch bản kiểm thử tự động cơ chế Rate Limiting
 ├── test/
-│   └── test-analytics.mjs                          # Kiểm thử service phân tích bằng dữ liệu giả lập (node test/test-analytics.mjs): hàm thuần computeQuestionStats, tallyByTopic, buildTopicCompetency, pickWeakest, detectAnomalies và luồng DB giả lập getMyCompetency, getDepartmentCompetency, getQuestionAnalysis, getAnomalies
+│   ├── test-analytics.mjs                          # Kiểm thử service phân tích bằng dữ liệu giả lập (node test/test-analytics.mjs): hàm thuần computeQuestionStats, tallyByTopic, buildTopicCompetency, pickWeakest, detectAnomalies và luồng DB giả lập getMyCompetency, getDepartmentCompetency, getQuestionAnalysis, getAnomalies
+│   └── test_rate_limit.js                          # Kịch bản kiểm thử tự động cơ chế Rate Limiting
 └── src/
     ├── app.js                                      # Khởi tạo Express app: Helmet, CORS, cookie parser, JSON body, mount routes, global error handler
     ├── index.js                                    # Entry point máy chủ: validate biến môi trường, kết nối MongoDB, chạy seed khởi tạo, đăng ký cron schedulers, lắng nghe cổng

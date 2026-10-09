@@ -56,6 +56,48 @@ function loadFontLevel() {
 // Nguồn sự thật để KHÔI PHỤC lựa chọn khi mở lại (kể cả từ thiết bị khác) là
 // `savedAnswers` server trả về trong fetchMyExam() — localStorage chỉ là lớp
 // dự phòng cho trường hợp offline tạm thời trước khi autosave kịp gửi lên.
+// ── Khóa "mỗi lúc chỉ 1 tab thi" ─────────────────────────────
+// Token đăng nhập nằm trong localStorage nên mọi tab của cùng 1 trình duyệt dùng chung phiên (tokenVersion không phân
+// biệt được). Khóa này ngăn mở bài thi ở tab thứ 2: tab đang thi ghi dấu + làm mới định kỳ; khóa quá hạn (tab bị tắt
+// đột ngột) tự mất hiệu lực nên thí sinh không bị kẹt. Đây chỉ là lớp UX — lớp bảo vệ thật là chỉ mục duy nhất ở server.
+const TAB_LOCK_KEY = 'z176.examTabLock';
+const TAB_LOCK_TTL_MS = 12_000; // quá hạn này không làm mới -> coi như tab cũ đã chết
+const TAB_LOCK_BEAT_MS = 4_000; // chu kỳ làm mới khóa
+const TAB_LOCK_POLL_MS = 2_000; // tab bị chặn tự thử lại
+const TAB_LOCK_VERIFY_MS = 150; // chờ rồi đọc lại để phân thắng bại khi 2 tab ghi khóa cùng lúc
+const TAB_ID =
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+function readTabLock() {
+  try {
+    const raw = localStorage.getItem(TAB_LOCK_KEY);
+    const lock = raw ? JSON.parse(raw) : null;
+    return lock && typeof lock === 'object' ? lock : null;
+  } catch {
+    return null;
+  }
+}
+function isTabLockLive(lock, userId) {
+  return Boolean(lock) && String(lock.userId) === String(userId) && Date.now() - Number(lock.ts) < TAB_LOCK_TTL_MS;
+}
+function writeTabLock(userId) {
+  try {
+    localStorage.setItem(TAB_LOCK_KEY, JSON.stringify({ tabId: TAB_ID, userId: String(userId), ts: Date.now() }));
+    return true;
+  } catch {
+    return false; // localStorage bị chặn -> không khóa được, cho qua để không chặn nhầm thí sinh
+  }
+}
+function releaseTabLock() {
+  try {
+    if (readTabLock()?.tabId === TAB_ID) localStorage.removeItem(TAB_LOCK_KEY);
+  } catch {
+    /* bỏ qua */
+  }
+}
+
 const draftKey = (attemptId) => `z176_exam_draft_${attemptId}`;
 
 function loadDraftAnswers(attemptId) {
@@ -196,16 +238,91 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     stepRef.current = step;
   }, [step]);
 
-  // ── Tải dữ liệu khi mở modal ─────────────────────────────
   // Chỉ phụ thuộc id (không phải cả object currentUser): App.jsx có thể cập nhật currentUser
   // giữa chừng (vd admin sửa họ tên) và việc đó KHÔNG được reset bài thi đang làm.
   const currentUserId = currentUser?.id ?? null;
+
+  // ── Giữ khóa 1 tab ────────────────────────────────────────
+  // lockOk = tab này đã giữ khóa và được phép tải/bắt đầu bài thi. Chưa đăng nhập thì không cần khóa.
+  const [lockOk, setLockOk] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !currentUserId) {
+      setLockOk(false);
+      return undefined;
+    }
+
+    let disposed = false;
+    let beatTimer = null;
+    let pollTimer = null;
+    let polling = false;
+
+    const startBeat = () => {
+      if (beatTimer) return;
+      beatTimer = setInterval(() => {
+        const lock = readTabLock();
+        // Tab đang giữ khóa luôn được ưu tiên làm mới mốc thời gian (khóa trống / của mình / đã quá hạn).
+        if (!lock || lock.tabId === TAB_ID || !isTabLockLive(lock, currentUserId)) writeTabLock(currentUserId);
+      }, TAB_LOCK_BEAT_MS);
+    };
+
+    const tryAcquire = async () => {
+      const lock = readTabLock();
+      if (lock && lock.tabId !== TAB_ID && isTabLockLive(lock, currentUserId)) return false;
+      if (!writeTabLock(currentUserId)) return true;
+      await new Promise((resolve) => setTimeout(resolve, TAB_LOCK_VERIFY_MS));
+      const after = readTabLock();
+      return !after || after.tabId === TAB_ID;
+    };
+
+    const onAcquired = () => {
+      setLockOk(true);
+      startBeat();
+    };
+
+    setLockOk(false);
+    setStep('loading');
+    tryAcquire().then((ok) => {
+      if (disposed) return;
+      if (ok) {
+        onAcquired();
+        return;
+      }
+      setStep('tab-blocked');
+      pollTimer = setInterval(async () => {
+        if (polling) return;
+        polling = true;
+        try {
+          if ((await tryAcquire()) && !disposed) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+            onAcquired();
+          }
+        } finally {
+          polling = false;
+        }
+      }, TAB_LOCK_POLL_MS);
+    });
+
+    window.addEventListener('pagehide', releaseTabLock);
+    return () => {
+      disposed = true;
+      if (beatTimer) clearInterval(beatTimer);
+      if (pollTimer) clearInterval(pollTimer);
+      window.removeEventListener('pagehide', releaseTabLock);
+      releaseTabLock();
+    };
+  }, [isOpen, currentUserId]);
+
+  // ── Tải dữ liệu khi mở modal ─────────────────────────────
+  // Chỉ phụ thuộc id (không phải cả object currentUser): App.jsx có thể cập nhật currentUser
+  // giữa chừng (vd admin sửa họ tên) và việc đó KHÔNG được reset bài thi đang làm.
   useEffect(() => {
     if (!isOpen) return;
     if (!currentUserId) {
       setStep('confirm');
       return;
     }
+    if (!lockOk) return; // chưa giữ được khóa 1 tab (đang chờ hoặc bị chặn) -> chưa tải bài thi
 
     let cancelled = false;
     setStep('loading');
@@ -247,7 +364,7 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, currentUserId]);
+  }, [isOpen, currentUserId, lockOk]);
 
   // ── Bắt đầu / tiếp tục lượt thi ────────────────────────────
   const handleStartExam = async () => {
@@ -643,6 +760,26 @@ export const ExamModal = ({ isOpen, onClose, currentUser, onOpenLogin }) => {
             </button>
           )}
         </div>
+
+        {/* BỊ CHẶN: bài thi đang mở ở tab khác của cùng trình duyệt */}
+        {step === 'tab-blocked' && (
+          <div className="flex flex-col items-center justify-center gap-4 p-8 text-center flex-1">
+            <div className="w-16 h-16 rounded-full bg-[#F6AD37] flex items-center justify-center shadow-z176">
+              <ShieldAlert className="w-9 h-9 text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-[#0F172A]">Bài thi đang mở ở tab khác</h3>
+            <p className="text-sm text-[#334155] max-w-sm">
+              Mỗi lúc chỉ được làm bài ở một tab. Hãy quay lại tab đang thi, hoặc đóng tab đó rồi quay lại đây — trang này
+              sẽ tự mở khi tab kia đóng.
+            </p>
+            <button
+              onClick={onClose}
+              className="mt-2 px-6 py-3 bg-[#334155] text-white font-bold text-base rounded-lg hover:bg-[#1e293b] transition-colors min-touch-target"
+            >
+              Đóng
+            </button>
+          </div>
+        )}
 
         {/* LOADING */}
         {step === 'loading' && (
